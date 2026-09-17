@@ -24,6 +24,27 @@ The committed .env.example includes placeholders for:
 - Africa's Talking credentials
 - CORS/frontend settings
 
+## Project Structure
+
+The baseline MVC-style layout is:
+
+```text
+app/
+   __init__.py
+   models/
+      __init__.py
+   schemas/
+      __init__.py
+   routers/
+      __init__.py
+   services/
+      __init__.py
+   core/
+      __init__.py
+   db/
+      __init__.py
+```
+
 ## Run (after app entrypoint is added)
 
 uvicorn app.main:app --reload
@@ -38,3 +59,4 @@ uvicorn app.main:app --reload
 
 - 2026-09-17: Milestone 0 Issue [M0] Add repository hygiene files started.
 - 2026-09-17: Milestone 0 Issue [M0] Configure Neon Postgres environment settings started with full .env template expansion and local credential wiring.
+- 2026-09-17: Milestone 0 Issue [M0] Initialize MVC folder structure completed.

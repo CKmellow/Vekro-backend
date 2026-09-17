@@ -49,6 +49,12 @@ app/
 
 uvicorn app.main:app --reload
 
+## API
+
+- GET /health
+   - Purpose: service health check.
+   - Expected response: 200 OK with JSON payload {"status": "ok"}.
+
 ## Repository Hygiene
 
 - .gitignore excludes virtual envs, caches, local DB files, and IDE files.
@@ -60,3 +66,4 @@ uvicorn app.main:app --reload
 - 2026-09-17: Milestone 0 Issue [M0] Add repository hygiene files started.
 - 2026-09-17: Milestone 0 Issue [M0] Configure Neon Postgres environment settings started with full .env template expansion and local credential wiring.
 - 2026-09-17: Milestone 0 Issue [M0] Initialize MVC folder structure completed.
+- 2026-09-17: Milestone 0 Issue [M0] Create FastAPI entrypoint and health route completed.

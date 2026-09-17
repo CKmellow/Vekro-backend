@@ -60,6 +60,22 @@ uvicorn app.main:app --reload
    - Purpose: service health check.
    - Expected response: 200 OK with JSON payload {"status": "ok"}.
 
+## Migrations
+
+Alembic is initialized in the repository root.
+
+Run migrations with:
+
+1. .venv/bin/alembic revision -m "your message"
+2. .venv/bin/alembic upgrade head
+3. .venv/bin/alembic current
+
+Notes:
+
+- Runtime URL uses DATABASE_URL.
+- Alembic URL uses ALEMBIC_DATABASE_URL.
+- If ALEMBIC_DATABASE_URL is provided as postgresql://..., the migration env normalizes it to postgresql+psycopg://...
+
 ## Repository Hygiene
 
 - .gitignore excludes virtual envs, caches, local DB files, and IDE files.
@@ -73,3 +89,4 @@ uvicorn app.main:app --reload
 - 2026-09-17: Milestone 0 Issue [M0] Initialize MVC folder structure completed.
 - 2026-09-17: Milestone 0 Issue [M0] Create FastAPI entrypoint and health route completed.
 - 2026-09-17: Milestone 0 Issue [M0] Configure Neon Postgres environment settings completed with startup env validation.
+- 2026-09-17: Milestone 0 Issue [M0] Set up Alembic initialization and empty migration completed.

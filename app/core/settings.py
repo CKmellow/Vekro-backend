@@ -60,8 +60,7 @@ def get_settings() -> Settings:
         if missing_or_invalid:
             var_list = ", ".join(sorted(set(missing_or_invalid)))
             raise RuntimeError(
-                "Invalid environment configuration. "
-                f"Check required variables: {var_list}."
+                f"Invalid environment configuration. Check required variables: {var_list}."
             ) from exc
 
         raise RuntimeError("Invalid environment configuration.") from exc

@@ -3,12 +3,10 @@
 from logging.config import fileConfig
 from typing import Any
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
 from alembic import context as alembic_context
 from app.core.settings import get_settings
 from app.db.base import Base
+from sqlalchemy import engine_from_config, pool
 
 ctx: Any = alembic_context
 

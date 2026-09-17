@@ -76,6 +76,19 @@ Notes:
 - Alembic URL uses ALEMBIC_DATABASE_URL.
 - If ALEMBIC_DATABASE_URL is provided as postgresql://..., the migration env normalizes it to postgresql+psycopg://...
 
+## Development Tooling
+
+Configured tools:
+
+- Ruff for linting
+- Black for formatting
+
+Commands:
+
+1. make run
+2. make lint
+3. make format
+
 ## Repository Hygiene
 
 - .gitignore excludes virtual envs, caches, local DB files, and IDE files.
@@ -90,3 +103,4 @@ Notes:
 - 2026-09-17: Milestone 0 Issue [M0] Create FastAPI entrypoint and health route completed.
 - 2026-09-17: Milestone 0 Issue [M0] Configure Neon Postgres environment settings completed with startup env validation.
 - 2026-09-17: Milestone 0 Issue [M0] Set up Alembic initialization and empty migration completed.
+- 2026-09-17: Milestone 0 Issue [M0] Add lint and format tooling completed.

@@ -24,6 +24,11 @@ The committed .env.example includes placeholders for:
 - Africa's Talking credentials
 - CORS/frontend settings
 
+Minimum required variables for startup validation are:
+
+- DATABASE_URL
+- ALEMBIC_DATABASE_URL
+
 ## Project Structure
 
 The baseline MVC-style layout is:
@@ -67,3 +72,4 @@ uvicorn app.main:app --reload
 - 2026-09-17: Milestone 0 Issue [M0] Configure Neon Postgres environment settings started with full .env template expansion and local credential wiring.
 - 2026-09-17: Milestone 0 Issue [M0] Initialize MVC folder structure completed.
 - 2026-09-17: Milestone 0 Issue [M0] Create FastAPI entrypoint and health route completed.
+- 2026-09-17: Milestone 0 Issue [M0] Configure Neon Postgres environment settings completed with startup env validation.

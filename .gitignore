@@ -25,6 +25,7 @@ env/
 *.db
 *.sqlite
 *.sqlite3
+LOCAL_EXECUTION_PLAN.md
 
 # Test and quality caches
 .pytest_cache/

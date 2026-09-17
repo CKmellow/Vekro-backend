@@ -12,7 +12,17 @@ Backend service for the Vekro escrow and dispute-resolution platform.
    pip install -r requirements.txt
 4. Create environment file:
    cp .env.example .env
-5. Update .env with your Neon database credentials.
+5. Update .env with your Neon, Daraja, and Africa's Talking credentials.
+
+## Environment Variables
+
+The committed .env.example includes placeholders for:
+
+- App runtime settings
+- Neon runtime and Alembic database URLs
+- Daraja M-Pesa credentials and callback URL
+- Africa's Talking credentials
+- CORS/frontend settings
 
 ## Run (after app entrypoint is added)
 
@@ -27,3 +37,4 @@ uvicorn app.main:app --reload
 ## Progress Log
 
 - 2026-09-17: Milestone 0 Issue [M0] Add repository hygiene files started.
+- 2026-09-17: Milestone 0 Issue [M0] Configure Neon Postgres environment settings started with full .env template expansion and local credential wiring.

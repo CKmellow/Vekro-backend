@@ -6,7 +6,11 @@ from typing import Any
 from alembic import context as alembic_context
 from app.core.settings import get_settings
 from app.db.base import Base
+from app.models import User
 from sqlalchemy import engine_from_config, pool
+
+# Ensure SQLAlchemy model classes are imported so Base.metadata is populated.
+_ = User
 
 ctx: Any = alembic_context
 

@@ -104,3 +104,4 @@ Commands:
 - 2026-09-17: Milestone 0 Issue [M0] Configure Neon Postgres environment settings completed with startup env validation.
 - 2026-09-17: Milestone 0 Issue [M0] Set up Alembic initialization and empty migration completed.
 - 2026-09-17: Milestone 0 Issue [M0] Add lint and format tooling completed.
+- 2026-09-18: Milestone 1 Issue [M1] Create User model and migration completed.

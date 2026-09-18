@@ -59,6 +59,11 @@ uvicorn app.main:app --reload
 - GET /health
    - Purpose: service health check.
    - Expected response: 200 OK with JSON payload {"status": "ok"}.
+- POST /auth/register
+   - Purpose: register buyer/seller accounts.
+   - Validates role (buyer/seller only), phone format, and password length.
+   - Persists users with PBKDF2-SHA256 password hashing.
+   - Expected response: 201 Created with user profile (no password hash).
 
 ## Migrations
 
@@ -126,3 +131,4 @@ Commands:
 - 2026-09-18: Milestone 1 Issue [M1] Create Dispute model and migration completed with dispute enums, transaction linkage, and flow support fields.
 - 2026-09-18: Milestone 1 Issue [M1] Create Notification model and migration completed with user/transaction foreign keys and event payload support.
 - 2026-09-18: Milestone 1 Issue [M1] Define explicit enums and FK constraints completed with live Neon schema audit.
+- 2026-09-18: Milestone 2 Issue [M2] Implement buyer and seller registration endpoint completed with secure password hashing and endpoint tests.

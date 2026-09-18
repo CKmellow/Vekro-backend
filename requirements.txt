@@ -7,3 +7,5 @@ psycopg[binary]
 python-dotenv
 ruff
 black
+pytest
+httpx2

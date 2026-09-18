@@ -105,3 +105,4 @@ Commands:
 - 2026-09-17: Milestone 0 Issue [M0] Set up Alembic initialization and empty migration completed.
 - 2026-09-17: Milestone 0 Issue [M0] Add lint and format tooling completed.
 - 2026-09-18: Milestone 1 Issue [M1] Create User model and migration completed.
+- 2026-09-18: Milestone 1 Issue [M1] Create Listing model and migration completed with JSONB dispute policy, seller FK, and validation constraints.

@@ -95,6 +95,22 @@ Commands:
 - .env.example is committed with non-secret placeholders.
 - Dependencies are tracked in requirements.txt.
 
+## Milestone 1 Schema Notes
+
+- Listing dispute policy is stored as JSONB in the listings table.
+- Explicit enums are used for role and workflow/event columns:
+   user_role, transaction_status, dispute_type, dispute_status,
+   seller_resolution_action, admin_decision, notification_event_type,
+   notification_channel.
+- Foreign keys across core entities:
+   listings.seller_id -> users.id;
+   transactions.listing_id -> listings.id;
+   transactions.buyer_id/seller_id -> users.id;
+   disputes.transaction_id -> transactions.id;
+   disputes.opened_by_user_id -> users.id;
+   notifications.user_id -> users.id;
+   notifications.transaction_id -> transactions.id.
+
 ## Progress Log
 
 - 2026-09-17: Milestone 0 Issue [M0] Add repository hygiene files started.
@@ -109,3 +125,4 @@ Commands:
 - 2026-09-18: Milestone 1 Issue [M1] Create Transaction model and migration completed with lifecycle status enum and foreign keys to listing, buyer, and seller.
 - 2026-09-18: Milestone 1 Issue [M1] Create Dispute model and migration completed with dispute enums, transaction linkage, and flow support fields.
 - 2026-09-18: Milestone 1 Issue [M1] Create Notification model and migration completed with user/transaction foreign keys and event payload support.
+- 2026-09-18: Milestone 1 Issue [M1] Define explicit enums and FK constraints completed with live Neon schema audit.

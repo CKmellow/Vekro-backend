@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from functools import lru_cache
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -14,26 +15,32 @@ def _normalize_sync_sqlalchemy_url(url: str) -> str:
     return url
 
 
-settings = get_settings()
-database_url = settings.database_url or settings.alembic_database_url
-sync_database_url = _normalize_sync_sqlalchemy_url(database_url)
+def _resolve_sync_database_url() -> str:
+    settings = get_settings()
+    # Prefer the migration URL because it is intended for sync/psycopg usage.
+    preferred_url = settings.alembic_database_url or settings.database_url
+    return _normalize_sync_sqlalchemy_url(preferred_url)
 
-engine = create_engine(
-    sync_database_url,
-    echo=settings.database_echo,
-    pool_pre_ping=True,
-)
-SessionLocal = sessionmaker(
-    bind=engine,
-    autoflush=False,
-    autocommit=False,
-    expire_on_commit=False,
-    class_=Session,
-)
+
+@lru_cache
+def _get_session_factory():
+    settings = get_settings()
+    engine = create_engine(
+        _resolve_sync_database_url(),
+        echo=settings.database_echo,
+        pool_pre_ping=True,
+    )
+    return sessionmaker(
+        bind=engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+        class_=Session,
+    )
 
 
 def get_db() -> Generator[Session, None, None]:
-    db = SessionLocal()
+    db = _get_session_factory()()
     try:
         yield db
     finally:

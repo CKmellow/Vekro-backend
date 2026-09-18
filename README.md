@@ -108,3 +108,4 @@ Commands:
 - 2026-09-18: Milestone 1 Issue [M1] Create Listing model and migration completed with JSONB dispute policy, seller FK, and validation constraints.
 - 2026-09-18: Milestone 1 Issue [M1] Create Transaction model and migration completed with lifecycle status enum and foreign keys to listing, buyer, and seller.
 - 2026-09-18: Milestone 1 Issue [M1] Create Dispute model and migration completed with dispute enums, transaction linkage, and flow support fields.
+- 2026-09-18: Milestone 1 Issue [M1] Create Notification model and migration completed with user/transaction foreign keys and event payload support.

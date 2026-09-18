@@ -6,6 +6,7 @@ from app.models.dispute import (
     SellerResolutionAction,
 )
 from app.models.listing import Listing
+from app.models.notification import Notification, NotificationChannel, NotificationEventType
 from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User, UserRole
 
@@ -20,4 +21,7 @@ __all__ = [
     "DisputeStatus",
     "SellerResolutionAction",
     "AdminDecision",
+    "Notification",
+    "NotificationChannel",
+    "NotificationEventType",
 ]

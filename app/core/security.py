@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import os
+import secrets
 
 PBKDF2_ALGORITHM = "sha256"
 PBKDF2_ITERATIONS = 600000
@@ -43,4 +44,21 @@ def verify_password(password: str, password_hash: str) -> bool:
         salt,
         iterations,
     )
+    return hmac.compare_digest(computed_hash, expected_hash)
+
+
+def generate_session_token() -> str:
+    return secrets.token_urlsafe(48)
+
+
+def hash_session_token(token: str, secret_key: str) -> str:
+    return hmac.new(
+        secret_key.encode("utf-8"),
+        token.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def verify_hashed_token(token: str, expected_hash: str, secret_key: str) -> bool:
+    computed_hash = hash_session_token(token, secret_key)
     return hmac.compare_digest(computed_hash, expected_hash)

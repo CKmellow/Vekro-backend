@@ -6,11 +6,11 @@ from typing import Any
 from alembic import context as alembic_context
 from app.core.settings import get_settings
 from app.db.base import Base
-from app.models import Dispute, Listing, Notification, Transaction, User
+from app.models import Dispute, Listing, Notification, Transaction, User, UserSession
 from sqlalchemy import engine_from_config, pool
 
 # Ensure SQLAlchemy model classes are imported so Base.metadata is populated.
-_ = (User, Listing, Transaction, Dispute, Notification)
+_ = (User, Listing, Transaction, Dispute, Notification, UserSession)
 
 ctx: Any = alembic_context
 

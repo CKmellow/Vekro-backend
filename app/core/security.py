@@ -1,34 +1,29 @@
 import base64
 import hashlib
 import hmac
-import os
 import secrets
 
-PBKDF2_ALGORITHM = "sha256"
-PBKDF2_ITERATIONS = 600000
-HASH_SCHEME = "pbkdf2_sha256"
+from passlib.context import CryptContext
+from passlib.exc import UnknownHashError
+
+PASSWORD_HASH_CONTEXT = CryptContext(schemes=["argon2"], deprecated="auto")
+
+LEGACY_PBKDF2_ALGORITHM = "sha256"
+LEGACY_PBKDF2_ITERATIONS = 600000
+LEGACY_HASH_SCHEME = "pbkdf2_sha256"
 
 
 def hash_password(password: str) -> str:
-    salt = os.urandom(16)
-    digest = hashlib.pbkdf2_hmac(
-        PBKDF2_ALGORITHM,
-        password.encode("utf-8"),
-        salt,
-        PBKDF2_ITERATIONS,
-    )
-    salt_b64 = base64.urlsafe_b64encode(salt).decode("ascii")
-    digest_b64 = base64.urlsafe_b64encode(digest).decode("ascii")
-    return f"{HASH_SCHEME}${PBKDF2_ITERATIONS}${salt_b64}${digest_b64}"
+    return PASSWORD_HASH_CONTEXT.hash(password)
 
 
-def verify_password(password: str, password_hash: str) -> bool:
+def _verify_legacy_pbkdf2_password(password: str, password_hash: str) -> bool:
     parts = password_hash.split("$", 3)
     if len(parts) != 4:
         return False
 
     scheme, iterations_raw, salt_b64, expected_hash_b64 = parts
-    if scheme != HASH_SCHEME:
+    if scheme != LEGACY_HASH_SCHEME:
         return False
 
     try:
@@ -39,12 +34,33 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
     computed_hash = hashlib.pbkdf2_hmac(
-        PBKDF2_ALGORITHM,
+        LEGACY_PBKDF2_ALGORITHM,
         password.encode("utf-8"),
         salt,
         iterations,
     )
     return hmac.compare_digest(computed_hash, expected_hash)
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    try:
+        return PASSWORD_HASH_CONTEXT.verify(password, password_hash)
+    except (UnknownHashError, ValueError, TypeError):
+        return _verify_legacy_pbkdf2_password(password, password_hash)
+
+
+def _is_legacy_pbkdf2_hash(password_hash: str) -> bool:
+    return password_hash.startswith(f"{LEGACY_HASH_SCHEME}$")
+
+
+def password_hash_needs_upgrade(password_hash: str) -> bool:
+    if _is_legacy_pbkdf2_hash(password_hash):
+        return True
+
+    try:
+        return PASSWORD_HASH_CONTEXT.needs_update(password_hash)
+    except (UnknownHashError, ValueError, TypeError):
+        return True
 
 
 def generate_session_token() -> str:

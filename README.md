@@ -123,6 +123,7 @@ uvicorn app.main:app --reload
 - Expired/invalid session cookies are cleared.
 - State-changing requests with session cookies require CSRF cookie + header validation.
 - Reusable role dependencies are available for buyer/seller/admin route guards.
+- Password hashing uses Passlib with Argon2 for new hashes; legacy PBKDF2 hashes are still verified and upgraded after successful login.
 - Security headers are added to all responses:
    - X-Content-Type-Options: nosniff
    - X-Frame-Options: DENY
@@ -201,3 +202,4 @@ Commands:
 - 2026-09-19: Milestone 2 Issue [M2] Build login and logout endpoints with server-side sessions completed with migration, tests, and live verification.
 - 2026-09-19: Security hardening patch completed with CSRF enforcement, login abuse protection, session-validation middleware, production secure-cookie guardrails, auth audit logging, and API security headers.
 - 2026-09-19: Milestone 2 Issue [M2] Add role-protected route dependencies completed with buyer/seller/admin test routes and endpoint verification.
+- 2026-09-19: Milestone 2 Issue [M2] Add password hashing integration completed using Passlib Argon2 with legacy hash upgrade-on-login behavior.

@@ -5,6 +5,7 @@ sqlalchemy
 alembic
 psycopg[binary]
 python-dotenv
+passlib[argon2]
 ruff
 black
 pytest

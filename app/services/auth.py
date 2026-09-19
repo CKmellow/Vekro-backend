@@ -11,6 +11,7 @@ from app.core.security import (
     generate_session_token,
     hash_password,
     hash_session_token,
+    password_hash_needs_upgrade,
     verify_hashed_token,
     verify_password,
 )
@@ -195,6 +196,11 @@ def authenticate_and_create_session(
         raise InvalidCredentialsError
 
     _reset_user_lockout_state(db, user)
+    if password_hash_needs_upgrade(user.password_hash):
+        # Opportunistically migrate older password hashes after a valid login.
+        user.password_hash = hash_password(payload.password)
+        db.add(user)
+        db.flush()
 
     session_token = generate_session_token()
     csrf_token = generate_session_token()

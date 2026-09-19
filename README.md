@@ -106,6 +106,15 @@ uvicorn app.main:app --reload
 - GET /auth/me
    - Purpose: return the currently authenticated user from validated server-side session.
    - Expected response: 200 OK when session is valid, otherwise 401.
+- GET /protected/buyer
+   - Purpose: buyer-only role-protected sample endpoint.
+   - Expected response: 200 for buyer, 403 for other authenticated roles, 401 without auth.
+- GET /protected/seller
+   - Purpose: seller-only role-protected sample endpoint.
+   - Expected response: 200 for seller, 403 for other authenticated roles, 401 without auth.
+- GET /protected/admin
+   - Purpose: admin-only role-protected sample endpoint.
+   - Expected response: 200 for admin, 403 for other authenticated roles, 401 without auth.
 
 ## Security Hardening
 
@@ -113,6 +122,7 @@ uvicorn app.main:app --reload
 - Session checks enforce not revoked, not expired, and active user status.
 - Expired/invalid session cookies are cleared.
 - State-changing requests with session cookies require CSRF cookie + header validation.
+- Reusable role dependencies are available for buyer/seller/admin route guards.
 - Security headers are added to all responses:
    - X-Content-Type-Options: nosniff
    - X-Frame-Options: DENY
@@ -190,3 +200,4 @@ Commands:
 - 2026-09-18: Milestone 2 Issue [M2] Implement buyer and seller registration endpoint completed with secure password hashing and endpoint tests.
 - 2026-09-19: Milestone 2 Issue [M2] Build login and logout endpoints with server-side sessions completed with migration, tests, and live verification.
 - 2026-09-19: Security hardening patch completed with CSRF enforcement, login abuse protection, session-validation middleware, production secure-cookie guardrails, auth audit logging, and API security headers.
+- 2026-09-19: Milestone 2 Issue [M2] Add role-protected route dependencies completed with buyer/seller/admin test routes and endpoint verification.

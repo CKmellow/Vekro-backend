@@ -115,6 +115,14 @@ uvicorn app.main:app --reload
 - GET /protected/admin
    - Purpose: admin-only role-protected sample endpoint.
    - Expected response: 200 for admin, 403 for other authenticated roles, 401 without auth.
+- POST /listings
+   - Purpose: seller-only endpoint for creating listings.
+   - Requires authenticated seller session and CSRF header for the request.
+   - Serialized listing rules:
+      - unique_id is required when is_serialized is true.
+      - dispute_policy.resolution is required when is_serialized is true.
+   - Validation failures for serialized listing rules return deterministic detail strings.
+   - Expected response: 201 Created with listing data.
 
 ## Security Hardening
 
@@ -203,3 +211,4 @@ Commands:
 - 2026-09-19: Security hardening patch completed with CSRF enforcement, login abuse protection, session-validation middleware, production secure-cookie guardrails, auth audit logging, and API security headers.
 - 2026-09-19: Milestone 2 Issue [M2] Add role-protected route dependencies completed with buyer/seller/admin test routes and endpoint verification.
 - 2026-09-19: Milestone 2 Issue [M2] Add password hashing integration completed using Passlib Argon2 with legacy hash upgrade-on-login behavior.
+- 2026-09-20: Milestone 3 Issue [M3] Implement seller create-listing endpoint completed with seller-only auth checks, serialized-item validation rules, deterministic validation messages, and endpoint tests.

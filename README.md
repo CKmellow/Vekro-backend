@@ -135,6 +135,12 @@ uvicorn app.main:app --reload
    - Persists listing linkage, buyer/seller linkage, and transaction amount.
    - Expected response: 201 Created with transaction data.
 
+## Payment Abstraction
+
+- Payment transport is abstracted behind a service interface in `app/services/payment.py`.
+- Current implementation uses a stubbed M-Pesa STK gateway for development and milestone testing.
+- Transaction/state-machine logic remains decoupled from provider transport and can swap to Daraja integration later.
+
 ## Security Hardening
 
 - Middleware validates server-side sessions on requests with session cookies.
@@ -225,3 +231,4 @@ Commands:
 - 2026-09-20: Milestone 3 Issue [M3] Implement seller create-listing endpoint completed with seller-only auth checks, serialized-item validation rules, deterministic validation messages, and endpoint tests.
 - 2026-09-20: Milestone 3 Issue [M3] Implement public get-listing endpoint completed with id-based listing retrieval, serialized/dispute-policy response fields, deterministic 404 behavior, and endpoint tests.
 - 2026-09-20: Milestone 3 Issue [M3] Implement create-transaction to AWAITING_PAYMENT completed with buyer-only auth checks, participant linkage persistence, awaiting_payment initialization, and endpoint tests.
+- 2026-09-20: Milestone 3 Issue [M3] Add M-Pesa STK service interface stub completed with payment gateway abstraction, stubbed STK initiation path, and transport-decoupling tests.

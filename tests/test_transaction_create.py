@@ -17,6 +17,7 @@ from app.schemas.transaction import CreateTransactionRequest
 from app.services.auth import ActiveSessionContext
 from app.services.transaction import (
     ListingNotFoundForTransactionError,
+    PaymentInitiationError,
 )
 from app.services.transaction import (
     create_transaction as create_transaction_service,
@@ -233,4 +234,54 @@ def test_service_rejects_missing_listing() -> None:
             cast(Session, db),
             buyer=buyer,
             payload=payload,
+        )
+
+
+def test_service_invokes_payment_gateway_interface() -> None:
+    class _FakeGateway:
+        def __init__(self) -> None:
+            self.called = False
+
+        def initiate_stk_push(self, request):
+            self.called = True
+            return request
+
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing()
+    db = _FakeDb(listing=listing)
+    payload = CreateTransactionRequest(
+        listing_id=listing.id,
+        amount=Decimal("2200.00"),
+    )
+    gateway = _FakeGateway()
+
+    create_transaction_service(
+        cast(Session, db),
+        buyer=buyer,
+        payload=payload,
+        payment_gateway=gateway,
+    )
+
+    assert gateway.called is True
+
+
+def test_service_raises_payment_initiation_error_when_gateway_fails() -> None:
+    class _FailingGateway:
+        def initiate_stk_push(self, request):
+            raise RuntimeError("transport down")
+
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing()
+    db = _FakeDb(listing=listing)
+    payload = CreateTransactionRequest(
+        listing_id=listing.id,
+        amount=Decimal("2200.00"),
+    )
+
+    with pytest.raises(PaymentInitiationError, match="Failed to initiate payment transport."):
+        create_transaction_service(
+            cast(Session, db),
+            buyer=buyer,
+            payload=payload,
+            payment_gateway=_FailingGateway(),
         )

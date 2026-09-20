@@ -128,6 +128,12 @@ uvicorn app.main:app --reload
    - Response includes serialized flags and dispute policy payload.
    - Missing listing ids return deterministic not-found detail.
    - Expected response: 200 OK with listing data, 404 when not found.
+- POST /transactions
+   - Purpose: buyer-only endpoint to create escrow transactions from listings.
+   - Requires authenticated buyer session and CSRF header for the request.
+   - Initializes workflow status to awaiting_payment.
+   - Persists listing linkage, buyer/seller linkage, and transaction amount.
+   - Expected response: 201 Created with transaction data.
 
 ## Security Hardening
 
@@ -218,3 +224,4 @@ Commands:
 - 2026-09-19: Milestone 2 Issue [M2] Add password hashing integration completed using Passlib Argon2 with legacy hash upgrade-on-login behavior.
 - 2026-09-20: Milestone 3 Issue [M3] Implement seller create-listing endpoint completed with seller-only auth checks, serialized-item validation rules, deterministic validation messages, and endpoint tests.
 - 2026-09-20: Milestone 3 Issue [M3] Implement public get-listing endpoint completed with id-based listing retrieval, serialized/dispute-policy response fields, deterministic 404 behavior, and endpoint tests.
+- 2026-09-20: Milestone 3 Issue [M3] Implement create-transaction to AWAITING_PAYMENT completed with buyer-only auth checks, participant linkage persistence, awaiting_payment initialization, and endpoint tests.

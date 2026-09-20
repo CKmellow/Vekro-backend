@@ -115,6 +115,31 @@ uvicorn app.main:app --reload
 - GET /protected/admin
    - Purpose: admin-only role-protected sample endpoint.
    - Expected response: 200 for admin, 403 for other authenticated roles, 401 without auth.
+- POST /listings
+   - Purpose: seller-only endpoint for creating listings.
+   - Requires authenticated seller session and CSRF header for the request.
+   - Serialized listing rules:
+      - unique_id is required when is_serialized is true.
+      - dispute_policy.resolution is required when is_serialized is true.
+   - Validation failures for serialized listing rules return deterministic detail strings.
+   - Expected response: 201 Created with listing data.
+- GET /listings/{listing_id}
+   - Purpose: public endpoint returning listing details by id.
+   - Response includes serialized flags and dispute policy payload.
+   - Missing listing ids return deterministic not-found detail.
+   - Expected response: 200 OK with listing data, 404 when not found.
+- POST /transactions
+   - Purpose: buyer-only endpoint to create escrow transactions from listings.
+   - Requires authenticated buyer session and CSRF header for the request.
+   - Initializes workflow status to awaiting_payment.
+   - Persists listing linkage, buyer/seller linkage, and transaction amount.
+   - Expected response: 201 Created with transaction data.
+
+## Payment Abstraction
+
+- Payment transport is abstracted behind a service interface in `app/services/payment.py`.
+- Current implementation uses a stubbed M-Pesa STK gateway for development and milestone testing.
+- Transaction/state-machine logic remains decoupled from provider transport and can swap to Daraja integration later.
 
 ## Security Hardening
 
@@ -203,3 +228,7 @@ Commands:
 - 2026-09-19: Security hardening patch completed with CSRF enforcement, login abuse protection, session-validation middleware, production secure-cookie guardrails, auth audit logging, and API security headers.
 - 2026-09-19: Milestone 2 Issue [M2] Add role-protected route dependencies completed with buyer/seller/admin test routes and endpoint verification.
 - 2026-09-19: Milestone 2 Issue [M2] Add password hashing integration completed using Passlib Argon2 with legacy hash upgrade-on-login behavior.
+- 2026-09-20: Milestone 3 Issue [M3] Implement seller create-listing endpoint completed with seller-only auth checks, serialized-item validation rules, deterministic validation messages, and endpoint tests.
+- 2026-09-20: Milestone 3 Issue [M3] Implement public get-listing endpoint completed with id-based listing retrieval, serialized/dispute-policy response fields, deterministic 404 behavior, and endpoint tests.
+- 2026-09-20: Milestone 3 Issue [M3] Implement create-transaction to AWAITING_PAYMENT completed with buyer-only auth checks, participant linkage persistence, awaiting_payment initialization, and endpoint tests.
+- 2026-09-20: Milestone 3 Issue [M3] Add M-Pesa STK service interface stub completed with payment gateway abstraction, stubbed STK initiation path, and transport-decoupling tests.

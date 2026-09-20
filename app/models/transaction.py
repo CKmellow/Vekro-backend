@@ -12,6 +12,7 @@ from app.db.base import Base
 
 class TransactionStatus(StrEnum):
     INITIATED = "initiated"
+    AWAITING_PAYMENT = "awaiting_payment"
     LOCKED = "locked"
     DISPATCHED = "dispatched"
     AT_DOOR_PENDING_INSPECTION = "at_door_pending_inspection"
@@ -65,8 +66,8 @@ class Transaction(Base):
             values_callable=lambda enum_cls: [item.value for item in enum_cls],
         ),
         nullable=False,
-        default=TransactionStatus.INITIATED,
-        server_default=text("'initiated'"),
+        default=TransactionStatus.AWAITING_PAYMENT,
+        server_default=text("'awaiting_payment'"),
         index=True,
     )
 

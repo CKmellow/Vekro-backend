@@ -8,15 +8,17 @@ Create Date: 2026-09-19 14:30:44.023845
 
 """
 
-from typing import Any, Sequence, Union
+from typing import Any, Sequence, Union, cast
 
 from alembic import op as alembic_op
 import sqlalchemy as sa
 
-add_column: Any = alembic_op.add_column  # type: ignore[attr-defined]
-create_index: Any = alembic_op.create_index  # type: ignore[attr-defined]
-drop_index: Any = alembic_op.drop_index  # type: ignore[attr-defined]
-drop_column: Any = alembic_op.drop_column  # type: ignore[attr-defined]
+op: Any = cast(Any, alembic_op)
+
+add_column: Any = op.add_column  # type: ignore[attr-defined]
+create_index: Any = op.create_index  # type: ignore[attr-defined]
+drop_index: Any = op.drop_index  # type: ignore[attr-defined]
+drop_column: Any = op.drop_column  # type: ignore[attr-defined]
 
 
 # revision identifiers, used by Alembic.

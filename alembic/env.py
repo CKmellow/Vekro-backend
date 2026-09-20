@@ -1,7 +1,7 @@
 # pyright: reportAttributeAccessIssue=false
 
 from logging.config import fileConfig
-from typing import Any
+from typing import Any, cast
 
 from alembic import context as alembic_context
 from app.core.settings import get_settings
@@ -12,11 +12,11 @@ from sqlalchemy import engine_from_config, pool
 # Ensure SQLAlchemy model classes are imported so Base.metadata is populated.
 _ = (User, Listing, Transaction, Dispute, Notification, UserSession)
 
-ctx: Any = alembic_context
+ctx: Any = cast(Any, alembic_context)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
-config = ctx.config  # type: ignore[attr-defined]
+config: Any = ctx.config  # type: ignore[attr-defined]
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -87,7 +87,8 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         ctx.configure(  # type: ignore[attr-defined]
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
         )
 
         with ctx.begin_transaction():  # type: ignore[attr-defined]

@@ -123,6 +123,11 @@ uvicorn app.main:app --reload
       - dispute_policy.resolution is required when is_serialized is true.
    - Validation failures for serialized listing rules return deterministic detail strings.
    - Expected response: 201 Created with listing data.
+- GET /listings/{listing_id}
+   - Purpose: public endpoint returning listing details by id.
+   - Response includes serialized flags and dispute policy payload.
+   - Missing listing ids return deterministic not-found detail.
+   - Expected response: 200 OK with listing data, 404 when not found.
 
 ## Security Hardening
 
@@ -212,3 +217,4 @@ Commands:
 - 2026-09-19: Milestone 2 Issue [M2] Add role-protected route dependencies completed with buyer/seller/admin test routes and endpoint verification.
 - 2026-09-19: Milestone 2 Issue [M2] Add password hashing integration completed using Passlib Argon2 with legacy hash upgrade-on-login behavior.
 - 2026-09-20: Milestone 3 Issue [M3] Implement seller create-listing endpoint completed with seller-only auth checks, serialized-item validation rules, deterministic validation messages, and endpoint tests.
+- 2026-09-20: Milestone 3 Issue [M3] Implement public get-listing endpoint completed with id-based listing retrieval, serialized/dispute-policy response fields, deterministic 404 behavior, and endpoint tests.

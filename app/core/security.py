@@ -3,8 +3,8 @@ import hashlib
 import hmac
 import secrets
 
-from passlib.context import CryptContext
-from passlib.exc import UnknownHashError
+from passlib.context import CryptContext  # type: ignore[import-untyped]
+from passlib.exc import UnknownHashError  # type: ignore[import-untyped]
 
 PASSWORD_HASH_CONTEXT = CryptContext(schemes=["argon2"], deprecated="auto")
 

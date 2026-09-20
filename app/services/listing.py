@@ -9,6 +9,10 @@ class ListingValidationError(Exception):
     pass
 
 
+class ListingNotFoundError(Exception):
+    pass
+
+
 def _validate_serialized_listing(payload: CreateListingRequest) -> dict:
     dispute_policy = dict(payload.dispute_policy)
 
@@ -45,4 +49,11 @@ def create_listing(db: Session, seller: User, payload: CreateListingRequest) -> 
     db.add(listing)
     db.commit()
     db.refresh(listing)
+    return listing
+
+
+def get_listing_by_id(db: Session, listing_id) -> Listing:
+    listing = db.get(Listing, listing_id)
+    if listing is None:
+        raise ListingNotFoundError("Listing not found.")
     return listing

@@ -134,12 +134,20 @@ uvicorn app.main:app --reload
    - Initializes workflow status to awaiting_payment.
    - Persists listing linkage, buyer/seller linkage, and transaction amount.
    - Expected response: 201 Created with transaction data.
+- POST /transactions/payment-callback
+   - Purpose: provider callback endpoint to confirm payment and lock a transaction.
+   - Valid callback result_code=0 moves status awaiting_payment -> locked and sets locked_at.
+   - Duplicate callback for already-locked transactions is idempotent and returns 200 safely.
+   - Unsuccessful callback result codes are acknowledged safely with 202 and no transition.
+   - Successful lock transition writes transaction_locked notification events for buyer and seller for timeline/audit use.
+   - Expected response: 200 on transition or duplicate, 202 when callback is non-successful or state-ineligible, 404 when transaction is missing.
 
 ## Payment Abstraction
 
 - Payment transport is abstracted behind a service interface in `app/services/payment.py`.
 - Current implementation uses a stubbed M-Pesa STK gateway for development and milestone testing.
 - Transaction/state-machine logic remains decoupled from provider transport and can swap to Daraja integration later.
+- Callback transition logic remains provider-agnostic and keyed by transaction id payload while Daraja webhook mapping is pending full transport integration.
 
 ## Security Hardening
 
@@ -232,3 +240,4 @@ Commands:
 - 2026-09-20: Milestone 3 Issue [M3] Implement public get-listing endpoint completed with id-based listing retrieval, serialized/dispute-policy response fields, deterministic 404 behavior, and endpoint tests.
 - 2026-09-20: Milestone 3 Issue [M3] Implement create-transaction to AWAITING_PAYMENT completed with buyer-only auth checks, participant linkage persistence, awaiting_payment initialization, and endpoint tests.
 - 2026-09-20: Milestone 3 Issue [M3] Add M-Pesa STK service interface stub completed with payment gateway abstraction, stubbed STK initiation path, and transport-decoupling tests.
+- 2026-09-21: Milestone 4 Issue [M4] Implement payment confirmation to LOCKED completed with callback endpoint, idempotent duplicate handling, safe invalid-callback handling, transition audit logging, tests, and live endpoint verification.

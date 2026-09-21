@@ -23,3 +23,20 @@ class TransactionResponse(BaseModel):
     status: TransactionStatus
     created_at: datetime
     updated_at: datetime
+
+
+class PaymentCallbackRequest(BaseModel):
+    transaction_id: uuid.UUID
+    result_code: int
+    result_desc: str | None = Field(default=None, max_length=255)
+    checkout_request_id: str | None = Field(default=None, max_length=120)
+    merchant_request_id: str | None = Field(default=None, max_length=120)
+    provider_reference: str | None = Field(default=None, max_length=120)
+
+
+class PaymentCallbackResponse(BaseModel):
+    transaction_id: uuid.UUID
+    status: TransactionStatus
+    transitioned: bool
+    duplicate: bool
+    detail: str

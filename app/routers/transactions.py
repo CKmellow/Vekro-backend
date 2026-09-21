@@ -1,9 +1,10 @@
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
-from app.core.auth_context import require_buyer_user
+from app.core.auth_context import require_buyer_user, require_seller_user
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.transaction import (
@@ -15,10 +16,14 @@ from app.schemas.transaction import (
 from app.services.transaction import (
     ListingNotFoundForTransactionError,
     PaymentCallbackResult,
+    TransactionDispatchForbiddenError,
+    TransactionDispatchInvalidStateError,
     TransactionNotFoundForCallbackError,
+    TransactionNotFoundForDispatchError,
     TransactionValidationError,
     confirm_payment_callback,
     create_transaction,
+    dispatch_transaction,
 )
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
@@ -80,3 +85,44 @@ def payment_confirmation_callback(
         duplicate=callback_result.duplicate,
         detail=callback_result.detail,
     )
+
+
+@router.post(
+    "/{transaction_id}/dispatch",
+    response_model=TransactionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Dispatch locked transaction (seller only)",
+)
+def dispatch_locked_transaction(
+    transaction_id: uuid.UUID,
+    current_user: Annotated[User, Depends(require_seller_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> TransactionResponse:
+    try:
+        transaction = dispatch_transaction(
+            db,
+            transaction_id=transaction_id,
+            seller=current_user,
+        )
+    except TransactionNotFoundForDispatchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found.",
+        ) from exc
+    except TransactionDispatchForbiddenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
+    except TransactionDispatchInvalidStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    except TransactionValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    return TransactionResponse.model_validate(transaction)

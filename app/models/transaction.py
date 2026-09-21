@@ -14,6 +14,7 @@ class TransactionStatus(StrEnum):
     INITIATED = "initiated"
     AWAITING_PAYMENT = "awaiting_payment"
     LOCKED = "locked"
+    OUT_FOR_DELIVERY = "out_for_delivery"
     DISPATCHED = "dispatched"
     AT_DOOR_PENDING_INSPECTION = "at_door_pending_inspection"
     HOLD_24H = "hold_24h"

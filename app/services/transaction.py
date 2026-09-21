@@ -1,4 +1,5 @@
 import logging
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -31,6 +32,18 @@ class PaymentInitiationError(Exception):
 
 
 class TransactionNotFoundForCallbackError(Exception):
+    pass
+
+
+class TransactionNotFoundForDispatchError(Exception):
+    pass
+
+
+class TransactionDispatchForbiddenError(Exception):
+    pass
+
+
+class TransactionDispatchInvalidStateError(Exception):
     pass
 
 
@@ -122,6 +135,39 @@ def _create_locked_notifications(
     db.add(seller_notification)
 
 
+def _create_dispatched_notifications(
+    db: Session,
+    transaction: Transaction,
+) -> None:
+    payload = {
+        "transaction_id": str(transaction.id),
+        "listing_id": str(transaction.listing_id),
+        "dispatched_at": (
+            transaction.dispatched_at.isoformat() if transaction.dispatched_at else None
+        ),
+    }
+
+    buyer_notification = Notification(
+        user_id=transaction.buyer_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.TRANSACTION_DISPATCHED,
+        title="Seller dispatched transaction",
+        message="Your transaction has been dispatched and is out for delivery.",
+        payload=payload,
+    )
+    seller_notification = Notification(
+        user_id=transaction.seller_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.TRANSACTION_DISPATCHED,
+        title="Dispatch confirmed",
+        message="You have dispatched this transaction and it is now out for delivery.",
+        payload=payload,
+    )
+
+    db.add(buyer_notification)
+    db.add(seller_notification)
+
+
 def confirm_payment_callback(
     db: Session,
     payload: PaymentCallbackRequest,
@@ -194,3 +240,41 @@ def confirm_payment_callback(
         duplicate=False,
         detail="Transaction moved to locked.",
     )
+
+
+def dispatch_transaction(
+    db: Session,
+    transaction_id: uuid.UUID,
+    seller: User,
+) -> Transaction:
+    if seller.role != UserRole.SELLER:
+        raise TransactionValidationError("Only sellers can dispatch transactions.")
+
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None:
+        raise TransactionNotFoundForDispatchError("Transaction not found.")
+
+    if transaction.seller_id != seller.id:
+        raise TransactionDispatchForbiddenError(
+            "Only the transaction seller can dispatch this transaction."
+        )
+
+    if transaction.status != TransactionStatus.LOCKED:
+        raise TransactionDispatchInvalidStateError(
+            "Transaction must be in locked state before dispatch."
+        )
+
+    transaction.status = TransactionStatus.OUT_FOR_DELIVERY
+    transaction.dispatched_at = datetime.now(UTC)
+    _create_dispatched_notifications(db, transaction=transaction)
+    db.commit()
+    db.refresh(transaction)
+
+    audit_logger.info(
+        "transaction_transition transaction_id=%s from_status=locked "
+        "to_status=out_for_delivery seller_id=%s",
+        transaction.id,
+        seller.id,
+    )
+
+    return transaction

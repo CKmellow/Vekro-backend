@@ -141,6 +141,13 @@ uvicorn app.main:app --reload
    - Unsuccessful callback result codes are acknowledged safely with 202 and no transition.
    - Successful lock transition writes transaction_locked notification events for buyer and seller for timeline/audit use.
    - Expected response: 200 on transition or duplicate, 202 when callback is non-successful or state-ineligible, 404 when transaction is missing.
+- POST /transactions/{transaction_id}/dispatch
+   - Purpose: seller action endpoint to dispatch a locked transaction.
+   - Requires authenticated seller session and CSRF header for the request.
+   - Only the seller attached to the transaction can dispatch it.
+   - Enforces state transition locked -> out_for_delivery only.
+   - Invalid prior states are rejected with deterministic validation detail.
+   - Expected response: 200 on successful dispatch, 403 for non-owner/non-seller access, 422 for invalid prior state, 404 when transaction is missing.
 
 ## Payment Abstraction
 
@@ -241,3 +248,4 @@ Commands:
 - 2026-09-20: Milestone 3 Issue [M3] Implement create-transaction to AWAITING_PAYMENT completed with buyer-only auth checks, participant linkage persistence, awaiting_payment initialization, and endpoint tests.
 - 2026-09-20: Milestone 3 Issue [M3] Add M-Pesa STK service interface stub completed with payment gateway abstraction, stubbed STK initiation path, and transport-decoupling tests.
 - 2026-09-21: Milestone 4 Issue [M4] Implement payment confirmation to LOCKED completed with callback endpoint, idempotent duplicate handling, safe invalid-callback handling, transition audit logging, tests, and live endpoint verification.
+- 2026-09-21: Milestone 4 Issue [M4] Implement seller dispatch to OUT_FOR_DELIVERY completed with seller ownership enforcement, strict locked-to-out_for_delivery transition checks, clear invalid-state errors, tests, and live endpoint verification.

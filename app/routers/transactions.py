@@ -16,14 +16,18 @@ from app.schemas.transaction import (
 from app.services.transaction import (
     ListingNotFoundForTransactionError,
     PaymentCallbackResult,
+    TransactionArrivalForbiddenError,
+    TransactionArrivalInvalidStateError,
     TransactionDispatchForbiddenError,
     TransactionDispatchInvalidStateError,
+    TransactionNotFoundForArrivalError,
     TransactionNotFoundForCallbackError,
     TransactionNotFoundForDispatchError,
     TransactionValidationError,
     confirm_payment_callback,
     create_transaction,
     dispatch_transaction,
+    mark_transaction_arrived,
 )
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
@@ -115,6 +119,47 @@ def dispatch_locked_transaction(
             detail=str(exc),
         ) from exc
     except TransactionDispatchInvalidStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    except TransactionValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    return TransactionResponse.model_validate(transaction)
+
+
+@router.post(
+    "/{transaction_id}/arrival",
+    response_model=TransactionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Mark delivery arrival (seller only)",
+)
+def mark_delivery_arrival(
+    transaction_id: uuid.UUID,
+    current_user: Annotated[User, Depends(require_seller_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> TransactionResponse:
+    try:
+        transaction = mark_transaction_arrived(
+            db,
+            transaction_id=transaction_id,
+            seller=current_user,
+        )
+    except TransactionNotFoundForArrivalError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found.",
+        ) from exc
+    except TransactionArrivalForbiddenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
+    except TransactionArrivalInvalidStateError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),

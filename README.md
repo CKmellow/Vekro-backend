@@ -148,6 +148,13 @@ uvicorn app.main:app --reload
    - Enforces state transition locked -> out_for_delivery only.
    - Invalid prior states are rejected with deterministic validation detail.
    - Expected response: 200 on successful dispatch, 403 for non-owner/non-seller access, 422 for invalid prior state, 404 when transaction is missing.
+- POST /transactions/{transaction_id}/arrival
+   - Purpose: seller action endpoint to mark delivery arrival for inspection handoff.
+   - Requires authenticated seller session and CSRF header for the request.
+   - Only the seller attached to the transaction can mark arrival.
+   - Enforces state transition out_for_delivery -> at_door_pending_inspection and records at_door_at timestamp.
+   - Invalid prior states are rejected with deterministic validation detail.
+   - Expected response: 200 on successful arrival update, 403 for non-owner/non-seller access, 422 for invalid prior state, 404 when transaction is missing.
 
 ## Payment Abstraction
 
@@ -249,3 +256,4 @@ Commands:
 - 2026-09-20: Milestone 3 Issue [M3] Add M-Pesa STK service interface stub completed with payment gateway abstraction, stubbed STK initiation path, and transport-decoupling tests.
 - 2026-09-21: Milestone 4 Issue [M4] Implement payment confirmation to LOCKED completed with callback endpoint, idempotent duplicate handling, safe invalid-callback handling, transition audit logging, tests, and live endpoint verification.
 - 2026-09-21: Milestone 4 Issue [M4] Implement seller dispatch to OUT_FOR_DELIVERY completed with seller ownership enforcement, strict locked-to-out_for_delivery transition checks, clear invalid-state errors, tests, and live endpoint verification.
+- 2026-09-21: Milestone 4 Issue [M4] Implement delivery arrival to AT_DOOR_PENDING_INSPECTION completed with seller authorization checks, strict out_for_delivery precondition enforcement, at_door_at timestamp capture, tests, and live endpoint verification.

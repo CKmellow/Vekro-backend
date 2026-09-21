@@ -47,6 +47,18 @@ class TransactionDispatchInvalidStateError(Exception):
     pass
 
 
+class TransactionNotFoundForArrivalError(Exception):
+    pass
+
+
+class TransactionArrivalForbiddenError(Exception):
+    pass
+
+
+class TransactionArrivalInvalidStateError(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class PaymentCallbackResult:
     transaction: Transaction
@@ -168,6 +180,37 @@ def _create_dispatched_notifications(
     db.add(seller_notification)
 
 
+def _create_arrival_notifications(
+    db: Session,
+    transaction: Transaction,
+) -> None:
+    payload = {
+        "transaction_id": str(transaction.id),
+        "listing_id": str(transaction.listing_id),
+        "at_door_at": transaction.at_door_at.isoformat() if transaction.at_door_at else None,
+    }
+
+    buyer_notification = Notification(
+        user_id=transaction.buyer_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DELIVERY_ARRIVED,
+        title="Delivery arrived",
+        message="Your transaction has reached delivery and is pending inspection.",
+        payload=payload,
+    )
+    seller_notification = Notification(
+        user_id=transaction.seller_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DELIVERY_ARRIVED,
+        title="Arrival confirmed",
+        message="Delivery arrival has been recorded and inspection is now pending.",
+        payload=payload,
+    )
+
+    db.add(buyer_notification)
+    db.add(seller_notification)
+
+
 def confirm_payment_callback(
     db: Session,
     payload: PaymentCallbackRequest,
@@ -273,6 +316,44 @@ def dispatch_transaction(
     audit_logger.info(
         "transaction_transition transaction_id=%s from_status=locked "
         "to_status=out_for_delivery seller_id=%s",
+        transaction.id,
+        seller.id,
+    )
+
+    return transaction
+
+
+def mark_transaction_arrived(
+    db: Session,
+    transaction_id: uuid.UUID,
+    seller: User,
+) -> Transaction:
+    if seller.role != UserRole.SELLER:
+        raise TransactionValidationError("Only sellers can mark transaction arrival.")
+
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None:
+        raise TransactionNotFoundForArrivalError("Transaction not found.")
+
+    if transaction.seller_id != seller.id:
+        raise TransactionArrivalForbiddenError(
+            "Only the transaction seller can mark delivery arrival."
+        )
+
+    if transaction.status != TransactionStatus.OUT_FOR_DELIVERY:
+        raise TransactionArrivalInvalidStateError(
+            "Transaction must be in out_for_delivery state before arrival confirmation."
+        )
+
+    transaction.status = TransactionStatus.AT_DOOR_PENDING_INSPECTION
+    transaction.at_door_at = datetime.now(UTC)
+    _create_arrival_notifications(db, transaction=transaction)
+    db.commit()
+    db.refresh(transaction)
+
+    audit_logger.info(
+        "transaction_transition transaction_id=%s from_status=out_for_delivery "
+        "to_status=at_door_pending_inspection seller_id=%s",
         transaction.id,
         seller.id,
     )

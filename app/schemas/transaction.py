@@ -40,3 +40,7 @@ class PaymentCallbackResponse(BaseModel):
     transitioned: bool
     duplicate: bool
     detail: str
+
+
+class OtpGiveRequest(BaseModel):
+    otp_code: str = Field(min_length=4, max_length=12, pattern=r"^\d+$")

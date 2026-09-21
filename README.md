@@ -134,12 +134,55 @@ uvicorn app.main:app --reload
    - Initializes workflow status to awaiting_payment.
    - Persists listing linkage, buyer/seller linkage, and transaction amount.
    - Expected response: 201 Created with transaction data.
+- POST /transactions/payment-callback
+   - Purpose: provider callback endpoint to confirm payment and lock a transaction.
+   - Valid callback result_code=0 moves status awaiting_payment -> locked and sets locked_at.
+   - Duplicate callback for already-locked transactions is idempotent and returns 200 safely.
+   - Unsuccessful callback result codes are acknowledged safely with 202 and no transition.
+   - Successful lock transition writes transaction_locked notification events for buyer and seller for timeline/audit use.
+   - Expected response: 200 on transition or duplicate, 202 when callback is non-successful or state-ineligible, 404 when transaction is missing.
+- POST /transactions/{transaction_id}/dispatch
+   - Purpose: seller action endpoint to dispatch a locked transaction.
+   - Requires authenticated seller session and CSRF header for the request.
+   - Only the seller attached to the transaction can dispatch it.
+   - Enforces state transition locked -> out_for_delivery only.
+   - Invalid prior states are rejected with deterministic validation detail.
+   - Expected response: 200 on successful dispatch, 403 for non-owner/non-seller access, 422 for invalid prior state, 404 when transaction is missing.
+- POST /transactions/{transaction_id}/arrival
+   - Purpose: seller action endpoint to mark delivery arrival for inspection handoff.
+   - Requires authenticated seller session and CSRF header for the request.
+   - Only the seller attached to the transaction can mark arrival.
+   - Enforces state transition out_for_delivery -> at_door_pending_inspection and records at_door_at timestamp.
+   - Generates a delivery OTP for buyer confirmation; OTP preview is included in notification payload in non-production environments.
+   - Invalid prior states are rejected with deterministic validation detail.
+   - Expected response: 200 on successful arrival update, 403 for non-owner/non-seller access, 422 for invalid prior state, 404 when transaction is missing.
+- POST /transactions/{transaction_id}/otp-give
+   - Purpose: buyer action endpoint to confirm OTP handoff after delivery arrival.
+   - Requires authenticated buyer session and CSRF header for the request.
+   - Correct OTP on non-serialized listings transitions at_door_pending_inspection -> released.
+   - Incorrect OTP attempts increment failure counter and return deterministic validation detail.
+   - Released transactions are terminal for OTP actions and cannot be reopened through withhold flow.
+   - Expected response: 200 on successful release, 422 for invalid OTP or invalid state, 403 for unauthorized buyer access, 404 when transaction is missing.
+- POST /transactions/{transaction_id}/otp-withhold
+   - Purpose: buyer action endpoint to withhold OTP and trigger return-refund resolution path.
+   - Requires authenticated buyer session and CSRF header for the request.
+   - Transitions at_door_pending_inspection -> return_in_transit -> returned_to_seller -> refunded_buyer.
+   - Captures transition history in notifications/audit payload for traceability.
+   - Expected response: 200 on successful refund-path transition, 422 for invalid state, 403 for unauthorized buyer access, 404 when transaction is missing.
 
 ## Payment Abstraction
 
 - Payment transport is abstracted behind a service interface in `app/services/payment.py`.
 - Current implementation uses a stubbed M-Pesa STK gateway for development and milestone testing.
 - Transaction/state-machine logic remains decoupled from provider transport and can swap to Daraja integration later.
+- Callback transition logic remains provider-agnostic and keyed by transaction id payload while Daraja webhook mapping is pending full transport integration.
+
+## Timeout Jobs
+
+- Timeout execution is implemented in service layer via `run_timeout_jobs` in `app/services/transaction.py`.
+- At-door timeout rule (~1 hour): auto-applies withheld OTP refund path when buyer takes no action in at_door_pending_inspection.
+- No-dispatch timeout rule (~48 hours from locked): auto-refunds buyer when seller never dispatches.
+- Timeout transitions emit SYSTEM_TIMEOUT notifications with transition history payload for audit traceability.
 
 ## Security Hardening
 
@@ -232,3 +275,9 @@ Commands:
 - 2026-09-20: Milestone 3 Issue [M3] Implement public get-listing endpoint completed with id-based listing retrieval, serialized/dispute-policy response fields, deterministic 404 behavior, and endpoint tests.
 - 2026-09-20: Milestone 3 Issue [M3] Implement create-transaction to AWAITING_PAYMENT completed with buyer-only auth checks, participant linkage persistence, awaiting_payment initialization, and endpoint tests.
 - 2026-09-20: Milestone 3 Issue [M3] Add M-Pesa STK service interface stub completed with payment gateway abstraction, stubbed STK initiation path, and transport-decoupling tests.
+- 2026-09-21: Milestone 4 Issue [M4] Implement payment confirmation to LOCKED completed with callback endpoint, idempotent duplicate handling, safe invalid-callback handling, transition audit logging, tests, and live endpoint verification.
+- 2026-09-21: Milestone 4 Issue [M4] Implement seller dispatch to OUT_FOR_DELIVERY completed with seller ownership enforcement, strict locked-to-out_for_delivery transition checks, clear invalid-state errors, tests, and live endpoint verification.
+- 2026-09-21: Milestone 4 Issue [M4] Implement delivery arrival to AT_DOOR_PENDING_INSPECTION completed with seller authorization checks, strict out_for_delivery precondition enforcement, at_door_at timestamp capture, tests, and live endpoint verification.
+- 2026-09-21: Milestone 4 Issue [M4] Implement non-serialized OTP-give to RELEASED completed with OTP validation, failed-attempt handling, terminal release-state guardrails, and tests.
+- 2026-09-21: Milestone 4 Issue [M4] Implement OTP-withhold return-refund path completed with at-door withheld flow, return/refund terminal transition, audit transition-history payload capture, and tests.
+- 2026-09-21: Milestone 4 Issue [M4] Implement scheduled timeout jobs (1h and 48h) completed with service-layer sweep logic, timeout-triggered state transitions, audit notifications, and tests.

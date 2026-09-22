@@ -91,6 +91,7 @@ class PaymentCallbackResult:
 class TimeoutSweepResult:
     at_door_timeout_count: int
     no_dispatch_timeout_count: int
+    hold_auto_release_count: int
 
 
 def create_transaction(
@@ -710,6 +711,23 @@ def _get_due_locked_timeout_transactions(db: Session, cutoff_time: datetime) -> 
     )
 
 
+def _get_due_hold_auto_release_transactions(
+    db: Session,
+    cutoff_time: datetime,
+) -> list[Transaction]:
+    return list(
+        db.execute(
+            select(Transaction).where(
+                Transaction.status == TransactionStatus.HOLD_24H,
+                Transaction.hold_started_at.is_not(None),
+                Transaction.hold_started_at <= cutoff_time,
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
 def run_timeout_jobs(
     db: Session,
     *,
@@ -718,12 +736,15 @@ def run_timeout_jobs(
     current_time = now or datetime.now(UTC)
     at_door_cutoff = current_time - timedelta(hours=1)
     no_dispatch_cutoff = current_time - timedelta(hours=48)
+    hold_auto_release_cutoff = current_time - timedelta(hours=24)
 
     at_door_due = _get_due_at_door_timeout_transactions(db, at_door_cutoff)
     locked_due = _get_due_locked_timeout_transactions(db, no_dispatch_cutoff)
+    hold_due = _get_due_hold_auto_release_transactions(db, hold_auto_release_cutoff)
 
     at_door_timeout_count = 0
     no_dispatch_timeout_count = 0
+    hold_auto_release_count = 0
 
     for transaction in at_door_due:
         transition_history = _apply_withheld_return_refund_flow(
@@ -772,10 +793,38 @@ def run_timeout_jobs(
             transition_history,
         )
 
-    if at_door_timeout_count or no_dispatch_timeout_count:
+    for transaction in hold_due:
+        transition_history = [
+            {
+                "from": TransactionStatus.HOLD_24H.value,
+                "to": TransactionStatus.RELEASED.value,
+                "at": current_time.isoformat(),
+                "initiated_by": "system",
+                "reason": "hold_24h_auto_release_24h",
+            }
+        ]
+        transaction.status = TransactionStatus.RELEASED
+        transaction.released_at = current_time
+        transaction.delivery_otp_hash = None
+        transaction.otp_failed_attempts = 0
+        _create_timeout_notifications(
+            db,
+            transaction=transaction,
+            transition_history=transition_history,
+            reason="hold_24h_auto_release_24h",
+        )
+        hold_auto_release_count += 1
+        audit_logger.info(
+            "timeout_transition transaction_id=%s rule=hold_24h_auto_release_24h history=%s",
+            transaction.id,
+            transition_history,
+        )
+
+    if at_door_timeout_count or no_dispatch_timeout_count or hold_auto_release_count:
         db.commit()
 
     return TimeoutSweepResult(
         at_door_timeout_count=at_door_timeout_count,
         no_dispatch_timeout_count=no_dispatch_timeout_count,
+        hold_auto_release_count=hold_auto_release_count,
     )

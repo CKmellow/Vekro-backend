@@ -183,6 +183,8 @@ uvicorn app.main:app --reload
 - Timeout execution is implemented in service layer via `run_timeout_jobs` in `app/services/transaction.py`.
 - At-door timeout rule (~1 hour): auto-applies withheld OTP refund path when buyer takes no action in at_door_pending_inspection.
 - No-dispatch timeout rule (~48 hours from locked): auto-refunds buyer when seller never dispatches.
+- Hold auto-release rule (~24 hours from hold_started_at): auto-releases hold_24h transactions to released when no report/dispute transition has occurred.
+- Timeout sweeps are idempotent by status-gated eligibility queries so already-transitioned records are skipped on subsequent runs.
 - Timeout transitions emit SYSTEM_TIMEOUT notifications with transition history payload for audit traceability.
 
 ## Security Hardening
@@ -283,3 +285,4 @@ Commands:
 - 2026-09-21: Milestone 4 Issue [M4] Implement OTP-withhold return-refund path completed with at-door withheld flow, return/refund terminal transition, audit transition-history payload capture, and tests.
 - 2026-09-21: Milestone 4 Issue [M4] Implement scheduled timeout jobs (1h and 48h) completed with service-layer sweep logic, timeout-triggered state transitions, audit notifications, and tests.
 - 2026-09-22: Milestone 5 Issue [M5] Implement serialized OTP-give to HOLD_24H completed with hold_started_at persistence, non-serialized release path preservation, and tests.
+- 2026-09-22: Milestone 5 Issue [M5] Implement 24-hour HOLD_24H auto-release job completed with idempotent eligibility sweep, transition-history notifications, and tests.

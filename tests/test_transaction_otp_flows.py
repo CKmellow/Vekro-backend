@@ -42,6 +42,7 @@ class _FakeDb:
         self.listings = {listing.id: listing for listing in listings or []}
         self.added: list[Any] = []
         self.committed = False
+        self.commit_count = 0
         self.refreshed = False
 
     def get(self, model: Any, model_id):
@@ -56,6 +57,7 @@ class _FakeDb:
 
     def commit(self) -> None:
         self.committed = True
+        self.commit_count += 1
 
     def refresh(self, obj) -> None:
         self.refreshed = True
@@ -378,7 +380,7 @@ def test_released_state_cannot_reopen_withhold_flow() -> None:
         )
 
 
-def test_timeout_jobs_apply_at_door_and_locked_rules(monkeypatch) -> None:
+def test_timeout_jobs_apply_at_door_locked_and_hold_rules(monkeypatch) -> None:
     now = datetime.now(UTC)
     listing = _build_listing(serialized=False)
 
@@ -396,8 +398,15 @@ def test_timeout_jobs_apply_at_door_and_locked_rules(monkeypatch) -> None:
         status=TransactionStatus.LOCKED,
         locked_at=now - timedelta(hours=60),
     )
+    hold_txn = _build_transaction(
+        buyer_id=uuid.uuid4(),
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.HOLD_24H,
+    )
+    hold_txn.hold_started_at = now - timedelta(hours=26)
 
-    db = _FakeDb(transactions=[at_door_txn, locked_txn], listings=[listing])
+    db = _FakeDb(transactions=[at_door_txn, locked_txn, hold_txn], listings=[listing])
 
     monkeypatch.setattr(
         transaction_service,
@@ -409,18 +418,80 @@ def test_timeout_jobs_apply_at_door_and_locked_rules(monkeypatch) -> None:
         "_get_due_locked_timeout_transactions",
         lambda _db, _cutoff: [locked_txn],
     )
+    monkeypatch.setattr(
+        transaction_service,
+        "_get_due_hold_auto_release_transactions",
+        lambda _db, _cutoff: [hold_txn],
+    )
 
     result = run_timeout_jobs(cast(Session, db), now=now)
 
     assert result.at_door_timeout_count == 1
     assert result.no_dispatch_timeout_count == 1
+    assert result.hold_auto_release_count == 1
     assert at_door_txn.status == TransactionStatus.REFUNDED_BUYER
     assert locked_txn.status == TransactionStatus.REFUNDED_BUYER
+    assert hold_txn.status == TransactionStatus.RELEASED
+    assert hold_txn.released_at == now
     assert db.committed is True
 
     notifications = [item for item in db.added if isinstance(item, Notification)]
-    assert len(notifications) == 4
+    assert len(notifications) == 6
     assert all(item.event_type == NotificationEventType.SYSTEM_TIMEOUT for item in notifications)
+
+    hold_events = [
+        item for item in notifications if item.payload.get("reason") == "hold_24h_auto_release_24h"
+    ]
+    assert len(hold_events) == 2
+    history = hold_events[0].payload.get("transition_history")
+    assert isinstance(history, list)
+    assert history == [
+        {
+            "from": TransactionStatus.HOLD_24H.value,
+            "to": TransactionStatus.RELEASED.value,
+            "at": now.isoformat(),
+            "initiated_by": "system",
+            "reason": "hold_24h_auto_release_24h",
+        }
+    ]
+
+
+def test_timeout_jobs_hold_auto_release_is_idempotent(monkeypatch) -> None:
+    now = datetime.now(UTC)
+    listing = _build_listing(serialized=True)
+    hold_txn = _build_transaction(
+        buyer_id=uuid.uuid4(),
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.HOLD_24H,
+    )
+    hold_txn.hold_started_at = now - timedelta(hours=25)
+
+    db = _FakeDb(transactions=[hold_txn], listings=[listing])
+
+    monkeypatch.setattr(
+        transaction_service,
+        "_get_due_at_door_timeout_transactions",
+        lambda _db, _cutoff: [],
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "_get_due_locked_timeout_transactions",
+        lambda _db, _cutoff: [],
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "_get_due_hold_auto_release_transactions",
+        lambda _db, _cutoff: [hold_txn] if hold_txn.status == TransactionStatus.HOLD_24H else [],
+    )
+
+    first = run_timeout_jobs(cast(Session, db), now=now)
+    second = run_timeout_jobs(cast(Session, db), now=now + timedelta(minutes=5))
+
+    assert first.hold_auto_release_count == 1
+    assert second.hold_auto_release_count == 0
+    assert hold_txn.status == TransactionStatus.RELEASED
+    assert db.commit_count == 1
 
 
 def test_timeout_jobs_noop_when_no_due_transactions(monkeypatch) -> None:
@@ -436,9 +507,15 @@ def test_timeout_jobs_noop_when_no_due_transactions(monkeypatch) -> None:
         "_get_due_locked_timeout_transactions",
         lambda _db, _cutoff: [],
     )
+    monkeypatch.setattr(
+        transaction_service,
+        "_get_due_hold_auto_release_transactions",
+        lambda _db, _cutoff: [],
+    )
 
     result = run_timeout_jobs(cast(Session, db), now=datetime.now(UTC))
 
     assert result.at_door_timeout_count == 0
     assert result.no_dispatch_timeout_count == 0
+    assert result.hold_auto_release_count == 0
     assert db.committed is False

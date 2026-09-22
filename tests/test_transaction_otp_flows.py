@@ -246,6 +246,7 @@ def test_service_otp_give_moves_non_serialized_to_released() -> None:
 
     assert released.status == TransactionStatus.RELEASED
     assert released.released_at is not None
+    assert released.hold_started_at is None
     assert released.delivery_otp_hash is None
     assert released.otp_failed_attempts == 0
     assert db.committed is True
@@ -255,7 +256,7 @@ def test_service_otp_give_moves_non_serialized_to_released() -> None:
     assert all(item.event_type == NotificationEventType.OTP_GIVEN for item in notifications)
 
 
-def test_service_otp_give_rejects_serialized_listing() -> None:
+def test_service_otp_give_moves_serialized_to_hold_24h() -> None:
     buyer = _build_user(UserRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
@@ -269,16 +270,27 @@ def test_service_otp_give_rejects_serialized_listing() -> None:
 
     db = _FakeDb(transactions=[transaction], listings=[listing])
 
-    with pytest.raises(
-        TransactionBuyerActionInvalidStateError,
-        match="OTP give release is only supported for non-serialized listings.",
-    ):
-        confirm_buyer_delivery_otp_service(
-            cast(Session, db),
-            transaction_id=transaction.id,
-            buyer=buyer,
-            otp_code="123456",
-        )
+    hold = confirm_buyer_delivery_otp_service(
+        cast(Session, db),
+        transaction_id=transaction.id,
+        buyer=buyer,
+        otp_code="123456",
+    )
+
+    assert hold.status == TransactionStatus.HOLD_24H
+    assert hold.hold_started_at is not None
+    assert hold.released_at is None
+    assert hold.delivery_otp_hash is None
+    assert hold.otp_failed_attempts == 0
+    assert db.committed is True
+
+    notifications = [item for item in db.added if isinstance(item, Notification)]
+    assert len(notifications) == 2
+    assert all(item.event_type == NotificationEventType.OTP_GIVEN for item in notifications)
+    assert all(
+        item.payload.get("transition", {}).get("to") == TransactionStatus.HOLD_24H.value
+        for item in notifications
+    )
 
 
 def test_service_otp_give_invalid_otp_increments_attempts() -> None:

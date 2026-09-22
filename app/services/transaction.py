@@ -243,13 +243,17 @@ def _create_otp_given_notifications(
     db: Session,
     transaction: Transaction,
 ) -> None:
+    target_status = transaction.status.value
     payload = {
         "transaction_id": str(transaction.id),
         "listing_id": str(transaction.listing_id),
+        "hold_started_at": (
+            transaction.hold_started_at.isoformat() if transaction.hold_started_at else None
+        ),
         "released_at": transaction.released_at.isoformat() if transaction.released_at else None,
         "transition": {
             "from": TransactionStatus.AT_DOOR_PENDING_INSPECTION.value,
-            "to": TransactionStatus.RELEASED.value,
+            "to": target_status,
         },
     }
 
@@ -258,7 +262,7 @@ def _create_otp_given_notifications(
         transaction_id=transaction.id,
         event_type=NotificationEventType.OTP_GIVEN,
         title="OTP confirmed",
-        message="OTP confirmed successfully and funds are released to seller.",
+        message="OTP confirmed successfully and transaction moved to next stage.",
         payload=payload,
     )
     seller_notification = Notification(
@@ -266,7 +270,7 @@ def _create_otp_given_notifications(
         transaction_id=transaction.id,
         event_type=NotificationEventType.OTP_GIVEN,
         title="Buyer confirmed OTP",
-        message="Buyer OTP is confirmed and this transaction is released.",
+        message="Buyer OTP is confirmed and transaction moved to next stage.",
         payload=payload,
     )
 
@@ -588,11 +592,6 @@ def confirm_buyer_delivery_otp(
     if listing is None:
         raise ListingNotFoundForTransactionError("Listing not found.")
 
-    if listing.is_serialized:
-        raise TransactionBuyerActionInvalidStateError(
-            "OTP give release is only supported for non-serialized listings."
-        )
-
     if not _verify_delivery_otp(otp_code, transaction.delivery_otp_hash):
         transaction.otp_failed_attempts = (transaction.otp_failed_attempts or 0) + 1
         db.commit()
@@ -605,8 +604,18 @@ def confirm_buyer_delivery_otp(
         )
         raise InvalidTransactionOtpError("Invalid OTP provided.")
 
-    transaction.status = TransactionStatus.RELEASED
-    transaction.released_at = datetime.now(UTC)
+    transitioned_at = datetime.now(UTC)
+    if listing.is_serialized:
+        transaction.status = TransactionStatus.HOLD_24H
+        transaction.hold_started_at = transitioned_at
+        transaction.released_at = None
+        to_status = TransactionStatus.HOLD_24H.value
+    else:
+        transaction.status = TransactionStatus.RELEASED
+        transaction.released_at = transitioned_at
+        transaction.hold_started_at = None
+        to_status = TransactionStatus.RELEASED.value
+
     transaction.delivery_otp_hash = None
     transaction.otp_failed_attempts = 0
     _create_otp_given_notifications(db, transaction=transaction)
@@ -615,8 +624,9 @@ def confirm_buyer_delivery_otp(
 
     audit_logger.info(
         "transaction_transition transaction_id=%s from_status=at_door_pending_inspection "
-        "to_status=released buyer_id=%s",
+        "to_status=%s buyer_id=%s",
         transaction.id,
+        to_status,
         buyer.id,
     )
 

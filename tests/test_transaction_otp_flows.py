@@ -8,6 +8,7 @@ from app import main as app_main
 from app.core.security import hash_session_token
 from app.core.settings import get_settings
 from app.main import app
+from app.models.dispute import Dispute, DisputeStatus, DisputeType
 from app.models.listing import Listing
 from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import Transaction, TransactionStatus
@@ -19,10 +20,14 @@ from app.services.auth import ActiveSessionContext
 from app.services.transaction import (
     InvalidTransactionOtpError,
     TransactionBuyerActionInvalidStateError,
+    TransactionValidationError,
     run_timeout_jobs,
 )
 from app.services.transaction import (
     confirm_buyer_delivery_otp as confirm_buyer_delivery_otp_service,
+)
+from app.services.transaction import (
+    report_functional_issue as report_functional_issue_service,
 )
 from app.services.transaction import (
     withhold_buyer_delivery_otp as withhold_buyer_delivery_otp_service,
@@ -42,6 +47,7 @@ class _FakeDb:
         self.listings = {listing.id: listing for listing in listings or []}
         self.added: list[Any] = []
         self.committed = False
+        self.commit_count = 0
         self.refreshed = False
 
     def get(self, model: Any, model_id):
@@ -56,6 +62,7 @@ class _FakeDb:
 
     def commit(self) -> None:
         self.committed = True
+        self.commit_count += 1
 
     def refresh(self, obj) -> None:
         self.refreshed = True
@@ -193,6 +200,99 @@ def test_otp_give_endpoint_returns_422_for_invalid_otp(monkeypatch) -> None:
     assert response.json()["detail"] == "Invalid OTP provided."
 
 
+def test_report_functional_issue_requires_authentication() -> None:
+    client = TestClient(app)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/report-functional-issue",
+        json={
+            "category": "not_working",
+            "description": "Power button does not respond.",
+            "evidence": {},
+        },
+    )
+
+    assert response.status_code == 401
+
+
+def test_report_functional_issue_rejects_seller_user(monkeypatch) -> None:
+    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/report-functional-issue",
+        headers=_csrf_headers(),
+        json={
+            "category": "not_working",
+            "description": "Power button does not respond.",
+            "evidence": {},
+        },
+    )
+
+    assert response.status_code == 403
+
+
+def test_report_functional_issue_endpoint_returns_422_for_invalid_state(monkeypatch) -> None:
+    def fake_report_functional_issue(_db, transaction_id, buyer, category, description, evidence):
+        raise TransactionBuyerActionInvalidStateError(
+            "Transaction must be in hold_24h state for functional issue reporting."
+        )
+
+    monkeypatch.setattr(
+        transactions_router,
+        "report_functional_issue",
+        fake_report_functional_issue,
+    )
+
+    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/report-functional-issue",
+        headers=_csrf_headers(),
+        json={
+            "category": "not_working",
+            "description": "Power button does not respond.",
+            "evidence": {},
+        },
+    )
+
+    assert response.status_code == 422
+    assert (
+        response.json()["detail"]
+        == "Transaction must be in hold_24h state for functional issue reporting."
+    )
+
+
+def test_report_functional_issue_endpoint_returns_200(monkeypatch) -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.DISPUTED_FUNCTIONAL,
+    )
+
+    def fake_report_functional_issue(_db, transaction_id, buyer, category, description, evidence):
+        return transaction
+
+    monkeypatch.setattr(
+        transactions_router,
+        "report_functional_issue",
+        fake_report_functional_issue,
+    )
+
+    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    response = client.post(
+        f"/transactions/{transaction.id}/report-functional-issue",
+        headers=_csrf_headers(),
+        json={
+            "category": "not_working",
+            "description": "Power button does not respond.",
+            "evidence": {"video": "https://example.com/evidence.mp4"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == TransactionStatus.DISPUTED_FUNCTIONAL.value
+
+
 def test_otp_withhold_endpoint_returns_200(monkeypatch) -> None:
     buyer = _build_user(UserRole.BUYER)
     listing = _build_listing(serialized=False)
@@ -246,6 +346,7 @@ def test_service_otp_give_moves_non_serialized_to_released() -> None:
 
     assert released.status == TransactionStatus.RELEASED
     assert released.released_at is not None
+    assert released.hold_started_at is None
     assert released.delivery_otp_hash is None
     assert released.otp_failed_attempts == 0
     assert db.committed is True
@@ -255,7 +356,7 @@ def test_service_otp_give_moves_non_serialized_to_released() -> None:
     assert all(item.event_type == NotificationEventType.OTP_GIVEN for item in notifications)
 
 
-def test_service_otp_give_rejects_serialized_listing() -> None:
+def test_service_otp_give_moves_serialized_to_hold_24h() -> None:
     buyer = _build_user(UserRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
@@ -269,16 +370,27 @@ def test_service_otp_give_rejects_serialized_listing() -> None:
 
     db = _FakeDb(transactions=[transaction], listings=[listing])
 
-    with pytest.raises(
-        TransactionBuyerActionInvalidStateError,
-        match="OTP give release is only supported for non-serialized listings.",
-    ):
-        confirm_buyer_delivery_otp_service(
-            cast(Session, db),
-            transaction_id=transaction.id,
-            buyer=buyer,
-            otp_code="123456",
-        )
+    hold = confirm_buyer_delivery_otp_service(
+        cast(Session, db),
+        transaction_id=transaction.id,
+        buyer=buyer,
+        otp_code="123456",
+    )
+
+    assert hold.status == TransactionStatus.HOLD_24H
+    assert hold.hold_started_at is not None
+    assert hold.released_at is None
+    assert hold.delivery_otp_hash is None
+    assert hold.otp_failed_attempts == 0
+    assert db.committed is True
+
+    notifications = [item for item in db.added if isinstance(item, Notification)]
+    assert len(notifications) == 2
+    assert all(item.event_type == NotificationEventType.OTP_GIVEN for item in notifications)
+    assert all(
+        item.payload.get("transition", {}).get("to") == TransactionStatus.HOLD_24H.value
+        for item in notifications
+    )
 
 
 def test_service_otp_give_invalid_otp_increments_attempts() -> None:
@@ -305,6 +417,157 @@ def test_service_otp_give_invalid_otp_increments_attempts() -> None:
 
     assert transaction.otp_failed_attempts == 1
     assert db.committed is True
+
+
+def test_service_report_functional_issue_moves_hold_serialized_to_disputed() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.HOLD_24H,
+    )
+    transaction.hold_started_at = datetime.now(UTC) - timedelta(hours=2)
+
+    db = _FakeDb(transactions=[transaction], listings=[listing])
+
+    disputed = report_functional_issue_service(
+        cast(Session, db),
+        transaction_id=transaction.id,
+        buyer=buyer,
+        category="not working",
+        description="Device powers off immediately after startup.",
+        evidence={"video": "https://example.com/evidence.mp4"},
+    )
+
+    assert disputed.status == TransactionStatus.DISPUTED_FUNCTIONAL
+    assert db.committed is True
+
+    disputes = [item for item in db.added if isinstance(item, Dispute)]
+    assert len(disputes) == 1
+    dispute = disputes[0]
+    assert dispute.dispute_type == DisputeType.FUNCTIONAL
+    assert dispute.status == DisputeStatus.OPEN
+    assert dispute.reason == "not_working"
+    assert dispute.evidence == {"video": "https://example.com/evidence.mp4"}
+
+    notifications = [item for item in db.added if isinstance(item, Notification)]
+    assert len(notifications) == 2
+    assert all(item.event_type == NotificationEventType.DISPUTE_OPENED for item in notifications)
+    assert all(item.payload.get("category") == "not_working" for item in notifications)
+    assert all(item.payload.get("route") == "seller_resolution" for item in notifications)
+
+
+def test_service_report_functional_issue_routes_other_to_admin_escalation() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.HOLD_24H,
+    )
+    transaction.hold_started_at = datetime.now(UTC) - timedelta(hours=3)
+
+    db = _FakeDb(transactions=[transaction], listings=[listing])
+
+    disputed = report_functional_issue_service(
+        cast(Session, db),
+        transaction_id=transaction.id,
+        buyer=buyer,
+        category="other",
+        description="Unexpected intermittent failures observed.",
+        evidence={"notes": "Happens after warmup."},
+    )
+
+    assert disputed.status == TransactionStatus.DISPUTED_FUNCTIONAL
+
+    disputes = [item for item in db.added if isinstance(item, Dispute)]
+    assert len(disputes) == 1
+    dispute = disputes[0]
+    assert dispute.status == DisputeStatus.ESCALATED_ADMIN_REVIEW
+    assert dispute.escalated_at is not None
+
+    notifications = [item for item in db.added if isinstance(item, Notification)]
+    assert all(item.payload.get("route") == "admin_escalation" for item in notifications)
+
+
+def test_service_report_functional_issue_rejects_non_hold_24h_state() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.RELEASED,
+    )
+
+    db = _FakeDb(transactions=[transaction], listings=[listing])
+
+    with pytest.raises(
+        TransactionBuyerActionInvalidStateError,
+        match="Transaction must be in hold_24h state for functional issue reporting.",
+    ):
+        report_functional_issue_service(
+            cast(Session, db),
+            transaction_id=transaction.id,
+            buyer=buyer,
+            category="not_working",
+            description="No sound output.",
+            evidence={},
+        )
+
+
+def test_service_report_functional_issue_rejects_non_serialized_listing() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=False)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.HOLD_24H,
+    )
+    transaction.hold_started_at = datetime.now(UTC) - timedelta(hours=2)
+
+    db = _FakeDb(transactions=[transaction], listings=[listing])
+
+    with pytest.raises(
+        TransactionBuyerActionInvalidStateError,
+        match="Functional issue reporting is only supported for serialized listings.",
+    ):
+        report_functional_issue_service(
+            cast(Session, db),
+            transaction_id=transaction.id,
+            buyer=buyer,
+            category="not_working",
+            description="No sound output.",
+            evidence={},
+        )
+
+
+def test_service_report_functional_issue_rejects_unknown_category() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.HOLD_24H,
+    )
+    transaction.hold_started_at = datetime.now(UTC) - timedelta(hours=2)
+
+    db = _FakeDb(transactions=[transaction], listings=[listing])
+
+    with pytest.raises(TransactionValidationError, match="Invalid issue category"):
+        report_functional_issue_service(
+            cast(Session, db),
+            transaction_id=transaction.id,
+            buyer=buyer,
+            category="software_bug",
+            description="App crashes repeatedly.",
+            evidence={},
+        )
 
 
 def test_service_otp_withhold_moves_to_refunded_and_records_history() -> None:
@@ -366,7 +629,7 @@ def test_released_state_cannot_reopen_withhold_flow() -> None:
         )
 
 
-def test_timeout_jobs_apply_at_door_and_locked_rules(monkeypatch) -> None:
+def test_timeout_jobs_apply_at_door_locked_and_hold_rules(monkeypatch) -> None:
     now = datetime.now(UTC)
     listing = _build_listing(serialized=False)
 
@@ -384,8 +647,15 @@ def test_timeout_jobs_apply_at_door_and_locked_rules(monkeypatch) -> None:
         status=TransactionStatus.LOCKED,
         locked_at=now - timedelta(hours=60),
     )
+    hold_txn = _build_transaction(
+        buyer_id=uuid.uuid4(),
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.HOLD_24H,
+    )
+    hold_txn.hold_started_at = now - timedelta(hours=26)
 
-    db = _FakeDb(transactions=[at_door_txn, locked_txn], listings=[listing])
+    db = _FakeDb(transactions=[at_door_txn, locked_txn, hold_txn], listings=[listing])
 
     monkeypatch.setattr(
         transaction_service,
@@ -397,18 +667,80 @@ def test_timeout_jobs_apply_at_door_and_locked_rules(monkeypatch) -> None:
         "_get_due_locked_timeout_transactions",
         lambda _db, _cutoff: [locked_txn],
     )
+    monkeypatch.setattr(
+        transaction_service,
+        "_get_due_hold_auto_release_transactions",
+        lambda _db, _cutoff: [hold_txn],
+    )
 
     result = run_timeout_jobs(cast(Session, db), now=now)
 
     assert result.at_door_timeout_count == 1
     assert result.no_dispatch_timeout_count == 1
+    assert result.hold_auto_release_count == 1
     assert at_door_txn.status == TransactionStatus.REFUNDED_BUYER
     assert locked_txn.status == TransactionStatus.REFUNDED_BUYER
+    assert hold_txn.status == TransactionStatus.RELEASED
+    assert hold_txn.released_at == now
     assert db.committed is True
 
     notifications = [item for item in db.added if isinstance(item, Notification)]
-    assert len(notifications) == 4
+    assert len(notifications) == 6
     assert all(item.event_type == NotificationEventType.SYSTEM_TIMEOUT for item in notifications)
+
+    hold_events = [
+        item for item in notifications if item.payload.get("reason") == "hold_24h_auto_release_24h"
+    ]
+    assert len(hold_events) == 2
+    history = hold_events[0].payload.get("transition_history")
+    assert isinstance(history, list)
+    assert history == [
+        {
+            "from": TransactionStatus.HOLD_24H.value,
+            "to": TransactionStatus.RELEASED.value,
+            "at": now.isoformat(),
+            "initiated_by": "system",
+            "reason": "hold_24h_auto_release_24h",
+        }
+    ]
+
+
+def test_timeout_jobs_hold_auto_release_is_idempotent(monkeypatch) -> None:
+    now = datetime.now(UTC)
+    listing = _build_listing(serialized=True)
+    hold_txn = _build_transaction(
+        buyer_id=uuid.uuid4(),
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.HOLD_24H,
+    )
+    hold_txn.hold_started_at = now - timedelta(hours=25)
+
+    db = _FakeDb(transactions=[hold_txn], listings=[listing])
+
+    monkeypatch.setattr(
+        transaction_service,
+        "_get_due_at_door_timeout_transactions",
+        lambda _db, _cutoff: [],
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "_get_due_locked_timeout_transactions",
+        lambda _db, _cutoff: [],
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "_get_due_hold_auto_release_transactions",
+        lambda _db, _cutoff: [hold_txn] if hold_txn.status == TransactionStatus.HOLD_24H else [],
+    )
+
+    first = run_timeout_jobs(cast(Session, db), now=now)
+    second = run_timeout_jobs(cast(Session, db), now=now + timedelta(minutes=5))
+
+    assert first.hold_auto_release_count == 1
+    assert second.hold_auto_release_count == 0
+    assert hold_txn.status == TransactionStatus.RELEASED
+    assert db.commit_count == 1
 
 
 def test_timeout_jobs_noop_when_no_due_transactions(monkeypatch) -> None:
@@ -424,9 +756,15 @@ def test_timeout_jobs_noop_when_no_due_transactions(monkeypatch) -> None:
         "_get_due_locked_timeout_transactions",
         lambda _db, _cutoff: [],
     )
+    monkeypatch.setattr(
+        transaction_service,
+        "_get_due_hold_auto_release_transactions",
+        lambda _db, _cutoff: [],
+    )
 
     result = run_timeout_jobs(cast(Session, db), now=datetime.now(UTC))
 
     assert result.at_door_timeout_count == 0
     assert result.no_dispatch_timeout_count == 0
+    assert result.hold_auto_release_count == 0
     assert db.committed is False

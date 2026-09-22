@@ -160,15 +160,23 @@ uvicorn app.main:app --reload
    - Purpose: buyer action endpoint to confirm OTP handoff after delivery arrival.
    - Requires authenticated buyer session and CSRF header for the request.
    - Correct OTP on non-serialized listings transitions at_door_pending_inspection -> released.
+   - Correct OTP on serialized listings transitions at_door_pending_inspection -> hold_24h and persists hold_started_at.
    - Incorrect OTP attempts increment failure counter and return deterministic validation detail.
    - Released transactions are terminal for OTP actions and cannot be reopened through withhold flow.
-   - Expected response: 200 on successful release, 422 for invalid OTP or invalid state, 403 for unauthorized buyer access, 404 when transaction is missing.
+   - Expected response: 200 on successful release/hold transition, 422 for invalid OTP or invalid state, 403 for unauthorized buyer access, 404 when transaction is missing.
 - POST /transactions/{transaction_id}/otp-withhold
    - Purpose: buyer action endpoint to withhold OTP and trigger return-refund resolution path.
    - Requires authenticated buyer session and CSRF header for the request.
    - Transitions at_door_pending_inspection -> return_in_transit -> returned_to_seller -> refunded_buyer.
    - Captures transition history in notifications/audit payload for traceability.
    - Expected response: 200 on successful refund-path transition, 422 for invalid state, 403 for unauthorized buyer access, 404 when transaction is missing.
+- POST /transactions/{transaction_id}/report-functional-issue
+   - Purpose: buyer endpoint to report a functional issue during the serialized hold window.
+   - Requires authenticated buyer session and CSRF header for the request.
+   - Allowed only when transaction is in hold_24h and listing is serialized.
+   - Category must match one of: not_working, damaged_on_arrival, missing_parts, not_as_described, other.
+   - Category other routes dispute directly to admin escalation; all valid reports transition hold_24h -> disputed_functional.
+   - Expected response: 200 on successful report transition, 422 for invalid state/category, 403 for unauthorized buyer access, 404 when transaction or listing is missing.
 
 ## Payment Abstraction
 
@@ -182,6 +190,8 @@ uvicorn app.main:app --reload
 - Timeout execution is implemented in service layer via `run_timeout_jobs` in `app/services/transaction.py`.
 - At-door timeout rule (~1 hour): auto-applies withheld OTP refund path when buyer takes no action in at_door_pending_inspection.
 - No-dispatch timeout rule (~48 hours from locked): auto-refunds buyer when seller never dispatches.
+- Hold auto-release rule (~24 hours from hold_started_at): auto-releases hold_24h transactions to released when no report/dispute transition has occurred.
+- Timeout sweeps are idempotent by status-gated eligibility queries so already-transitioned records are skipped on subsequent runs.
 - Timeout transitions emit SYSTEM_TIMEOUT notifications with transition history payload for audit traceability.
 
 ## Security Hardening
@@ -281,3 +291,6 @@ Commands:
 - 2026-09-21: Milestone 4 Issue [M4] Implement non-serialized OTP-give to RELEASED completed with OTP validation, failed-attempt handling, terminal release-state guardrails, and tests.
 - 2026-09-21: Milestone 4 Issue [M4] Implement OTP-withhold return-refund path completed with at-door withheld flow, return/refund terminal transition, audit transition-history payload capture, and tests.
 - 2026-09-21: Milestone 4 Issue [M4] Implement scheduled timeout jobs (1h and 48h) completed with service-layer sweep logic, timeout-triggered state transitions, audit notifications, and tests.
+- 2026-09-22: Milestone 5 Issue [M5] Implement serialized OTP-give to HOLD_24H completed with hold_started_at persistence, non-serialized release path preservation, and tests.
+- 2026-09-22: Milestone 5 Issue [M5] Implement 24-hour HOLD_24H auto-release job completed with idempotent eligibility sweep, transition-history notifications, and tests.
+- 2026-09-22: Milestone 5 Issue [M5] Implement report-functional-issue endpoint completed with hold-window/serialized gating, category validation with other admin-escalation routing, disputed_functional transition, and tests.

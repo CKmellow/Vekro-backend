@@ -12,6 +12,7 @@ from app.schemas.transaction import (
     OtpGiveRequest,
     PaymentCallbackRequest,
     PaymentCallbackResponse,
+    ReportFunctionalIssueRequest,
     TransactionResponse,
 )
 from app.services.transaction import (
@@ -34,6 +35,7 @@ from app.services.transaction import (
     create_transaction,
     dispatch_transaction,
     mark_transaction_arrived,
+    report_functional_issue,
     withhold_buyer_delivery_otp,
 )
 
@@ -264,6 +266,56 @@ def withhold_delivery_otp(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
+        ) from exc
+    except TransactionValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    return TransactionResponse.model_validate(transaction)
+
+
+@router.post(
+    "/{transaction_id}/report-functional-issue",
+    response_model=TransactionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Report functional issue during hold window (buyer only)",
+)
+def report_functional_issue_for_transaction(
+    transaction_id: uuid.UUID,
+    payload: ReportFunctionalIssueRequest,
+    current_user: Annotated[User, Depends(require_buyer_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> TransactionResponse:
+    try:
+        transaction = report_functional_issue(
+            db,
+            transaction_id=transaction_id,
+            buyer=current_user,
+            category=payload.category,
+            description=payload.description,
+            evidence=payload.evidence,
+        )
+    except TransactionNotFoundForBuyerActionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found.",
+        ) from exc
+    except TransactionBuyerActionForbiddenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
+    except TransactionBuyerActionInvalidStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    except ListingNotFoundForTransactionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Listing not found.",
         ) from exc
     except TransactionValidationError as exc:
         raise HTTPException(

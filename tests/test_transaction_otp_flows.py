@@ -8,6 +8,7 @@ from app import main as app_main
 from app.core.security import hash_session_token
 from app.core.settings import get_settings
 from app.main import app
+from app.models.dispute import Dispute, DisputeStatus, DisputeType
 from app.models.listing import Listing
 from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import Transaction, TransactionStatus
@@ -19,10 +20,14 @@ from app.services.auth import ActiveSessionContext
 from app.services.transaction import (
     InvalidTransactionOtpError,
     TransactionBuyerActionInvalidStateError,
+    TransactionValidationError,
     run_timeout_jobs,
 )
 from app.services.transaction import (
     confirm_buyer_delivery_otp as confirm_buyer_delivery_otp_service,
+)
+from app.services.transaction import (
+    report_functional_issue as report_functional_issue_service,
 )
 from app.services.transaction import (
     withhold_buyer_delivery_otp as withhold_buyer_delivery_otp_service,
@@ -195,6 +200,99 @@ def test_otp_give_endpoint_returns_422_for_invalid_otp(monkeypatch) -> None:
     assert response.json()["detail"] == "Invalid OTP provided."
 
 
+def test_report_functional_issue_requires_authentication() -> None:
+    client = TestClient(app)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/report-functional-issue",
+        json={
+            "category": "not_working",
+            "description": "Power button does not respond.",
+            "evidence": {},
+        },
+    )
+
+    assert response.status_code == 401
+
+
+def test_report_functional_issue_rejects_seller_user(monkeypatch) -> None:
+    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/report-functional-issue",
+        headers=_csrf_headers(),
+        json={
+            "category": "not_working",
+            "description": "Power button does not respond.",
+            "evidence": {},
+        },
+    )
+
+    assert response.status_code == 403
+
+
+def test_report_functional_issue_endpoint_returns_422_for_invalid_state(monkeypatch) -> None:
+    def fake_report_functional_issue(_db, transaction_id, buyer, category, description, evidence):
+        raise TransactionBuyerActionInvalidStateError(
+            "Transaction must be in hold_24h state for functional issue reporting."
+        )
+
+    monkeypatch.setattr(
+        transactions_router,
+        "report_functional_issue",
+        fake_report_functional_issue,
+    )
+
+    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/report-functional-issue",
+        headers=_csrf_headers(),
+        json={
+            "category": "not_working",
+            "description": "Power button does not respond.",
+            "evidence": {},
+        },
+    )
+
+    assert response.status_code == 422
+    assert (
+        response.json()["detail"]
+        == "Transaction must be in hold_24h state for functional issue reporting."
+    )
+
+
+def test_report_functional_issue_endpoint_returns_200(monkeypatch) -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.DISPUTED_FUNCTIONAL,
+    )
+
+    def fake_report_functional_issue(_db, transaction_id, buyer, category, description, evidence):
+        return transaction
+
+    monkeypatch.setattr(
+        transactions_router,
+        "report_functional_issue",
+        fake_report_functional_issue,
+    )
+
+    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    response = client.post(
+        f"/transactions/{transaction.id}/report-functional-issue",
+        headers=_csrf_headers(),
+        json={
+            "category": "not_working",
+            "description": "Power button does not respond.",
+            "evidence": {"video": "https://example.com/evidence.mp4"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == TransactionStatus.DISPUTED_FUNCTIONAL.value
+
+
 def test_otp_withhold_endpoint_returns_200(monkeypatch) -> None:
     buyer = _build_user(UserRole.BUYER)
     listing = _build_listing(serialized=False)
@@ -319,6 +417,157 @@ def test_service_otp_give_invalid_otp_increments_attempts() -> None:
 
     assert transaction.otp_failed_attempts == 1
     assert db.committed is True
+
+
+def test_service_report_functional_issue_moves_hold_serialized_to_disputed() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.HOLD_24H,
+    )
+    transaction.hold_started_at = datetime.now(UTC) - timedelta(hours=2)
+
+    db = _FakeDb(transactions=[transaction], listings=[listing])
+
+    disputed = report_functional_issue_service(
+        cast(Session, db),
+        transaction_id=transaction.id,
+        buyer=buyer,
+        category="not working",
+        description="Device powers off immediately after startup.",
+        evidence={"video": "https://example.com/evidence.mp4"},
+    )
+
+    assert disputed.status == TransactionStatus.DISPUTED_FUNCTIONAL
+    assert db.committed is True
+
+    disputes = [item for item in db.added if isinstance(item, Dispute)]
+    assert len(disputes) == 1
+    dispute = disputes[0]
+    assert dispute.dispute_type == DisputeType.FUNCTIONAL
+    assert dispute.status == DisputeStatus.OPEN
+    assert dispute.reason == "not_working"
+    assert dispute.evidence == {"video": "https://example.com/evidence.mp4"}
+
+    notifications = [item for item in db.added if isinstance(item, Notification)]
+    assert len(notifications) == 2
+    assert all(item.event_type == NotificationEventType.DISPUTE_OPENED for item in notifications)
+    assert all(item.payload.get("category") == "not_working" for item in notifications)
+    assert all(item.payload.get("route") == "seller_resolution" for item in notifications)
+
+
+def test_service_report_functional_issue_routes_other_to_admin_escalation() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.HOLD_24H,
+    )
+    transaction.hold_started_at = datetime.now(UTC) - timedelta(hours=3)
+
+    db = _FakeDb(transactions=[transaction], listings=[listing])
+
+    disputed = report_functional_issue_service(
+        cast(Session, db),
+        transaction_id=transaction.id,
+        buyer=buyer,
+        category="other",
+        description="Unexpected intermittent failures observed.",
+        evidence={"notes": "Happens after warmup."},
+    )
+
+    assert disputed.status == TransactionStatus.DISPUTED_FUNCTIONAL
+
+    disputes = [item for item in db.added if isinstance(item, Dispute)]
+    assert len(disputes) == 1
+    dispute = disputes[0]
+    assert dispute.status == DisputeStatus.ESCALATED_ADMIN_REVIEW
+    assert dispute.escalated_at is not None
+
+    notifications = [item for item in db.added if isinstance(item, Notification)]
+    assert all(item.payload.get("route") == "admin_escalation" for item in notifications)
+
+
+def test_service_report_functional_issue_rejects_non_hold_24h_state() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.RELEASED,
+    )
+
+    db = _FakeDb(transactions=[transaction], listings=[listing])
+
+    with pytest.raises(
+        TransactionBuyerActionInvalidStateError,
+        match="Transaction must be in hold_24h state for functional issue reporting.",
+    ):
+        report_functional_issue_service(
+            cast(Session, db),
+            transaction_id=transaction.id,
+            buyer=buyer,
+            category="not_working",
+            description="No sound output.",
+            evidence={},
+        )
+
+
+def test_service_report_functional_issue_rejects_non_serialized_listing() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=False)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.HOLD_24H,
+    )
+    transaction.hold_started_at = datetime.now(UTC) - timedelta(hours=2)
+
+    db = _FakeDb(transactions=[transaction], listings=[listing])
+
+    with pytest.raises(
+        TransactionBuyerActionInvalidStateError,
+        match="Functional issue reporting is only supported for serialized listings.",
+    ):
+        report_functional_issue_service(
+            cast(Session, db),
+            transaction_id=transaction.id,
+            buyer=buyer,
+            category="not_working",
+            description="No sound output.",
+            evidence={},
+        )
+
+
+def test_service_report_functional_issue_rejects_unknown_category() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.HOLD_24H,
+    )
+    transaction.hold_started_at = datetime.now(UTC) - timedelta(hours=2)
+
+    db = _FakeDb(transactions=[transaction], listings=[listing])
+
+    with pytest.raises(TransactionValidationError, match="Invalid issue category"):
+        report_functional_issue_service(
+            cast(Session, db),
+            transaction_id=transaction.id,
+            buyer=buyer,
+            category="software_bug",
+            description="App crashes repeatedly.",
+            evidence={},
+        )
 
 
 def test_service_otp_withhold_moves_to_refunded_and_records_history() -> None:

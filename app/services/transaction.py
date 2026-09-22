@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import hash_session_token, verify_hashed_token
 from app.core.settings import get_settings
+from app.models.dispute import Dispute, DisputeStatus, DisputeType
 from app.models.listing import Listing
 from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import Transaction, TransactionStatus
@@ -92,6 +93,17 @@ class TimeoutSweepResult:
     at_door_timeout_count: int
     no_dispatch_timeout_count: int
     hold_auto_release_count: int
+
+
+FUNCTIONAL_ISSUE_CATEGORIES = frozenset(
+    {
+        "not_working",
+        "damaged_on_arrival",
+        "missing_parts",
+        "not_as_described",
+        "other",
+    }
+)
 
 
 def create_transaction(
@@ -344,6 +356,66 @@ def _create_timeout_notifications(
         event_type=NotificationEventType.SYSTEM_TIMEOUT,
         title="System timeout transition",
         message="A timeout rule executed and updated this transaction workflow.",
+        payload=payload,
+    )
+
+    db.add(buyer_notification)
+    db.add(seller_notification)
+
+
+def _normalize_functional_issue_category(category: str) -> str:
+    normalized = category.strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized not in FUNCTIONAL_ISSUE_CATEGORIES:
+        allowed_categories = ", ".join(sorted(FUNCTIONAL_ISSUE_CATEGORIES))
+        raise TransactionValidationError(
+            f"Invalid issue category. Allowed categories: {allowed_categories}."
+        )
+    return normalized
+
+
+def _create_dispute_opened_notifications(
+    db: Session,
+    transaction: Transaction,
+    dispute: Dispute,
+    *,
+    now: datetime,
+    category: str,
+    route: str,
+) -> None:
+    transition_history = [
+        {
+            "from": TransactionStatus.HOLD_24H.value,
+            "to": TransactionStatus.DISPUTED_FUNCTIONAL.value,
+            "at": now.isoformat(),
+            "initiated_by": "buyer",
+            "reason": "functional_issue_reported",
+        }
+    ]
+    payload = {
+        "transaction_id": str(transaction.id),
+        "listing_id": str(transaction.listing_id),
+        "dispute_id": str(dispute.id),
+        "dispute_type": dispute.dispute_type.value,
+        "dispute_status": dispute.status.value,
+        "category": category,
+        "route": route,
+        "transition_history": transition_history,
+    }
+
+    buyer_notification = Notification(
+        user_id=transaction.buyer_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_OPENED,
+        title="Functional issue reported",
+        message="Your functional issue report has been recorded.",
+        payload=payload,
+    )
+    seller_notification = Notification(
+        user_id=transaction.seller_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_OPENED,
+        title="Functional issue opened",
+        message="Buyer reported a functional issue and dispute flow has started.",
         payload=payload,
     )
 
@@ -678,6 +750,85 @@ def withhold_buyer_delivery_otp(
         transaction.id,
         buyer.id,
         transition_history,
+    )
+
+    return transaction
+
+
+def report_functional_issue(
+    db: Session,
+    transaction_id: uuid.UUID,
+    buyer: User,
+    *,
+    category: str,
+    description: str,
+    evidence: dict | None = None,
+) -> Transaction:
+    if buyer.role != UserRole.BUYER:
+        raise TransactionValidationError("Only buyers can report functional issues.")
+
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None:
+        raise TransactionNotFoundForBuyerActionError("Transaction not found.")
+
+    if transaction.buyer_id != buyer.id:
+        raise TransactionBuyerActionForbiddenError(
+            "Only the transaction buyer can report functional issues."
+        )
+
+    if transaction.status != TransactionStatus.HOLD_24H:
+        raise TransactionBuyerActionInvalidStateError(
+            "Transaction must be in hold_24h state for functional issue reporting."
+        )
+
+    listing = db.get(Listing, transaction.listing_id)
+    if listing is None:
+        raise ListingNotFoundForTransactionError("Listing not found.")
+    if not listing.is_serialized:
+        raise TransactionBuyerActionInvalidStateError(
+            "Functional issue reporting is only supported for serialized listings."
+        )
+
+    normalized_category = _normalize_functional_issue_category(category)
+    dispute_status = DisputeStatus.ESCALATED_ADMIN_REVIEW
+    route = "admin_escalation"
+    if normalized_category != "other":
+        dispute_status = DisputeStatus.OPEN
+        route = "seller_resolution"
+
+    now = datetime.now(UTC)
+    dispute = Dispute(
+        id=uuid.uuid4(),
+        transaction_id=transaction.id,
+        opened_by_user_id=buyer.id,
+        dispute_type=DisputeType.FUNCTIONAL,
+        status=dispute_status,
+        reason=normalized_category,
+        description=description.strip(),
+        evidence=evidence or {},
+        escalated_at=now if dispute_status == DisputeStatus.ESCALATED_ADMIN_REVIEW else None,
+    )
+
+    transaction.status = TransactionStatus.DISPUTED_FUNCTIONAL
+    db.add(dispute)
+    _create_dispute_opened_notifications(
+        db,
+        transaction=transaction,
+        dispute=dispute,
+        now=now,
+        category=normalized_category,
+        route=route,
+    )
+    db.commit()
+    db.refresh(transaction)
+
+    audit_logger.info(
+        "transaction_transition transaction_id=%s from_status=hold_24h "
+        "to_status=disputed_functional buyer_id=%s category=%s route=%s",
+        transaction.id,
+        buyer.id,
+        normalized_category,
+        route,
     )
 
     return transaction

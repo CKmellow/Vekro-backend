@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -44,3 +45,9 @@ class PaymentCallbackResponse(BaseModel):
 
 class OtpGiveRequest(BaseModel):
     otp_code: str = Field(min_length=4, max_length=12, pattern=r"^\d+$")
+
+
+class ReportFunctionalIssueRequest(BaseModel):
+    category: str = Field(min_length=2, max_length=64)
+    description: str = Field(min_length=5, max_length=2000)
+    evidence: dict[str, Any] = Field(default_factory=dict)

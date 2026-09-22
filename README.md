@@ -170,6 +170,13 @@ uvicorn app.main:app --reload
    - Transitions at_door_pending_inspection -> return_in_transit -> returned_to_seller -> refunded_buyer.
    - Captures transition history in notifications/audit payload for traceability.
    - Expected response: 200 on successful refund-path transition, 422 for invalid state, 403 for unauthorized buyer access, 404 when transaction is missing.
+- POST /transactions/{transaction_id}/report-functional-issue
+   - Purpose: buyer endpoint to report a functional issue during the serialized hold window.
+   - Requires authenticated buyer session and CSRF header for the request.
+   - Allowed only when transaction is in hold_24h and listing is serialized.
+   - Category must match one of: not_working, damaged_on_arrival, missing_parts, not_as_described, other.
+   - Category other routes dispute directly to admin escalation; all valid reports transition hold_24h -> disputed_functional.
+   - Expected response: 200 on successful report transition, 422 for invalid state/category, 403 for unauthorized buyer access, 404 when transaction or listing is missing.
 
 ## Payment Abstraction
 
@@ -286,3 +293,4 @@ Commands:
 - 2026-09-21: Milestone 4 Issue [M4] Implement scheduled timeout jobs (1h and 48h) completed with service-layer sweep logic, timeout-triggered state transitions, audit notifications, and tests.
 - 2026-09-22: Milestone 5 Issue [M5] Implement serialized OTP-give to HOLD_24H completed with hold_started_at persistence, non-serialized release path preservation, and tests.
 - 2026-09-22: Milestone 5 Issue [M5] Implement 24-hour HOLD_24H auto-release job completed with idempotent eligibility sweep, transition-history notifications, and tests.
+- 2026-09-22: Milestone 5 Issue [M5] Implement report-functional-issue endpoint completed with hold-window/serialized gating, category validation with other admin-escalation routing, disputed_functional transition, and tests.

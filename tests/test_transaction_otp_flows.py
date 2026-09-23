@@ -27,6 +27,9 @@ from app.services.transaction import (
     confirm_buyer_delivery_otp as confirm_buyer_delivery_otp_service,
 )
 from app.services.transaction import (
+    mark_buyer_sent_back as mark_buyer_sent_back_service,
+)
+from app.services.transaction import (
     report_functional_issue as report_functional_issue_service,
 )
 from app.services.transaction import (
@@ -291,6 +294,77 @@ def test_report_functional_issue_endpoint_returns_200(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == TransactionStatus.DISPUTED_FUNCTIONAL.value
+
+
+def test_buyer_sent_back_requires_authentication() -> None:
+    client = TestClient(app)
+    response = client.post(f"/transactions/{uuid.uuid4()}/buyer-sent-back")
+
+    assert response.status_code == 401
+
+
+def test_buyer_sent_back_rejects_seller_user(monkeypatch) -> None:
+    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/buyer-sent-back",
+        headers=_csrf_headers(),
+    )
+
+    assert response.status_code == 403
+
+
+def test_buyer_sent_back_endpoint_returns_422_for_invalid_state(monkeypatch) -> None:
+    def fake_mark_buyer_sent_back(_db, transaction_id, buyer):
+        raise TransactionBuyerActionInvalidStateError(
+            "Transaction must be in disputed_functional state for buyer sent-back action."
+        )
+
+    monkeypatch.setattr(
+        transactions_router,
+        "mark_buyer_sent_back",
+        fake_mark_buyer_sent_back,
+    )
+
+    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/buyer-sent-back",
+        headers=_csrf_headers(),
+    )
+
+    assert response.status_code == 422
+    assert (
+        response.json()["detail"]
+        == "Transaction must be in disputed_functional state for buyer sent-back action."
+    )
+
+
+def test_buyer_sent_back_endpoint_returns_200(monkeypatch) -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.RETURN_IN_TRANSIT,
+    )
+
+    def fake_mark_buyer_sent_back(_db, transaction_id, buyer):
+        return transaction
+
+    monkeypatch.setattr(
+        transactions_router,
+        "mark_buyer_sent_back",
+        fake_mark_buyer_sent_back,
+    )
+
+    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    response = client.post(
+        f"/transactions/{transaction.id}/buyer-sent-back",
+        headers=_csrf_headers(),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == TransactionStatus.RETURN_IN_TRANSIT.value
 
 
 def test_otp_withhold_endpoint_returns_200(monkeypatch) -> None:
@@ -570,6 +644,60 @@ def test_service_report_functional_issue_rejects_unknown_category() -> None:
         )
 
 
+def test_service_buyer_sent_back_moves_disputed_to_return_in_transit() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.DISPUTED_FUNCTIONAL,
+    )
+
+    db = _FakeDb(transactions=[transaction], listings=[listing])
+
+    returned = mark_buyer_sent_back_service(
+        cast(Session, db),
+        transaction_id=transaction.id,
+        buyer=buyer,
+    )
+
+    assert returned.status == TransactionStatus.RETURN_IN_TRANSIT
+    assert db.committed is True
+
+    notifications = [item for item in db.added if isinstance(item, Notification)]
+    assert len(notifications) == 2
+    assert all(item.event_type == NotificationEventType.DISPUTE_UPDATED for item in notifications)
+    assert all(item.payload.get("reason") == "buyer_sent_back" for item in notifications)
+    history = notifications[0].payload.get("transition_history")
+    assert isinstance(history, list)
+    assert history[0]["from"] == TransactionStatus.DISPUTED_FUNCTIONAL.value
+    assert history[0]["to"] == TransactionStatus.RETURN_IN_TRANSIT.value
+
+
+def test_service_buyer_sent_back_rejects_non_disputed_state() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.HOLD_24H,
+    )
+
+    db = _FakeDb(transactions=[transaction], listings=[listing])
+
+    with pytest.raises(
+        TransactionBuyerActionInvalidStateError,
+        match="Transaction must be in disputed_functional state for buyer sent-back action.",
+    ):
+        mark_buyer_sent_back_service(
+            cast(Session, db),
+            transaction_id=transaction.id,
+            buyer=buyer,
+        )
+
+
 def test_service_otp_withhold_moves_to_refunded_and_records_history() -> None:
     buyer = _build_user(UserRole.BUYER)
     listing = _build_listing(serialized=True)
@@ -654,8 +782,18 @@ def test_timeout_jobs_apply_at_door_locked_and_hold_rules(monkeypatch) -> None:
         status=TransactionStatus.HOLD_24H,
     )
     hold_txn.hold_started_at = now - timedelta(hours=26)
+    dispute_txn = _build_transaction(
+        buyer_id=uuid.uuid4(),
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.DISPUTED_FUNCTIONAL,
+    )
+    dispute_txn.updated_at = now - timedelta(days=4)
 
-    db = _FakeDb(transactions=[at_door_txn, locked_txn, hold_txn], listings=[listing])
+    db = _FakeDb(
+        transactions=[at_door_txn, locked_txn, hold_txn, dispute_txn],
+        listings=[listing],
+    )
 
     monkeypatch.setattr(
         transaction_service,
@@ -672,20 +810,28 @@ def test_timeout_jobs_apply_at_door_locked_and_hold_rules(monkeypatch) -> None:
         "_get_due_hold_auto_release_transactions",
         lambda _db, _cutoff: [hold_txn],
     )
+    monkeypatch.setattr(
+        transaction_service,
+        "_get_due_dispute_buyer_sent_back_timeout_transactions",
+        lambda _db, _cutoff: [dispute_txn],
+    )
 
     result = run_timeout_jobs(cast(Session, db), now=now)
 
     assert result.at_door_timeout_count == 1
     assert result.no_dispatch_timeout_count == 1
     assert result.hold_auto_release_count == 1
+    assert result.dispute_buyer_sent_back_timeout_count == 1
     assert at_door_txn.status == TransactionStatus.REFUNDED_BUYER
     assert locked_txn.status == TransactionStatus.REFUNDED_BUYER
     assert hold_txn.status == TransactionStatus.RELEASED
     assert hold_txn.released_at == now
+    assert dispute_txn.status == TransactionStatus.RELEASED
+    assert dispute_txn.released_at == now
     assert db.committed is True
 
     notifications = [item for item in db.added if isinstance(item, Notification)]
-    assert len(notifications) == 6
+    assert len(notifications) == 8
     assert all(item.event_type == NotificationEventType.SYSTEM_TIMEOUT for item in notifications)
 
     hold_events = [
@@ -701,6 +847,24 @@ def test_timeout_jobs_apply_at_door_locked_and_hold_rules(monkeypatch) -> None:
             "at": now.isoformat(),
             "initiated_by": "system",
             "reason": "hold_24h_auto_release_24h",
+        }
+    ]
+
+    dispute_events = [
+        item
+        for item in notifications
+        if item.payload.get("reason") == "dispute_buyer_sent_back_timeout_3d"
+    ]
+    assert len(dispute_events) == 2
+    dispute_history = dispute_events[0].payload.get("transition_history")
+    assert isinstance(dispute_history, list)
+    assert dispute_history == [
+        {
+            "from": TransactionStatus.DISPUTED_FUNCTIONAL.value,
+            "to": TransactionStatus.RELEASED.value,
+            "at": now.isoformat(),
+            "initiated_by": "system",
+            "reason": "dispute_buyer_sent_back_timeout_3d",
         }
     ]
 
@@ -733,13 +897,65 @@ def test_timeout_jobs_hold_auto_release_is_idempotent(monkeypatch) -> None:
         "_get_due_hold_auto_release_transactions",
         lambda _db, _cutoff: [hold_txn] if hold_txn.status == TransactionStatus.HOLD_24H else [],
     )
+    monkeypatch.setattr(
+        transaction_service,
+        "_get_due_dispute_buyer_sent_back_timeout_transactions",
+        lambda _db, _cutoff: [],
+    )
 
     first = run_timeout_jobs(cast(Session, db), now=now)
     second = run_timeout_jobs(cast(Session, db), now=now + timedelta(minutes=5))
 
     assert first.hold_auto_release_count == 1
     assert second.hold_auto_release_count == 0
+    assert first.dispute_buyer_sent_back_timeout_count == 0
+    assert second.dispute_buyer_sent_back_timeout_count == 0
     assert hold_txn.status == TransactionStatus.RELEASED
+    assert db.commit_count == 1
+
+
+def test_timeout_jobs_dispute_buyer_sent_back_auto_cancel_is_idempotent(monkeypatch) -> None:
+    now = datetime.now(UTC)
+    listing = _build_listing(serialized=True)
+    dispute_txn = _build_transaction(
+        buyer_id=uuid.uuid4(),
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.DISPUTED_FUNCTIONAL,
+    )
+    dispute_txn.updated_at = now - timedelta(days=4)
+
+    db = _FakeDb(transactions=[dispute_txn], listings=[listing])
+
+    monkeypatch.setattr(
+        transaction_service,
+        "_get_due_at_door_timeout_transactions",
+        lambda _db, _cutoff: [],
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "_get_due_locked_timeout_transactions",
+        lambda _db, _cutoff: [],
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "_get_due_hold_auto_release_transactions",
+        lambda _db, _cutoff: [],
+    )
+    monkeypatch.setattr(
+        transaction_service,
+        "_get_due_dispute_buyer_sent_back_timeout_transactions",
+        lambda _db, _cutoff: (
+            [dispute_txn] if dispute_txn.status == TransactionStatus.DISPUTED_FUNCTIONAL else []
+        ),
+    )
+
+    first = run_timeout_jobs(cast(Session, db), now=now)
+    second = run_timeout_jobs(cast(Session, db), now=now + timedelta(minutes=5))
+
+    assert first.dispute_buyer_sent_back_timeout_count == 1
+    assert second.dispute_buyer_sent_back_timeout_count == 0
+    assert dispute_txn.status == TransactionStatus.RELEASED
     assert db.commit_count == 1
 
 
@@ -761,10 +977,16 @@ def test_timeout_jobs_noop_when_no_due_transactions(monkeypatch) -> None:
         "_get_due_hold_auto_release_transactions",
         lambda _db, _cutoff: [],
     )
+    monkeypatch.setattr(
+        transaction_service,
+        "_get_due_dispute_buyer_sent_back_timeout_transactions",
+        lambda _db, _cutoff: [],
+    )
 
     result = run_timeout_jobs(cast(Session, db), now=datetime.now(UTC))
 
     assert result.at_door_timeout_count == 0
     assert result.no_dispatch_timeout_count == 0
     assert result.hold_auto_release_count == 0
+    assert result.dispute_buyer_sent_back_timeout_count == 0
     assert db.committed is False

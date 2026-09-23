@@ -34,6 +34,7 @@ from app.services.transaction import (
     confirm_payment_callback,
     create_transaction,
     dispatch_transaction,
+    mark_buyer_sent_back,
     mark_transaction_arrived,
     report_functional_issue,
     withhold_buyer_delivery_otp,
@@ -316,6 +317,47 @@ def report_functional_issue_for_transaction(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Listing not found.",
+        ) from exc
+    except TransactionValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    return TransactionResponse.model_validate(transaction)
+
+
+@router.post(
+    "/{transaction_id}/buyer-sent-back",
+    response_model=TransactionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Mark buyer sent-back action in dispute flow (buyer only)",
+)
+def mark_buyer_sent_back_for_transaction(
+    transaction_id: uuid.UUID,
+    current_user: Annotated[User, Depends(require_buyer_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> TransactionResponse:
+    try:
+        transaction = mark_buyer_sent_back(
+            db,
+            transaction_id=transaction_id,
+            buyer=current_user,
+        )
+    except TransactionNotFoundForBuyerActionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found.",
+        ) from exc
+    except TransactionBuyerActionForbiddenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
+    except TransactionBuyerActionInvalidStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
         ) from exc
     except TransactionValidationError as exc:
         raise HTTPException(

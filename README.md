@@ -177,6 +177,12 @@ uvicorn app.main:app --reload
    - Category must match one of: not_working, damaged_on_arrival, missing_parts, not_as_described, other.
    - Category other routes dispute directly to admin escalation; all valid reports transition hold_24h -> disputed_functional.
    - Expected response: 200 on successful report transition, 422 for invalid state/category, 403 for unauthorized buyer access, 404 when transaction or listing is missing.
+- POST /transactions/{transaction_id}/buyer-sent-back
+   - Purpose: buyer endpoint to confirm return shipment in functional-dispute flow.
+   - Requires authenticated buyer session and CSRF header for the request.
+   - Allowed only when transaction is in disputed_functional.
+   - Transitions disputed_functional -> return_in_transit.
+   - Expected response: 200 on successful transition, 422 for invalid state, 403 for unauthorized buyer access, 404 when transaction is missing.
 
 ## Payment Abstraction
 
@@ -193,6 +199,7 @@ uvicorn app.main:app --reload
 - Hold auto-release rule (~24 hours from hold_started_at): auto-releases hold_24h transactions to released when no report/dispute transition has occurred.
 - Timeout sweeps are idempotent by status-gated eligibility queries so already-transitioned records are skipped on subsequent runs.
 - Timeout transitions emit SYSTEM_TIMEOUT notifications with transition history payload for audit traceability.
+- Dispute sent-back timeout rule (~3 days from disputed_functional): auto-cancels dispute and releases escrow to seller when buyer never marks sent-back.
 
 ## Security Hardening
 
@@ -294,3 +301,4 @@ Commands:
 - 2026-09-22: Milestone 5 Issue [M5] Implement serialized OTP-give to HOLD_24H completed with hold_started_at persistence, non-serialized release path preservation, and tests.
 - 2026-09-22: Milestone 5 Issue [M5] Implement 24-hour HOLD_24H auto-release job completed with idempotent eligibility sweep, transition-history notifications, and tests.
 - 2026-09-22: Milestone 5 Issue [M5] Implement report-functional-issue endpoint completed with hold-window/serialized gating, category validation with other admin-escalation routing, disputed_functional transition, and tests.
+- 2026-09-23: Milestone 6 Issue [M6] Implement buyer sent-back and 3-day auto-cancel completed with dispute sent-back endpoint, timeout-driven auto-release fallback, and tests.

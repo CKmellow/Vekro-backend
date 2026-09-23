@@ -94,6 +94,7 @@ class TimeoutSweepResult:
     no_dispatch_timeout_count: int
     hold_auto_release_count: int
     dispute_buyer_sent_back_timeout_count: int
+    dispute_seller_received_timeout_count: int
 
 
 FUNCTIONAL_ISSUE_CATEGORIES = frozenset(
@@ -446,6 +447,95 @@ def _create_dispute_auto_cancel_notifications(
         event_type=NotificationEventType.SYSTEM_TIMEOUT,
         title="Dispute auto-canceled",
         message="Dispute timed out without buyer sent-back confirmation and escrow was released.",
+        payload=payload,
+    )
+
+    db.add(buyer_notification)
+    db.add(seller_notification)
+
+
+def _create_seller_received_notifications(
+    db: Session,
+    transaction: Transaction,
+    *,
+    now: datetime,
+) -> None:
+    payload = {
+        "transaction_id": str(transaction.id),
+        "listing_id": str(transaction.listing_id),
+        "reason": "seller_received",
+        "initiated_by": "seller",
+        "transition_history": [
+            {
+                "from": TransactionStatus.RETURN_IN_TRANSIT.value,
+                "to": TransactionStatus.RETURN_RECEIVED.value,
+                "at": now.isoformat(),
+                "initiated_by": "seller",
+                "reason": "seller_received",
+            }
+        ],
+    }
+
+    buyer_notification = Notification(
+        user_id=transaction.buyer_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Seller confirmed return receipt",
+        message="Seller has confirmed receiving the returned item.",
+        payload=payload,
+    )
+    seller_notification = Notification(
+        user_id=transaction.seller_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Return receipt confirmed",
+        message="You confirmed return receipt and dispute moved to return received.",
+        payload=payload,
+    )
+
+    db.add(buyer_notification)
+    db.add(seller_notification)
+
+
+def _create_seller_received_timeout_notifications(
+    db: Session,
+    transaction: Transaction,
+    *,
+    now: datetime,
+) -> None:
+    payload = {
+        "transaction_id": str(transaction.id),
+        "listing_id": str(transaction.listing_id),
+        "reason": "seller_received_timeout_3d",
+        "initiated_by": "system",
+        "transition_history": [
+            {
+                "from": TransactionStatus.RETURN_IN_TRANSIT.value,
+                "to": TransactionStatus.ESCALATED_ADMIN_REVIEW.value,
+                "at": now.isoformat(),
+                "initiated_by": "system",
+                "reason": "seller_received_timeout_3d",
+            }
+        ],
+        "escalated_at": now.isoformat(),
+    }
+
+    buyer_notification = Notification(
+        user_id=transaction.buyer_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.SYSTEM_TIMEOUT,
+        title="Dispute auto-escalated",
+        message=(
+            "Seller did not confirm return receipt in time; " "dispute escalated for admin review."
+        ),
+        payload=payload,
+    )
+    seller_notification = Notification(
+        user_id=transaction.seller_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.SYSTEM_TIMEOUT,
+        title="Dispute auto-escalated",
+        message="Return receipt was not confirmed in time; dispute escalated for admin review.",
         payload=payload,
     )
 
@@ -968,6 +1058,48 @@ def mark_buyer_sent_back(
     return transaction
 
 
+def mark_seller_received(
+    db: Session,
+    transaction_id: uuid.UUID,
+    seller: User,
+) -> Transaction:
+    if seller.role != UserRole.SELLER:
+        raise TransactionValidationError("Only sellers can mark seller-received action.")
+
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None:
+        raise TransactionNotFoundForDispatchError("Transaction not found.")
+
+    if transaction.seller_id != seller.id:
+        raise TransactionDispatchForbiddenError(
+            "Only the transaction seller can mark seller-received action."
+        )
+
+    if transaction.status != TransactionStatus.RETURN_IN_TRANSIT:
+        raise TransactionDispatchInvalidStateError(
+            "Transaction must be in return_in_transit state for seller received action."
+        )
+
+    now = datetime.now(UTC)
+    transaction.status = TransactionStatus.RETURN_RECEIVED
+    _create_seller_received_notifications(
+        db,
+        transaction=transaction,
+        now=now,
+    )
+    db.commit()
+    db.refresh(transaction)
+
+    audit_logger.info(
+        "transaction_transition transaction_id=%s from_status=return_in_transit "
+        "to_status=return_received seller_id=%s",
+        transaction.id,
+        seller.id,
+    )
+
+    return transaction
+
+
 def _get_due_at_door_timeout_transactions(db: Session, cutoff_time: datetime) -> list[Transaction]:
     return list(
         db.execute(
@@ -1029,6 +1161,22 @@ def _get_due_dispute_buyer_sent_back_timeout_transactions(
     )
 
 
+def _get_due_seller_received_timeout_transactions(
+    db: Session,
+    cutoff_time: datetime,
+) -> list[Transaction]:
+    return list(
+        db.execute(
+            select(Transaction).where(
+                Transaction.status == TransactionStatus.RETURN_IN_TRANSIT,
+                Transaction.updated_at <= cutoff_time,
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
 def run_timeout_jobs(
     db: Session,
     *,
@@ -1039,6 +1187,7 @@ def run_timeout_jobs(
     no_dispatch_cutoff = current_time - timedelta(hours=48)
     hold_auto_release_cutoff = current_time - timedelta(hours=24)
     dispute_buyer_sent_back_cutoff = current_time - timedelta(days=3)
+    seller_received_cutoff = current_time - timedelta(days=3)
 
     at_door_due = _get_due_at_door_timeout_transactions(db, at_door_cutoff)
     locked_due = _get_due_locked_timeout_transactions(db, no_dispatch_cutoff)
@@ -1047,11 +1196,13 @@ def run_timeout_jobs(
         db,
         dispute_buyer_sent_back_cutoff,
     )
+    seller_received_due = _get_due_seller_received_timeout_transactions(db, seller_received_cutoff)
 
     at_door_timeout_count = 0
     no_dispatch_timeout_count = 0
     hold_auto_release_count = 0
     dispute_buyer_sent_back_timeout_count = 0
+    dispute_seller_received_timeout_count = 0
 
     for transaction in at_door_due:
         transition_history = _apply_withheld_return_refund_flow(
@@ -1142,11 +1293,26 @@ def run_timeout_jobs(
             transaction.id,
         )
 
+    for transaction in seller_received_due:
+        transaction.status = TransactionStatus.ESCALATED_ADMIN_REVIEW
+        _create_seller_received_timeout_notifications(
+            db,
+            transaction=transaction,
+            now=current_time,
+        )
+        dispute_seller_received_timeout_count += 1
+        audit_logger.info(
+            "timeout_transition transaction_id=%s rule=seller_received_timeout_3d "
+            "from_status=return_in_transit to_status=escalated_admin_review",
+            transaction.id,
+        )
+
     if (
         at_door_timeout_count
         or no_dispatch_timeout_count
         or hold_auto_release_count
         or dispute_buyer_sent_back_timeout_count
+        or dispute_seller_received_timeout_count
     ):
         db.commit()
 
@@ -1155,4 +1321,5 @@ def run_timeout_jobs(
         no_dispatch_timeout_count=no_dispatch_timeout_count,
         hold_auto_release_count=hold_auto_release_count,
         dispute_buyer_sent_back_timeout_count=dispute_buyer_sent_back_timeout_count,
+        dispute_seller_received_timeout_count=dispute_seller_received_timeout_count,
     )

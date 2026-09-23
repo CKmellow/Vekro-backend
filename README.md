@@ -183,6 +183,12 @@ uvicorn app.main:app --reload
    - Allowed only when transaction is in disputed_functional.
    - Transitions disputed_functional -> return_in_transit.
    - Expected response: 200 on successful transition, 422 for invalid state, 403 for unauthorized buyer access, 404 when transaction is missing.
+- POST /transactions/{transaction_id}/seller-received
+   - Purpose: seller endpoint to confirm receipt of returned item in dispute flow.
+   - Requires authenticated seller session and CSRF header for the request.
+   - Allowed only when transaction is in return_in_transit.
+   - Transitions return_in_transit -> return_received.
+   - Expected response: 200 on successful transition, 422 for invalid state, 403 for unauthorized seller access, 404 when transaction is missing.
 
 ## Payment Abstraction
 
@@ -200,6 +206,7 @@ uvicorn app.main:app --reload
 - Timeout sweeps are idempotent by status-gated eligibility queries so already-transitioned records are skipped on subsequent runs.
 - Timeout transitions emit SYSTEM_TIMEOUT notifications with transition history payload for audit traceability.
 - Dispute sent-back timeout rule (~3 days from disputed_functional): auto-cancels dispute and releases escrow to seller when buyer never marks sent-back.
+- Seller-received timeout rule (~3 days from return_in_transit): auto-escalates dispute to escalated_admin_review when seller never confirms receipt.
 
 ## Security Hardening
 
@@ -302,3 +309,4 @@ Commands:
 - 2026-09-22: Milestone 5 Issue [M5] Implement 24-hour HOLD_24H auto-release job completed with idempotent eligibility sweep, transition-history notifications, and tests.
 - 2026-09-22: Milestone 5 Issue [M5] Implement report-functional-issue endpoint completed with hold-window/serialized gating, category validation with other admin-escalation routing, disputed_functional transition, and tests.
 - 2026-09-23: Milestone 6 Issue [M6] Implement buyer sent-back and 3-day auto-cancel completed with dispute sent-back endpoint, timeout-driven auto-release fallback, and tests.
+- 2026-09-23: Milestone 6 Issue [M6] Implement seller received and 3-day auto-escalate completed with seller receipt endpoint, timeout-driven admin escalation fallback, and tests.

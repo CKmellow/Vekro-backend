@@ -35,6 +35,7 @@ from app.services.transaction import (
     create_transaction,
     dispatch_transaction,
     mark_buyer_sent_back,
+    mark_seller_received,
     mark_transaction_arrived,
     report_functional_issue,
     withhold_buyer_delivery_otp,
@@ -355,6 +356,47 @@ def mark_buyer_sent_back_for_transaction(
             detail=str(exc),
         ) from exc
     except TransactionBuyerActionInvalidStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    except TransactionValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    return TransactionResponse.model_validate(transaction)
+
+
+@router.post(
+    "/{transaction_id}/seller-received",
+    response_model=TransactionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Mark seller received return in dispute flow (seller only)",
+)
+def mark_seller_received_for_transaction(
+    transaction_id: uuid.UUID,
+    current_user: Annotated[User, Depends(require_seller_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> TransactionResponse:
+    try:
+        transaction = mark_seller_received(
+            db,
+            transaction_id=transaction_id,
+            seller=current_user,
+        )
+    except TransactionNotFoundForDispatchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found.",
+        ) from exc
+    except TransactionDispatchForbiddenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
+    except TransactionDispatchInvalidStateError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),

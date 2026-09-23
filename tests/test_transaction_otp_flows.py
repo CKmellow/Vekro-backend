@@ -43,6 +43,12 @@ from app.services.transaction import (
     submit_buyer_reconfirmation as submit_buyer_reconfirmation_service,
 )
 from app.services.transaction import (
+    submit_buyer_resolution_confirmation as submit_buyer_resolution_confirmation_service,
+)
+from app.services.transaction import (
+    submit_seller_resolution_confirmation as submit_seller_resolution_confirmation_service,
+)
+from app.services.transaction import (
     withhold_buyer_delivery_otp as withhold_buyer_delivery_otp_service,
 )
 from fastapi.testclient import TestClient
@@ -609,6 +615,138 @@ def test_buyer_reconfirmation_endpoint_returns_200(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == TransactionStatus.RESOLVED_RELEASE.value
+
+
+def test_confirm_resolved_buyer_requires_authentication() -> None:
+    client = TestClient(app)
+    response = client.post(f"/transactions/{uuid.uuid4()}/confirm-resolved-buyer")
+
+    assert response.status_code == 401
+
+
+def test_confirm_resolved_seller_requires_authentication() -> None:
+    client = TestClient(app)
+    response = client.post(f"/transactions/{uuid.uuid4()}/confirm-resolved-seller")
+
+    assert response.status_code == 401
+
+
+def test_confirm_resolved_buyer_rejects_seller_user(monkeypatch) -> None:
+    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/confirm-resolved-buyer",
+        headers=_csrf_headers(),
+    )
+
+    assert response.status_code == 403
+
+
+def test_confirm_resolved_seller_rejects_buyer_user(monkeypatch) -> None:
+    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/confirm-resolved-seller",
+        headers=_csrf_headers(),
+    )
+
+    assert response.status_code == 403
+
+
+def test_confirm_resolved_buyer_endpoint_returns_422_for_invalid_state(monkeypatch) -> None:
+    def fake_submit_buyer_resolution_confirmation(_db, transaction_id, buyer):
+        raise TransactionBuyerActionInvalidStateError(
+            "Transaction must be in resolved state for mutual confirmation closure."
+        )
+
+    monkeypatch.setattr(
+        transactions_router,
+        "submit_buyer_resolution_confirmation",
+        fake_submit_buyer_resolution_confirmation,
+    )
+
+    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/confirm-resolved-buyer",
+        headers=_csrf_headers(),
+    )
+
+    assert response.status_code == 422
+
+
+def test_confirm_resolved_seller_endpoint_returns_422_for_invalid_state(monkeypatch) -> None:
+    def fake_submit_seller_resolution_confirmation(_db, transaction_id, seller):
+        raise TransactionDispatchInvalidStateError(
+            "Transaction must be in resolved state for mutual confirmation closure."
+        )
+
+    monkeypatch.setattr(
+        transactions_router,
+        "submit_seller_resolution_confirmation",
+        fake_submit_seller_resolution_confirmation,
+    )
+
+    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/confirm-resolved-seller",
+        headers=_csrf_headers(),
+    )
+
+    assert response.status_code == 422
+
+
+def test_confirm_resolved_buyer_endpoint_returns_200(monkeypatch) -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.RESOLVED_RELEASE,
+    )
+
+    def fake_submit_buyer_resolution_confirmation(_db, transaction_id, buyer):
+        return transaction
+
+    monkeypatch.setattr(
+        transactions_router,
+        "submit_buyer_resolution_confirmation",
+        fake_submit_buyer_resolution_confirmation,
+    )
+
+    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    response = client.post(
+        f"/transactions/{transaction.id}/confirm-resolved-buyer",
+        headers=_csrf_headers(),
+    )
+
+    assert response.status_code == 200
+
+
+def test_confirm_resolved_seller_endpoint_returns_200(monkeypatch) -> None:
+    seller = _build_user(UserRole.SELLER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=uuid.uuid4(),
+        seller_id=seller.id,
+        listing_id=listing.id,
+        status=TransactionStatus.RESOLVED_RELEASE,
+    )
+
+    def fake_submit_seller_resolution_confirmation(_db, transaction_id, seller):
+        return transaction
+
+    monkeypatch.setattr(
+        transactions_router,
+        "submit_seller_resolution_confirmation",
+        fake_submit_seller_resolution_confirmation,
+    )
+
+    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    response = client.post(
+        f"/transactions/{transaction.id}/confirm-resolved-seller",
+        headers=_csrf_headers(),
+    )
+
+    assert response.status_code == 200
 
 
 def test_otp_withhold_endpoint_returns_200(monkeypatch) -> None:
@@ -1354,6 +1492,141 @@ def test_service_buyer_reconfirmation_second_no_escalates() -> None:
     assert dispute.status == DisputeStatus.ESCALATED_ADMIN_REVIEW
     assert dispute.evidence.get("buyer_reconfirm_rejection_count") == 2
     assert dispute.escalated_at is not None
+
+
+def test_service_mutual_confirmation_requires_both_parties() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    seller = _build_user(UserRole.SELLER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=seller.id,
+        listing_id=listing.id,
+        status=TransactionStatus.RESOLVED_RELEASE,
+    )
+    dispute = Dispute(
+        id=uuid.uuid4(),
+        transaction_id=transaction.id,
+        opened_by_user_id=buyer.id,
+        dispute_type=DisputeType.FUNCTIONAL,
+        status=DisputeStatus.RESOLVED_RELEASE,
+        reason="resolved_release",
+        description="Resolution accepted.",
+        evidence={
+            "buyer_confirmed_resolved": False,
+            "seller_confirmed_resolved": False,
+        },
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    class _QueryResult:
+        def __init__(self, item):
+            self._item = item
+
+        def scalars(self):
+            return self
+
+        def first(self):
+            return self._item
+
+    class _FakeDbWithDispute(_FakeDb):
+        def __init__(self, *, dispute_item, **kwargs):
+            super().__init__(**kwargs)
+            self._dispute_item = dispute_item
+
+        def execute(self, query):
+            _ = query
+            return _QueryResult(self._dispute_item)
+
+    db = _FakeDbWithDispute(
+        transactions=[transaction],
+        listings=[listing],
+        dispute_item=dispute,
+    )
+
+    buyer_view = submit_buyer_resolution_confirmation_service(
+        cast(Session, db),
+        transaction_id=transaction.id,
+        buyer=buyer,
+    )
+
+    assert buyer_view.status == TransactionStatus.RESOLVED_RELEASE
+    assert dispute.evidence.get("buyer_confirmed_resolved") is True
+    assert dispute.evidence.get("seller_confirmed_resolved") is False
+    assert dispute.resolved_at is None
+
+    seller_view = submit_seller_resolution_confirmation_service(
+        cast(Session, db),
+        transaction_id=transaction.id,
+        seller=seller,
+    )
+
+    assert seller_view.status == TransactionStatus.RESOLVED_RELEASE
+    assert dispute.evidence.get("buyer_confirmed_resolved") is True
+    assert dispute.evidence.get("seller_confirmed_resolved") is True
+    assert dispute.resolved_at is not None
+
+
+def test_service_mutual_confirmation_no_unilateral_closure() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.RESOLVED_REFUND,
+    )
+    dispute = Dispute(
+        id=uuid.uuid4(),
+        transaction_id=transaction.id,
+        opened_by_user_id=buyer.id,
+        dispute_type=DisputeType.FUNCTIONAL,
+        status=DisputeStatus.RESOLVED_REFUND,
+        reason="resolved_refund",
+        description="Refund closed.",
+        evidence={
+            "buyer_confirmed_resolved": False,
+            "seller_confirmed_resolved": False,
+        },
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    class _QueryResult:
+        def __init__(self, item):
+            self._item = item
+
+        def scalars(self):
+            return self
+
+        def first(self):
+            return self._item
+
+    class _FakeDbWithDispute(_FakeDb):
+        def __init__(self, *, dispute_item, **kwargs):
+            super().__init__(**kwargs)
+            self._dispute_item = dispute_item
+
+        def execute(self, query):
+            _ = query
+            return _QueryResult(self._dispute_item)
+
+    db = _FakeDbWithDispute(
+        transactions=[transaction],
+        listings=[listing],
+        dispute_item=dispute,
+    )
+
+    submit_buyer_resolution_confirmation_service(
+        cast(Session, db),
+        transaction_id=transaction.id,
+        buyer=buyer,
+    )
+
+    assert dispute.evidence.get("buyer_confirmed_resolved") is True
+    assert dispute.evidence.get("seller_confirmed_resolved") is False
+    assert dispute.resolved_at is None
 
 
 def test_service_otp_withhold_moves_to_refunded_and_records_history() -> None:

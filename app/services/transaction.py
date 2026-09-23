@@ -680,6 +680,55 @@ def _create_buyer_reconfirmation_notifications(
     db.add(seller_notification)
 
 
+def _create_mutual_confirmation_notifications(
+    db: Session,
+    transaction: Transaction,
+    *,
+    now: datetime,
+    actor: str,
+    buyer_confirmed: bool,
+    seller_confirmed: bool,
+    closed: bool,
+) -> None:
+    payload = {
+        "transaction_id": str(transaction.id),
+        "listing_id": str(transaction.listing_id),
+        "actor": actor,
+        "buyer_confirmed_resolved": buyer_confirmed,
+        "seller_confirmed_resolved": seller_confirmed,
+        "closed": closed,
+        "transition_history": [
+            {
+                "from": TransactionStatus.RESOLVED_RELEASE.value,
+                "to": transaction.status.value,
+                "at": now.isoformat(),
+                "initiated_by": actor,
+                "reason": "mutual_confirmation_update",
+            }
+        ],
+    }
+
+    buyer_notification = Notification(
+        user_id=transaction.buyer_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Resolution confirmation updated",
+        message="Mutual resolution confirmation status was updated.",
+        payload=payload,
+    )
+    seller_notification = Notification(
+        user_id=transaction.seller_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Resolution confirmation updated",
+        message="Mutual resolution confirmation status was updated.",
+        payload=payload,
+    )
+
+    db.add(buyer_notification)
+    db.add(seller_notification)
+
+
 def _normalize_functional_issue_category(category: str) -> str:
     normalized = category.strip().lower().replace("-", "_").replace(" ", "_")
     if normalized not in FUNCTIONAL_ISSUE_CATEGORIES:
@@ -1403,6 +1452,152 @@ def submit_buyer_reconfirmation(
         buyer.id,
         accepted,
         prior_rejections,
+    )
+
+    return transaction
+
+
+def submit_buyer_resolution_confirmation(
+    db: Session,
+    transaction_id: uuid.UUID,
+    buyer: User,
+) -> Transaction:
+    if buyer.role != UserRole.BUYER:
+        raise TransactionValidationError("Only buyers can confirm resolution closure.")
+
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None:
+        raise TransactionNotFoundForBuyerActionError("Transaction not found.")
+
+    if transaction.buyer_id != buyer.id:
+        raise TransactionBuyerActionForbiddenError(
+            "Only the transaction buyer can confirm resolution closure."
+        )
+
+    if transaction.status not in {
+        TransactionStatus.RESOLVED_RELEASE,
+        TransactionStatus.RESOLVED_REFUND,
+        TransactionStatus.RESOLVED_SPLIT,
+    }:
+        raise TransactionBuyerActionInvalidStateError(
+            "Transaction must be in resolved state for mutual confirmation closure."
+        )
+
+    dispute = (
+        db.execute(
+            select(Dispute)
+            .where(Dispute.transaction_id == transaction.id)
+            .order_by(Dispute.created_at.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+    if dispute is None:
+        raise TransactionValidationError("Dispute context not found for resolution confirmation.")
+
+    evidence = dict(dispute.evidence or {})
+    evidence["buyer_confirmed_resolved"] = True
+    seller_confirmed = bool(evidence.get("seller_confirmed_resolved", False))
+    evidence["seller_confirmed_resolved"] = seller_confirmed
+    dispute.evidence = evidence
+
+    now = datetime.now(UTC)
+    closed = seller_confirmed
+    if closed:
+        dispute.resolved_at = dispute.resolved_at or now
+
+    _create_mutual_confirmation_notifications(
+        db,
+        transaction=transaction,
+        now=now,
+        actor="buyer",
+        buyer_confirmed=True,
+        seller_confirmed=seller_confirmed,
+        closed=closed,
+    )
+    db.commit()
+    db.refresh(transaction)
+
+    audit_logger.info(
+        "resolution_confirmation transaction_id=%s actor=buyer buyer_confirmed=true "
+        "seller_confirmed=%s closed=%s",
+        transaction.id,
+        seller_confirmed,
+        closed,
+    )
+
+    return transaction
+
+
+def submit_seller_resolution_confirmation(
+    db: Session,
+    transaction_id: uuid.UUID,
+    seller: User,
+) -> Transaction:
+    if seller.role != UserRole.SELLER:
+        raise TransactionValidationError("Only sellers can confirm resolution closure.")
+
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None:
+        raise TransactionNotFoundForDispatchError("Transaction not found.")
+
+    if transaction.seller_id != seller.id:
+        raise TransactionDispatchForbiddenError(
+            "Only the transaction seller can confirm resolution closure."
+        )
+
+    if transaction.status not in {
+        TransactionStatus.RESOLVED_RELEASE,
+        TransactionStatus.RESOLVED_REFUND,
+        TransactionStatus.RESOLVED_SPLIT,
+    }:
+        raise TransactionDispatchInvalidStateError(
+            "Transaction must be in resolved state for mutual confirmation closure."
+        )
+
+    dispute = (
+        db.execute(
+            select(Dispute)
+            .where(Dispute.transaction_id == transaction.id)
+            .order_by(Dispute.created_at.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+    if dispute is None:
+        raise TransactionValidationError("Dispute context not found for resolution confirmation.")
+
+    evidence = dict(dispute.evidence or {})
+    evidence["seller_confirmed_resolved"] = True
+    buyer_confirmed = bool(evidence.get("buyer_confirmed_resolved", False))
+    evidence["buyer_confirmed_resolved"] = buyer_confirmed
+    dispute.evidence = evidence
+
+    now = datetime.now(UTC)
+    closed = buyer_confirmed
+    if closed:
+        dispute.resolved_at = dispute.resolved_at or now
+
+    _create_mutual_confirmation_notifications(
+        db,
+        transaction=transaction,
+        now=now,
+        actor="seller",
+        buyer_confirmed=buyer_confirmed,
+        seller_confirmed=True,
+        closed=closed,
+    )
+    db.commit()
+    db.refresh(transaction)
+
+    audit_logger.info(
+        "resolution_confirmation transaction_id=%s actor=seller buyer_confirmed=%s "
+        "seller_confirmed=true closed=%s",
+        transaction.id,
+        buyer_confirmed,
+        closed,
     )
 
     return transaction

@@ -204,6 +204,16 @@ uvicorn app.main:app --reload
    - accepted=true transitions to resolved_release.
    - accepted=false transitions to return_received on first rejection, and escalated_admin_review on second rejection (one-retry cap).
    - Expected response: 200 on successful transition, 422 for invalid state, 403 for unauthorized buyer access, 404 when transaction is missing.
+- POST /transactions/{transaction_id}/confirm-resolved-buyer
+   - Purpose: buyer mutual-confirmation endpoint for resolved-state closure.
+   - Requires authenticated buyer session and CSRF header for the request.
+   - Tracks buyer_confirmed_resolved independently and does not allow unilateral closure.
+   - Expected response: 200 on successful confirmation update, 422 for invalid state, 403 for unauthorized buyer access, 404 when transaction is missing.
+- POST /transactions/{transaction_id}/confirm-resolved-seller
+   - Purpose: seller mutual-confirmation endpoint for resolved-state closure.
+   - Requires authenticated seller session and CSRF header for the request.
+   - Tracks seller_confirmed_resolved independently; closure is only considered complete when both buyer and seller confirmations are true.
+   - Expected response: 200 on successful confirmation update, 422 for invalid state, 403 for unauthorized seller access, 404 when transaction is missing.
 
 ## Payment Abstraction
 
@@ -327,3 +337,4 @@ Commands:
 - 2026-09-23: Milestone 6 Issue [M6] Implement seller received and 3-day auto-escalate completed with seller receipt endpoint, timeout-driven admin escalation fallback, and tests.
 - 2026-09-23: Milestone 6 Issue [M6] Implement seller resolution action endpoints completed with policy-gated seller actions, refund immediate close path, reconfirmation transitions, and tests.
 - 2026-09-23: Milestone 6 Issue [M6] Implement buyer reconfirmation with retry cap completed with accept/retry/escalate paths and tests.
+- 2026-09-23: Milestone 6 Issue [M6] Implement mutual-confirmation resolution gating completed with independent buyer/seller confirmation flags and bilateral closure enforcement.

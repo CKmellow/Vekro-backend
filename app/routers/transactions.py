@@ -42,6 +42,8 @@ from app.services.transaction import (
     mark_transaction_arrived,
     report_functional_issue,
     submit_buyer_reconfirmation,
+    submit_buyer_resolution_confirmation,
+    submit_seller_resolution_confirmation,
     withhold_buyer_delivery_otp,
 )
 
@@ -494,6 +496,88 @@ def submit_buyer_reconfirmation_for_transaction(
             detail=str(exc),
         ) from exc
     except TransactionBuyerActionInvalidStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    except TransactionValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    return TransactionResponse.model_validate(transaction)
+
+
+@router.post(
+    "/{transaction_id}/confirm-resolved-buyer",
+    response_model=TransactionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Buyer confirmation for mutual resolution closure",
+)
+def confirm_resolved_buyer_for_transaction(
+    transaction_id: uuid.UUID,
+    current_user: Annotated[User, Depends(require_buyer_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> TransactionResponse:
+    try:
+        transaction = submit_buyer_resolution_confirmation(
+            db,
+            transaction_id=transaction_id,
+            buyer=current_user,
+        )
+    except TransactionNotFoundForBuyerActionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found.",
+        ) from exc
+    except TransactionBuyerActionForbiddenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
+    except TransactionBuyerActionInvalidStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    except TransactionValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    return TransactionResponse.model_validate(transaction)
+
+
+@router.post(
+    "/{transaction_id}/confirm-resolved-seller",
+    response_model=TransactionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Seller confirmation for mutual resolution closure",
+)
+def confirm_resolved_seller_for_transaction(
+    transaction_id: uuid.UUID,
+    current_user: Annotated[User, Depends(require_seller_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> TransactionResponse:
+    try:
+        transaction = submit_seller_resolution_confirmation(
+            db,
+            transaction_id=transaction_id,
+            seller=current_user,
+        )
+    except TransactionNotFoundForDispatchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found.",
+        ) from exc
+    except TransactionDispatchForbiddenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
+    except TransactionDispatchInvalidStateError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),

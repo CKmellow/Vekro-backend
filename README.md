@@ -197,6 +197,13 @@ uvicorn app.main:app --reload
    - refund_issued transitions to refunded_buyer immediately; repair_shipped/replacement_shipped transition to awaiting_buyer_reconfirmation.
    - Action acceptance is gated by listing dispute_policy allowed_seller_actions when configured.
    - Expected response: 200 on successful transition, 422 for invalid state/action/policy-ineligible action, 403 for unauthorized seller access, 404 when transaction or listing is missing.
+- POST /transactions/{transaction_id}/buyer-reconfirmation
+   - Purpose: buyer endpoint to reconfirm seller remediation outcome.
+   - Requires authenticated buyer session and CSRF header for the request.
+   - Allowed only when transaction is in awaiting_buyer_reconfirmation.
+   - accepted=true transitions to resolved_release.
+   - accepted=false transitions to return_received on first rejection, and escalated_admin_review on second rejection (one-retry cap).
+   - Expected response: 200 on successful transition, 422 for invalid state, 403 for unauthorized buyer access, 404 when transaction is missing.
 
 ## Payment Abstraction
 
@@ -319,3 +326,4 @@ Commands:
 - 2026-09-23: Milestone 6 Issue [M6] Implement buyer sent-back and 3-day auto-cancel completed with dispute sent-back endpoint, timeout-driven auto-release fallback, and tests.
 - 2026-09-23: Milestone 6 Issue [M6] Implement seller received and 3-day auto-escalate completed with seller receipt endpoint, timeout-driven admin escalation fallback, and tests.
 - 2026-09-23: Milestone 6 Issue [M6] Implement seller resolution action endpoints completed with policy-gated seller actions, refund immediate close path, reconfirmation transitions, and tests.
+- 2026-09-23: Milestone 6 Issue [M6] Implement buyer reconfirmation with retry cap completed with accept/retry/escalate paths and tests.

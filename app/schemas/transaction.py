@@ -56,3 +56,8 @@ class ReportFunctionalIssueRequest(BaseModel):
 class SellerResolutionActionRequest(BaseModel):
     action: str = Field(min_length=3, max_length=64)
     notes: str | None = Field(default=None, max_length=2000)
+
+
+class BuyerReconfirmationRequest(BaseModel):
+    accepted: bool
+    notes: str | None = Field(default=None, max_length=2000)

@@ -40,6 +40,9 @@ from app.services.transaction import (
     report_functional_issue as report_functional_issue_service,
 )
 from app.services.transaction import (
+    submit_buyer_reconfirmation as submit_buyer_reconfirmation_service,
+)
+from app.services.transaction import (
     withhold_buyer_delivery_otp as withhold_buyer_delivery_otp_service,
 )
 from fastapi.testclient import TestClient
@@ -529,6 +532,83 @@ def test_seller_resolution_action_endpoint_returns_200(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == TransactionStatus.REFUNDED_BUYER.value
+
+
+def test_buyer_reconfirmation_requires_authentication() -> None:
+    client = TestClient(app)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/buyer-reconfirmation",
+        json={"accepted": True},
+    )
+
+    assert response.status_code == 401
+
+
+def test_buyer_reconfirmation_rejects_seller_user(monkeypatch) -> None:
+    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/buyer-reconfirmation",
+        headers=_csrf_headers(),
+        json={"accepted": True},
+    )
+
+    assert response.status_code == 403
+
+
+def test_buyer_reconfirmation_endpoint_returns_422_for_invalid_state(monkeypatch) -> None:
+    def fake_submit_buyer_reconfirmation(_db, transaction_id, buyer, accepted, notes):
+        raise TransactionBuyerActionInvalidStateError(
+            "Transaction must be in awaiting_buyer_reconfirmation state for buyer reconfirmation."
+        )
+
+    monkeypatch.setattr(
+        transactions_router,
+        "submit_buyer_reconfirmation",
+        fake_submit_buyer_reconfirmation,
+    )
+
+    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/buyer-reconfirmation",
+        headers=_csrf_headers(),
+        json={"accepted": False},
+    )
+
+    assert response.status_code == 422
+    assert (
+        response.json()["detail"]
+        == "Transaction must be in awaiting_buyer_reconfirmation state for buyer reconfirmation."
+    )
+
+
+def test_buyer_reconfirmation_endpoint_returns_200(monkeypatch) -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.RESOLVED_RELEASE,
+    )
+
+    def fake_submit_buyer_reconfirmation(_db, transaction_id, buyer, accepted, notes):
+        return transaction
+
+    monkeypatch.setattr(
+        transactions_router,
+        "submit_buyer_reconfirmation",
+        fake_submit_buyer_reconfirmation,
+    )
+
+    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    response = client.post(
+        f"/transactions/{transaction.id}/buyer-reconfirmation",
+        headers=_csrf_headers(),
+        json={"accepted": True, "notes": "Accepted repair shipment."},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == TransactionStatus.RESOLVED_RELEASE.value
 
 
 def test_otp_withhold_endpoint_returns_200(monkeypatch) -> None:
@@ -1089,6 +1169,191 @@ def test_service_seller_resolution_rejects_action_not_allowed_by_policy() -> Non
             action="repair_shipped",
             notes=None,
         )
+
+
+def test_service_buyer_reconfirmation_accept_releases_to_seller() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.AWAITING_BUYER_RECONFIRMATION,
+    )
+    dispute = Dispute(
+        id=uuid.uuid4(),
+        transaction_id=transaction.id,
+        opened_by_user_id=buyer.id,
+        dispute_type=DisputeType.FUNCTIONAL,
+        status=DisputeStatus.AWAITING_BUYER_RECONFIRMATION,
+        reason="repair_shipped",
+        description="Repair shipped.",
+        evidence={"buyer_reconfirm_rejection_count": 0},
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    class _QueryResult:
+        def __init__(self, item):
+            self._item = item
+
+        def scalars(self):
+            return self
+
+        def first(self):
+            return self._item
+
+    class _FakeDbWithDispute(_FakeDb):
+        def __init__(self, *, dispute_item, **kwargs):
+            super().__init__(**kwargs)
+            self._dispute_item = dispute_item
+
+        def execute(self, query):
+            _ = query
+            return _QueryResult(self._dispute_item)
+
+    db = _FakeDbWithDispute(
+        transactions=[transaction],
+        listings=[listing],
+        dispute_item=dispute,
+    )
+
+    resolved = submit_buyer_reconfirmation_service(
+        cast(Session, db),
+        transaction_id=transaction.id,
+        buyer=buyer,
+        accepted=True,
+        notes="Works now.",
+    )
+
+    assert resolved.status == TransactionStatus.RESOLVED_RELEASE
+    assert resolved.released_at is not None
+    assert db.committed is True
+    assert dispute.status == DisputeStatus.RESOLVED_RELEASE
+    assert dispute.resolved_at is not None
+
+
+def test_service_buyer_reconfirmation_first_no_reopens_once() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.AWAITING_BUYER_RECONFIRMATION,
+    )
+    dispute = Dispute(
+        id=uuid.uuid4(),
+        transaction_id=transaction.id,
+        opened_by_user_id=buyer.id,
+        dispute_type=DisputeType.FUNCTIONAL,
+        status=DisputeStatus.AWAITING_BUYER_RECONFIRMATION,
+        reason="replacement_shipped",
+        description="Replacement shipped.",
+        evidence={"buyer_reconfirm_rejection_count": 0},
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    class _QueryResult:
+        def __init__(self, item):
+            self._item = item
+
+        def scalars(self):
+            return self
+
+        def first(self):
+            return self._item
+
+    class _FakeDbWithDispute(_FakeDb):
+        def __init__(self, *, dispute_item, **kwargs):
+            super().__init__(**kwargs)
+            self._dispute_item = dispute_item
+
+        def execute(self, query):
+            _ = query
+            return _QueryResult(self._dispute_item)
+
+    db = _FakeDbWithDispute(
+        transactions=[transaction],
+        listings=[listing],
+        dispute_item=dispute,
+    )
+
+    reopened = submit_buyer_reconfirmation_service(
+        cast(Session, db),
+        transaction_id=transaction.id,
+        buyer=buyer,
+        accepted=False,
+        notes="Still failing.",
+    )
+
+    assert reopened.status == TransactionStatus.RETURN_RECEIVED
+    assert db.committed is True
+    assert dispute.status == DisputeStatus.RETURN_RECEIVED
+    assert dispute.evidence.get("buyer_reconfirm_rejection_count") == 1
+
+
+def test_service_buyer_reconfirmation_second_no_escalates() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=buyer.id,
+        seller_id=listing.seller_id,
+        listing_id=listing.id,
+        status=TransactionStatus.AWAITING_BUYER_RECONFIRMATION,
+    )
+    dispute = Dispute(
+        id=uuid.uuid4(),
+        transaction_id=transaction.id,
+        opened_by_user_id=buyer.id,
+        dispute_type=DisputeType.FUNCTIONAL,
+        status=DisputeStatus.AWAITING_BUYER_RECONFIRMATION,
+        reason="replacement_shipped",
+        description="Replacement shipped.",
+        evidence={"buyer_reconfirm_rejection_count": 1},
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    class _QueryResult:
+        def __init__(self, item):
+            self._item = item
+
+        def scalars(self):
+            return self
+
+        def first(self):
+            return self._item
+
+    class _FakeDbWithDispute(_FakeDb):
+        def __init__(self, *, dispute_item, **kwargs):
+            super().__init__(**kwargs)
+            self._dispute_item = dispute_item
+
+        def execute(self, query):
+            _ = query
+            return _QueryResult(self._dispute_item)
+
+    db = _FakeDbWithDispute(
+        transactions=[transaction],
+        listings=[listing],
+        dispute_item=dispute,
+    )
+
+    escalated = submit_buyer_reconfirmation_service(
+        cast(Session, db),
+        transaction_id=transaction.id,
+        buyer=buyer,
+        accepted=False,
+        notes="Second rejection.",
+    )
+
+    assert escalated.status == TransactionStatus.ESCALATED_ADMIN_REVIEW
+    assert db.committed is True
+    assert dispute.status == DisputeStatus.ESCALATED_ADMIN_REVIEW
+    assert dispute.evidence.get("buyer_reconfirm_rejection_count") == 2
+    assert dispute.escalated_at is not None
 
 
 def test_service_otp_withhold_moves_to_refunded_and_records_history() -> None:

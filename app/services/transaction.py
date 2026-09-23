@@ -113,6 +113,8 @@ SELLER_RESOLUTION_ACTION_MAP = {
     "replacement_shipped": SellerResolutionAction.REPLACEMENT_SHIPPED,
 }
 
+BUYER_RECONFIRMATION_RETRY_LIMIT = 1
+
 
 def create_transaction(
     db: Session,
@@ -600,6 +602,77 @@ def _create_seller_resolution_notifications(
         event_type=NotificationEventType.DISPUTE_UPDATED,
         title="Resolution action recorded",
         message="Your dispute resolution action has been recorded.",
+        payload=payload,
+    )
+
+    db.add(buyer_notification)
+    db.add(seller_notification)
+
+
+def _get_reconfirm_rejection_count(dispute: Dispute | None) -> int:
+    if dispute is None:
+        return 0
+    evidence = dispute.evidence or {}
+    value = evidence.get("buyer_reconfirm_rejection_count", 0)
+    if isinstance(value, int) and value >= 0:
+        return value
+    return 0
+
+
+def _set_reconfirm_rejection_count(dispute: Dispute, count: int) -> None:
+    evidence = dict(dispute.evidence or {})
+    evidence["buyer_reconfirm_rejection_count"] = count
+    dispute.evidence = evidence
+
+
+def _create_buyer_reconfirmation_notifications(
+    db: Session,
+    transaction: Transaction,
+    *,
+    now: datetime,
+    accepted: bool,
+    prior_rejections: int,
+) -> None:
+    if accepted:
+        target_status = TransactionStatus.RESOLVED_RELEASE.value
+        reason = "buyer_reconfirmation_accepted"
+    elif prior_rejections < BUYER_RECONFIRMATION_RETRY_LIMIT:
+        target_status = TransactionStatus.RETURN_RECEIVED.value
+        reason = "buyer_reconfirmation_rejected_retry"
+    else:
+        target_status = TransactionStatus.ESCALATED_ADMIN_REVIEW.value
+        reason = "buyer_reconfirmation_rejected_escalated"
+
+    payload = {
+        "transaction_id": str(transaction.id),
+        "listing_id": str(transaction.listing_id),
+        "accepted": accepted,
+        "prior_rejections": prior_rejections,
+        "transition_history": [
+            {
+                "from": TransactionStatus.AWAITING_BUYER_RECONFIRMATION.value,
+                "to": target_status,
+                "at": now.isoformat(),
+                "initiated_by": "buyer",
+                "reason": reason,
+            }
+        ],
+    }
+
+    buyer_notification = Notification(
+        user_id=transaction.buyer_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Buyer reconfirmation recorded",
+        message="Your reconfirmation response has been recorded.",
+        payload=payload,
+    )
+    seller_notification = Notification(
+        user_id=transaction.seller_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Buyer reconfirmation update",
+        message="Buyer reconfirmation response has updated the dispute state.",
         payload=payload,
     )
 
@@ -1248,6 +1321,88 @@ def apply_seller_resolution_action(
         transaction.status.value,
         seller.id,
         selected_action.value,
+    )
+
+    return transaction
+
+
+def submit_buyer_reconfirmation(
+    db: Session,
+    transaction_id: uuid.UUID,
+    buyer: User,
+    *,
+    accepted: bool,
+    notes: str | None = None,
+) -> Transaction:
+    if buyer.role != UserRole.BUYER:
+        raise TransactionValidationError("Only buyers can submit reconfirmation.")
+
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None:
+        raise TransactionNotFoundForBuyerActionError("Transaction not found.")
+
+    if transaction.buyer_id != buyer.id:
+        raise TransactionBuyerActionForbiddenError(
+            "Only the transaction buyer can submit reconfirmation."
+        )
+
+    if transaction.status != TransactionStatus.AWAITING_BUYER_RECONFIRMATION:
+        raise TransactionBuyerActionInvalidStateError(
+            "Transaction must be in awaiting_buyer_reconfirmation state for buyer reconfirmation."
+        )
+
+    dispute = (
+        db.execute(
+            select(Dispute)
+            .where(Dispute.transaction_id == transaction.id)
+            .order_by(Dispute.created_at.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+
+    now = datetime.now(UTC)
+    prior_rejections = _get_reconfirm_rejection_count(dispute)
+    if accepted:
+        transaction.status = TransactionStatus.RESOLVED_RELEASE
+        transaction.released_at = now
+        if dispute is not None:
+            dispute.status = DisputeStatus.RESOLVED_RELEASE
+            dispute.resolved_at = now
+    elif prior_rejections < BUYER_RECONFIRMATION_RETRY_LIMIT:
+        transaction.status = TransactionStatus.RETURN_RECEIVED
+        if dispute is not None:
+            _set_reconfirm_rejection_count(dispute, prior_rejections + 1)
+            dispute.status = DisputeStatus.RETURN_RECEIVED
+    else:
+        transaction.status = TransactionStatus.ESCALATED_ADMIN_REVIEW
+        if dispute is not None:
+            _set_reconfirm_rejection_count(dispute, prior_rejections + 1)
+            dispute.status = DisputeStatus.ESCALATED_ADMIN_REVIEW
+            dispute.escalated_at = now
+
+    if dispute is not None and notes:
+        dispute.seller_resolution_notes = notes.strip()
+
+    _create_buyer_reconfirmation_notifications(
+        db,
+        transaction=transaction,
+        now=now,
+        accepted=accepted,
+        prior_rejections=prior_rejections,
+    )
+    db.commit()
+    db.refresh(transaction)
+
+    audit_logger.info(
+        "transaction_transition transaction_id=%s from_status=awaiting_buyer_reconfirmation "
+        "to_status=%s buyer_id=%s accepted=%s prior_rejections=%s",
+        transaction.id,
+        transaction.status.value,
+        buyer.id,
+        accepted,
+        prior_rejections,
     )
 
     return transaction

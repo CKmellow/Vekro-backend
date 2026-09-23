@@ -8,6 +8,7 @@ from app.core.auth_context import require_buyer_user, require_seller_user
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.transaction import (
+    BuyerReconfirmationRequest,
     CreateTransactionRequest,
     OtpGiveRequest,
     PaymentCallbackRequest,
@@ -40,6 +41,7 @@ from app.services.transaction import (
     mark_seller_received,
     mark_transaction_arrived,
     report_functional_issue,
+    submit_buyer_reconfirmation,
     withhold_buyer_delivery_otp,
 )
 
@@ -451,6 +453,50 @@ def apply_seller_resolution_action_for_transaction(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Listing not found.",
+        ) from exc
+    except TransactionValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    return TransactionResponse.model_validate(transaction)
+
+
+@router.post(
+    "/{transaction_id}/buyer-reconfirmation",
+    response_model=TransactionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Submit buyer reconfirmation response (buyer only)",
+)
+def submit_buyer_reconfirmation_for_transaction(
+    transaction_id: uuid.UUID,
+    payload: BuyerReconfirmationRequest,
+    current_user: Annotated[User, Depends(require_buyer_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> TransactionResponse:
+    try:
+        transaction = submit_buyer_reconfirmation(
+            db,
+            transaction_id=transaction_id,
+            buyer=current_user,
+            accepted=payload.accepted,
+            notes=payload.notes,
+        )
+    except TransactionNotFoundForBuyerActionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found.",
+        ) from exc
+    except TransactionBuyerActionForbiddenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
+    except TransactionBuyerActionInvalidStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
         ) from exc
     except TransactionValidationError as exc:
         raise HTTPException(

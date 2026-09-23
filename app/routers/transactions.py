@@ -13,6 +13,7 @@ from app.schemas.transaction import (
     PaymentCallbackRequest,
     PaymentCallbackResponse,
     ReportFunctionalIssueRequest,
+    SellerResolutionActionRequest,
     TransactionResponse,
 )
 from app.services.transaction import (
@@ -30,6 +31,7 @@ from app.services.transaction import (
     TransactionNotFoundForCallbackError,
     TransactionNotFoundForDispatchError,
     TransactionValidationError,
+    apply_seller_resolution_action,
     confirm_buyer_delivery_otp,
     confirm_payment_callback,
     create_transaction,
@@ -400,6 +402,55 @@ def mark_seller_received_for_transaction(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
+        ) from exc
+    except TransactionValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    return TransactionResponse.model_validate(transaction)
+
+
+@router.post(
+    "/{transaction_id}/seller-resolution-action",
+    response_model=TransactionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Apply seller dispute resolution action (seller only)",
+)
+def apply_seller_resolution_action_for_transaction(
+    transaction_id: uuid.UUID,
+    payload: SellerResolutionActionRequest,
+    current_user: Annotated[User, Depends(require_seller_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> TransactionResponse:
+    try:
+        transaction = apply_seller_resolution_action(
+            db,
+            transaction_id=transaction_id,
+            seller=current_user,
+            action=payload.action,
+            notes=payload.notes,
+        )
+    except TransactionNotFoundForDispatchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found.",
+        ) from exc
+    except TransactionDispatchForbiddenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
+    except TransactionDispatchInvalidStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    except ListingNotFoundForTransactionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Listing not found.",
         ) from exc
     except TransactionValidationError as exc:
         raise HTTPException(

@@ -8,7 +8,7 @@ from app import main as app_main
 from app.core.security import hash_session_token
 from app.core.settings import get_settings
 from app.main import app
-from app.models.dispute import Dispute, DisputeStatus, DisputeType
+from app.models.dispute import Dispute, DisputeStatus, DisputeType, SellerResolutionAction
 from app.models.listing import Listing
 from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import Transaction, TransactionStatus
@@ -23,6 +23,9 @@ from app.services.transaction import (
     TransactionDispatchInvalidStateError,
     TransactionValidationError,
     run_timeout_jobs,
+)
+from app.services.transaction import (
+    apply_seller_resolution_action as apply_seller_resolution_action_service,
 )
 from app.services.transaction import (
     confirm_buyer_delivery_otp as confirm_buyer_delivery_otp_service,
@@ -105,6 +108,15 @@ def _build_listing(*, serialized: bool) -> Listing:
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
     )
+
+
+def _build_listing_with_allowed_actions(*, serialized: bool, allowed_actions: list[str]) -> Listing:
+    listing = _build_listing(serialized=serialized)
+    listing.dispute_policy = {
+        "resolution": "seller_review",
+        "allowed_seller_actions": allowed_actions,
+    }
+    return listing
 
 
 def _build_transaction(
@@ -440,6 +452,83 @@ def test_seller_received_endpoint_returns_200(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == TransactionStatus.RETURN_RECEIVED.value
+
+
+def test_seller_resolution_action_requires_authentication() -> None:
+    client = TestClient(app)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/seller-resolution-action",
+        json={"action": "refund_issued"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_seller_resolution_action_rejects_buyer_user(monkeypatch) -> None:
+    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/seller-resolution-action",
+        headers=_csrf_headers(),
+        json={"action": "refund_issued"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_seller_resolution_action_endpoint_returns_422_for_invalid_state(monkeypatch) -> None:
+    def fake_apply_seller_resolution_action(_db, transaction_id, seller, action, notes):
+        raise TransactionDispatchInvalidStateError(
+            "Transaction must be in return_received state for seller resolution actions."
+        )
+
+    monkeypatch.setattr(
+        transactions_router,
+        "apply_seller_resolution_action",
+        fake_apply_seller_resolution_action,
+    )
+
+    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    response = client.post(
+        f"/transactions/{uuid.uuid4()}/seller-resolution-action",
+        headers=_csrf_headers(),
+        json={"action": "refund_issued"},
+    )
+
+    assert response.status_code == 422
+    assert (
+        response.json()["detail"]
+        == "Transaction must be in return_received state for seller resolution actions."
+    )
+
+
+def test_seller_resolution_action_endpoint_returns_200(monkeypatch) -> None:
+    seller = _build_user(UserRole.SELLER)
+    listing = _build_listing(serialized=True)
+    transaction = _build_transaction(
+        buyer_id=uuid.uuid4(),
+        seller_id=seller.id,
+        listing_id=listing.id,
+        status=TransactionStatus.REFUNDED_BUYER,
+    )
+
+    def fake_apply_seller_resolution_action(_db, transaction_id, seller, action, notes):
+        return transaction
+
+    monkeypatch.setattr(
+        transactions_router,
+        "apply_seller_resolution_action",
+        fake_apply_seller_resolution_action,
+    )
+
+    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    response = client.post(
+        f"/transactions/{transaction.id}/seller-resolution-action",
+        headers=_csrf_headers(),
+        json={"action": "refund_issued", "notes": "Refund processed"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == TransactionStatus.REFUNDED_BUYER.value
 
 
 def test_otp_withhold_endpoint_returns_200(monkeypatch) -> None:
@@ -824,6 +913,181 @@ def test_service_seller_received_rejects_non_return_in_transit_state() -> None:
             cast(Session, db),
             transaction_id=transaction.id,
             seller=seller,
+        )
+
+
+def test_service_seller_resolution_refund_issues_refund_and_closes() -> None:
+    seller = _build_user(UserRole.SELLER)
+    listing = _build_listing_with_allowed_actions(
+        serialized=True,
+        allowed_actions=["refund_issued", "repair_shipped", "replacement_shipped"],
+    )
+    transaction = _build_transaction(
+        buyer_id=uuid.uuid4(),
+        seller_id=seller.id,
+        listing_id=listing.id,
+        status=TransactionStatus.RETURN_RECEIVED,
+    )
+    dispute = Dispute(
+        id=uuid.uuid4(),
+        transaction_id=transaction.id,
+        opened_by_user_id=transaction.buyer_id,
+        dispute_type=DisputeType.FUNCTIONAL,
+        status=DisputeStatus.OPEN,
+        reason="not_working",
+        description="Does not boot.",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    class _QueryResult:
+        def __init__(self, item):
+            self._item = item
+
+        def scalars(self):
+            return self
+
+        def first(self):
+            return self._item
+
+    class _FakeDbWithDispute(_FakeDb):
+        def __init__(self, *, dispute_item, **kwargs):
+            super().__init__(**kwargs)
+            self._dispute_item = dispute_item
+
+        def execute(self, query):
+            _ = query
+            return _QueryResult(self._dispute_item)
+
+    db = _FakeDbWithDispute(
+        transactions=[transaction],
+        listings=[listing],
+        dispute_item=dispute,
+    )
+
+    resolved = apply_seller_resolution_action_service(
+        cast(Session, db),
+        transaction_id=transaction.id,
+        seller=seller,
+        action="refund_issued",
+        notes="Refund approved and sent.",
+    )
+
+    assert resolved.status == TransactionStatus.REFUNDED_BUYER
+    assert resolved.refunded_at is not None
+    assert db.committed is True
+    assert dispute.seller_resolution_action == SellerResolutionAction.REFUND_ISSUED
+    assert dispute.status == DisputeStatus.RESOLVED_REFUND
+    assert dispute.resolved_at is not None
+    assert dispute.seller_resolution_notes == "Refund approved and sent."
+
+    notifications = [item for item in db.added if isinstance(item, Notification)]
+    assert len(notifications) == 2
+    assert all(item.event_type == NotificationEventType.DISPUTE_UPDATED for item in notifications)
+    assert all(item.payload.get("action") == "refund_issued" for item in notifications)
+
+
+def test_service_seller_resolution_repair_moves_to_awaiting_buyer_reconfirmation() -> None:
+    seller = _build_user(UserRole.SELLER)
+    listing = _build_listing_with_allowed_actions(
+        serialized=True,
+        allowed_actions=["refund_issued", "repair_shipped", "replacement_shipped"],
+    )
+    transaction = _build_transaction(
+        buyer_id=uuid.uuid4(),
+        seller_id=seller.id,
+        listing_id=listing.id,
+        status=TransactionStatus.RETURN_RECEIVED,
+    )
+    dispute = Dispute(
+        id=uuid.uuid4(),
+        transaction_id=transaction.id,
+        opened_by_user_id=transaction.buyer_id,
+        dispute_type=DisputeType.FUNCTIONAL,
+        status=DisputeStatus.OPEN,
+        reason="missing_parts",
+        description="Missing charger.",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    class _QueryResult:
+        def __init__(self, item):
+            self._item = item
+
+        def scalars(self):
+            return self
+
+        def first(self):
+            return self._item
+
+    class _FakeDbWithDispute(_FakeDb):
+        def __init__(self, *, dispute_item, **kwargs):
+            super().__init__(**kwargs)
+            self._dispute_item = dispute_item
+
+        def execute(self, query):
+            _ = query
+            return _QueryResult(self._dispute_item)
+
+    db = _FakeDbWithDispute(
+        transactions=[transaction],
+        listings=[listing],
+        dispute_item=dispute,
+    )
+
+    awaiting = apply_seller_resolution_action_service(
+        cast(Session, db),
+        transaction_id=transaction.id,
+        seller=seller,
+        action="repair_shipped",
+        notes="Sent repaired replacement board.",
+    )
+
+    assert awaiting.status == TransactionStatus.AWAITING_BUYER_RECONFIRMATION
+    assert db.committed is True
+    assert dispute.seller_resolution_action == SellerResolutionAction.REPAIR_SHIPPED
+    assert dispute.status == DisputeStatus.AWAITING_BUYER_RECONFIRMATION
+    assert dispute.resolved_at is None
+
+
+def test_service_seller_resolution_rejects_action_not_allowed_by_policy() -> None:
+    seller = _build_user(UserRole.SELLER)
+    listing = _build_listing_with_allowed_actions(
+        serialized=True,
+        allowed_actions=["refund_issued"],
+    )
+    transaction = _build_transaction(
+        buyer_id=uuid.uuid4(),
+        seller_id=seller.id,
+        listing_id=listing.id,
+        status=TransactionStatus.RETURN_RECEIVED,
+    )
+
+    class _QueryResult:
+        def scalars(self):
+            return self
+
+        def first(self):
+            return None
+
+    class _FakeDbWithoutDispute(_FakeDb):
+        def execute(self, query):
+            _ = query
+            return _QueryResult()
+
+    db = _FakeDbWithoutDispute(transactions=[transaction], listings=[listing])
+
+    with pytest.raises(
+        TransactionValidationError,
+        match="Seller resolution action is not allowed by listing dispute policy.",
+    ):
+        apply_seller_resolution_action_service(
+            cast(Session, db),
+            transaction_id=transaction.id,
+            seller=seller,
+            action="repair_shipped",
+            notes=None,
         )
 
 

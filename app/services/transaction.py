@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import hash_session_token, verify_hashed_token
 from app.core.settings import get_settings
-from app.models.dispute import Dispute, DisputeStatus, DisputeType
+from app.models.dispute import Dispute, DisputeStatus, DisputeType, SellerResolutionAction
 from app.models.listing import Listing
 from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import Transaction, TransactionStatus
@@ -106,6 +106,12 @@ FUNCTIONAL_ISSUE_CATEGORIES = frozenset(
         "other",
     }
 )
+
+SELLER_RESOLUTION_ACTION_MAP = {
+    "refund_issued": SellerResolutionAction.REFUND_ISSUED,
+    "repair_shipped": SellerResolutionAction.REPAIR_SHIPPED,
+    "replacement_shipped": SellerResolutionAction.REPLACEMENT_SHIPPED,
+}
 
 
 def create_transaction(
@@ -536,6 +542,64 @@ def _create_seller_received_timeout_notifications(
         event_type=NotificationEventType.SYSTEM_TIMEOUT,
         title="Dispute auto-escalated",
         message="Return receipt was not confirmed in time; dispute escalated for admin review.",
+        payload=payload,
+    )
+
+    db.add(buyer_notification)
+    db.add(seller_notification)
+
+
+def _normalize_seller_resolution_action(action: str) -> SellerResolutionAction:
+    normalized = action.strip().lower().replace("-", "_").replace(" ", "_")
+    mapped = SELLER_RESOLUTION_ACTION_MAP.get(normalized)
+    if mapped is None:
+        allowed_actions = ", ".join(sorted(SELLER_RESOLUTION_ACTION_MAP.keys()))
+        raise TransactionValidationError(
+            f"Invalid seller resolution action. Allowed actions: {allowed_actions}."
+        )
+    return mapped
+
+
+def _create_seller_resolution_notifications(
+    db: Session,
+    transaction: Transaction,
+    *,
+    now: datetime,
+    action: SellerResolutionAction,
+) -> None:
+    to_status = transaction.status.value
+    transition_history = [
+        {
+            "from": TransactionStatus.RETURN_RECEIVED.value,
+            "to": to_status,
+            "at": now.isoformat(),
+            "initiated_by": "seller",
+            "reason": action.value,
+        }
+    ]
+    payload = {
+        "transaction_id": str(transaction.id),
+        "listing_id": str(transaction.listing_id),
+        "action": action.value,
+        "transition_history": transition_history,
+        "refunded_at": transaction.refunded_at.isoformat() if transaction.refunded_at else None,
+        "released_at": transaction.released_at.isoformat() if transaction.released_at else None,
+    }
+
+    buyer_notification = Notification(
+        user_id=transaction.buyer_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Seller resolution submitted",
+        message="Seller submitted a dispute resolution action.",
+        payload=payload,
+    )
+    seller_notification = Notification(
+        user_id=transaction.seller_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Resolution action recorded",
+        message="Your dispute resolution action has been recorded.",
         payload=payload,
     )
 
@@ -1095,6 +1159,95 @@ def mark_seller_received(
         "to_status=return_received seller_id=%s",
         transaction.id,
         seller.id,
+    )
+
+    return transaction
+
+
+def apply_seller_resolution_action(
+    db: Session,
+    transaction_id: uuid.UUID,
+    seller: User,
+    *,
+    action: str,
+    notes: str | None = None,
+) -> Transaction:
+    if seller.role != UserRole.SELLER:
+        raise TransactionValidationError("Only sellers can apply resolution actions.")
+
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None:
+        raise TransactionNotFoundForDispatchError("Transaction not found.")
+
+    if transaction.seller_id != seller.id:
+        raise TransactionDispatchForbiddenError(
+            "Only the transaction seller can apply resolution actions."
+        )
+
+    if transaction.status != TransactionStatus.RETURN_RECEIVED:
+        raise TransactionDispatchInvalidStateError(
+            "Transaction must be in return_received state for seller resolution actions."
+        )
+
+    listing = db.get(Listing, transaction.listing_id)
+    if listing is None:
+        raise ListingNotFoundForTransactionError("Listing not found.")
+
+    selected_action = _normalize_seller_resolution_action(action)
+    dispute_policy = listing.dispute_policy or {}
+    allowed_actions = dispute_policy.get("allowed_seller_actions")
+    if isinstance(allowed_actions, list) and allowed_actions:
+        normalized_allowed_actions = {
+            str(item).strip().lower().replace("-", "_").replace(" ", "_")
+            for item in allowed_actions
+        }
+        if selected_action.value not in normalized_allowed_actions:
+            raise TransactionValidationError(
+                "Seller resolution action is not allowed by listing dispute policy."
+            )
+
+    now = datetime.now(UTC)
+    if selected_action == SellerResolutionAction.REFUND_ISSUED:
+        transaction.status = TransactionStatus.REFUNDED_BUYER
+        transaction.refunded_at = now
+    else:
+        transaction.status = TransactionStatus.AWAITING_BUYER_RECONFIRMATION
+
+    dispute = (
+        db.execute(
+            select(Dispute)
+            .where(Dispute.transaction_id == transaction.id)
+            .order_by(Dispute.created_at.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+    if dispute is not None:
+        dispute.seller_resolution_action = selected_action
+        dispute.seller_resolution_notes = notes.strip() if notes else None
+        if selected_action == SellerResolutionAction.REFUND_ISSUED:
+            dispute.status = DisputeStatus.RESOLVED_REFUND
+            dispute.resolved_at = now
+        else:
+            dispute.status = DisputeStatus.AWAITING_BUYER_RECONFIRMATION
+
+    _create_seller_resolution_notifications(
+        db,
+        transaction=transaction,
+        now=now,
+        action=selected_action,
+    )
+    db.commit()
+    db.refresh(transaction)
+
+    audit_logger.info(
+        "transaction_transition transaction_id=%s from_status=return_received "
+        "to_status=%s seller_id=%s action=%s",
+        transaction.id,
+        transaction.status.value,
+        seller.id,
+        selected_action.value,
     )
 
     return transaction

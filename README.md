@@ -189,6 +189,14 @@ uvicorn app.main:app --reload
    - Allowed only when transaction is in return_in_transit.
    - Transitions return_in_transit -> return_received.
    - Expected response: 200 on successful transition, 422 for invalid state, 403 for unauthorized seller access, 404 when transaction is missing.
+- POST /transactions/{transaction_id}/seller-resolution-action
+   - Purpose: seller endpoint to apply dispute resolution actions after return receipt.
+   - Requires authenticated seller session and CSRF header for the request.
+   - Allowed only when transaction is in return_received.
+   - Supported actions: refund_issued, repair_shipped, replacement_shipped.
+   - refund_issued transitions to refunded_buyer immediately; repair_shipped/replacement_shipped transition to awaiting_buyer_reconfirmation.
+   - Action acceptance is gated by listing dispute_policy allowed_seller_actions when configured.
+   - Expected response: 200 on successful transition, 422 for invalid state/action/policy-ineligible action, 403 for unauthorized seller access, 404 when transaction or listing is missing.
 
 ## Payment Abstraction
 
@@ -310,3 +318,4 @@ Commands:
 - 2026-09-22: Milestone 5 Issue [M5] Implement report-functional-issue endpoint completed with hold-window/serialized gating, category validation with other admin-escalation routing, disputed_functional transition, and tests.
 - 2026-09-23: Milestone 6 Issue [M6] Implement buyer sent-back and 3-day auto-cancel completed with dispute sent-back endpoint, timeout-driven auto-release fallback, and tests.
 - 2026-09-23: Milestone 6 Issue [M6] Implement seller received and 3-day auto-escalate completed with seller receipt endpoint, timeout-driven admin escalation fallback, and tests.
+- 2026-09-23: Milestone 6 Issue [M6] Implement seller resolution action endpoints completed with policy-gated seller actions, refund immediate close path, reconfirmation transitions, and tests.

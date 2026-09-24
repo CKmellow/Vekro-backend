@@ -214,6 +214,12 @@ uvicorn app.main:app --reload
    - Requires authenticated seller session and CSRF header for the request.
    - Tracks seller_confirmed_resolved independently; closure is only considered complete when both buyer and seller confirmations are true.
    - Expected response: 200 on successful confirmation update, 422 for invalid state, 403 for unauthorized seller access, 404 when transaction is missing.
+- GET /admin/disputes/escalation-queue
+   - Purpose: admin-only escalation queue endpoint listing disputes awaiting review.
+   - Requires authenticated admin session.
+   - Returns only disputes in escalated_admin_review state.
+   - Includes triage summary context (dispute, transaction, listing, buyer/seller, reason, description, timestamps).
+   - Expected response: 200 on success, 403 for non-admin access, 401 without authentication.
 
 ## Payment Abstraction
 
@@ -338,3 +344,4 @@ Commands:
 - 2026-09-23: Milestone 6 Issue [M6] Implement seller resolution action endpoints completed with policy-gated seller actions, refund immediate close path, reconfirmation transitions, and tests.
 - 2026-09-23: Milestone 6 Issue [M6] Implement buyer reconfirmation with retry cap completed with accept/retry/escalate paths and tests.
 - 2026-09-23: Milestone 6 Issue [M6] Implement mutual-confirmation resolution gating completed with independent buyer/seller confirmation flags and bilateral closure enforcement.
+- 2026-09-24: Milestone 7 Issue [M7] Build admin escalation queue endpoint completed with admin-only access controls, escalated-only filtering, triage summary payload, and tests.

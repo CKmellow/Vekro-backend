@@ -220,6 +220,12 @@ uvicorn app.main:app --reload
    - Returns only disputes in escalated_admin_review state.
    - Includes triage summary context (dispute, transaction, listing, buyer/seller, reason, description, timestamps).
    - Expected response: 200 on success, 403 for non-admin access, 401 without authentication.
+- GET /admin/disputes/{dispute_id}/timeline
+   - Purpose: admin-only dispute case timeline detail endpoint.
+   - Requires authenticated admin session.
+   - Returns dispute context, transaction context, participant ids, and ordered timeline events.
+   - Timeline includes dispute lifecycle anchors (opened/escalated/resolved when available) plus notification events for audit detail.
+   - Expected response: 200 on success, 404 when dispute case is missing, 403 for non-admin access, 401 without authentication.
 
 ## Payment Abstraction
 
@@ -345,3 +351,4 @@ Commands:
 - 2026-09-23: Milestone 6 Issue [M6] Implement buyer reconfirmation with retry cap completed with accept/retry/escalate paths and tests.
 - 2026-09-23: Milestone 6 Issue [M6] Implement mutual-confirmation resolution gating completed with independent buyer/seller confirmation flags and bilateral closure enforcement.
 - 2026-09-24: Milestone 7 Issue [M7] Build admin escalation queue endpoint completed with admin-only access controls, escalated-only filtering, triage summary payload, and tests.
+- 2026-09-24: Milestone 7 Issue [M7] Build dispute case timeline detail endpoint completed with admin-only access controls, dispute+transaction context payload, ordered lifecycle/notification timeline events, and tests.

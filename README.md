@@ -226,6 +226,12 @@ uvicorn app.main:app --reload
    - Returns dispute context, transaction context, participant ids, and ordered timeline events.
    - Timeline includes dispute lifecycle anchors (opened/escalated/resolved when available) plus notification events for audit detail.
    - Expected response: 200 on success, 404 when dispute case is missing, 403 for non-admin access, 401 without authentication.
+- POST /admin/disputes/{dispute_id}/force-resolve
+   - Purpose: admin-only endpoint to force-resolve escalated dispute cases.
+   - Requires authenticated admin session.
+   - Requires `decision` in {refund, release, split} and a non-empty `reason`.
+   - Applies decision-specific terminal transitions to both dispute and transaction records and stores admin decision context.
+   - Expected response: 200 on success, 422 for invalid state/validation, 404 when dispute case is missing, 403 for non-admin access, 401 without authentication.
 
 ## Payment Abstraction
 
@@ -352,3 +358,4 @@ Commands:
 - 2026-09-23: Milestone 6 Issue [M6] Implement mutual-confirmation resolution gating completed with independent buyer/seller confirmation flags and bilateral closure enforcement.
 - 2026-09-24: Milestone 7 Issue [M7] Build admin escalation queue endpoint completed with admin-only access controls, escalated-only filtering, triage summary payload, and tests.
 - 2026-09-24: Milestone 7 Issue [M7] Build dispute case timeline detail endpoint completed with admin-only access controls, dispute+transaction context payload, ordered lifecycle/notification timeline events, and tests.
+- 2026-09-24: Milestone 7 Issue [M7] Build admin force-resolve endpoint completed with decision+reason validation, decision-driven resolved state transitions, persisted admin decision context, and tests.

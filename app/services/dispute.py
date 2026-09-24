@@ -1,17 +1,25 @@
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.dispute import Dispute, DisputeStatus, DisputeType
-from app.models.notification import Notification
+from app.models.dispute import AdminDecision, Dispute, DisputeStatus, DisputeType
+from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import Transaction, TransactionStatus
 
 
 class DisputeCaseNotFoundError(Exception):
+    pass
+
+
+class DisputeCaseInvalidStateError(Exception):
+    pass
+
+
+class DisputeDecisionReasonRequiredError(Exception):
     pass
 
 
@@ -59,6 +67,19 @@ class DisputeCaseTimeline:
     escalated_at: datetime | None
     resolved_at: datetime | None
     timeline_events: list[DisputeTimelineEvent]
+
+
+@dataclass(frozen=True)
+class AdminForceResolveResult:
+    dispute_id: uuid.UUID
+    transaction_id: uuid.UUID
+    decision: AdminDecision
+    reason: str
+    dispute_status: DisputeStatus
+    transaction_status: TransactionStatus
+    resolved_at: datetime
+    released_at: datetime | None
+    refunded_at: datetime | None
 
 
 def list_escalated_disputes(db: Session) -> list[EscalationQueueItem]:
@@ -179,3 +200,125 @@ def get_dispute_case_timeline(db: Session, dispute_id: uuid.UUID) -> DisputeCase
         resolved_at=dispute.resolved_at,
         timeline_events=timeline_events,
     )
+
+
+def force_resolve_dispute_case(
+    db: Session,
+    dispute_id: uuid.UUID,
+    *,
+    decision: AdminDecision,
+    reason: str,
+) -> AdminForceResolveResult:
+    normalized_reason = reason.strip()
+    if not normalized_reason:
+        raise DisputeDecisionReasonRequiredError("Admin reason is required.")
+
+    dispute = db.get(Dispute, dispute_id)
+    if dispute is None:
+        raise DisputeCaseNotFoundError("Dispute not found.")
+
+    transaction = db.get(Transaction, dispute.transaction_id)
+    if transaction is None:
+        raise DisputeCaseNotFoundError("Transaction for dispute not found.")
+
+    if dispute.status != DisputeStatus.ESCALATED_ADMIN_REVIEW:
+        raise DisputeCaseInvalidStateError(
+            "Dispute must be in escalated_admin_review for admin force resolve."
+        )
+
+    if transaction.status != TransactionStatus.ESCALATED_ADMIN_REVIEW:
+        raise DisputeCaseInvalidStateError(
+            "Transaction must be in escalated_admin_review for admin force resolve."
+        )
+
+    now = datetime.now(UTC)
+    prior_transaction_status = transaction.status
+    prior_dispute_status = dispute.status
+
+    transaction.released_at = None
+    transaction.refunded_at = None
+    dispute.split_ratio = None
+
+    if decision == AdminDecision.REFUND:
+        transaction.status = TransactionStatus.RESOLVED_REFUND
+        transaction.refunded_at = now
+        dispute.status = DisputeStatus.RESOLVED_REFUND
+    elif decision == AdminDecision.RELEASE:
+        transaction.status = TransactionStatus.RESOLVED_RELEASE
+        transaction.released_at = now
+        dispute.status = DisputeStatus.RESOLVED_RELEASE
+    else:
+        transaction.status = TransactionStatus.RESOLVED_SPLIT
+        transaction.released_at = now
+        transaction.refunded_at = now
+        dispute.status = DisputeStatus.RESOLVED_SPLIT
+        dispute.split_ratio = Decimal("0.5000")
+
+    dispute.admin_decision = decision
+    dispute.admin_reason = normalized_reason
+    dispute.resolved_at = now
+
+    _create_admin_decision_notifications(
+        db,
+        transaction=transaction,
+        dispute=dispute,
+        reason=normalized_reason,
+        prior_transaction_status=prior_transaction_status,
+        prior_dispute_status=prior_dispute_status,
+    )
+
+    db.commit()
+    db.refresh(transaction)
+    db.refresh(dispute)
+
+    return AdminForceResolveResult(
+        dispute_id=dispute.id,
+        transaction_id=transaction.id,
+        decision=decision,
+        reason=normalized_reason,
+        dispute_status=dispute.status,
+        transaction_status=transaction.status,
+        resolved_at=dispute.resolved_at or now,
+        released_at=transaction.released_at,
+        refunded_at=transaction.refunded_at,
+    )
+
+
+def _create_admin_decision_notifications(
+    db: Session,
+    *,
+    transaction: Transaction,
+    dispute: Dispute,
+    reason: str,
+    prior_transaction_status: TransactionStatus,
+    prior_dispute_status: DisputeStatus,
+) -> None:
+    payload = {
+        "decision": dispute.admin_decision.value if dispute.admin_decision else None,
+        "reason": reason,
+        "dispute_id": str(dispute.id),
+        "transition": {
+            "transaction": {
+                "from": prior_transaction_status.value,
+                "to": transaction.status.value,
+            },
+            "dispute": {
+                "from": prior_dispute_status.value,
+                "to": dispute.status.value,
+            },
+        },
+    }
+    title = "Admin dispute decision"
+    message = f"Dispute was resolved by admin as {dispute.admin_decision.value}."
+
+    for recipient_id in (transaction.buyer_id, transaction.seller_id):
+        db.add(
+            Notification(
+                user_id=recipient_id,
+                transaction_id=transaction.id,
+                event_type=NotificationEventType.ADMIN_DECISION,
+                title=title,
+                message=message,
+                payload=payload,
+            )
+        )

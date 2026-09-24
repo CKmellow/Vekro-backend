@@ -1,11 +1,11 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StringConstraints
 
-from app.models.dispute import DisputeStatus, DisputeType
+from app.models.dispute import AdminDecision, DisputeStatus, DisputeType
 from app.models.transaction import TransactionStatus
 
 
@@ -56,3 +56,22 @@ class DisputeCaseTimelineResponse(BaseModel):
     escalated_at: datetime | None
     resolved_at: datetime | None
     timeline_events: list[DisputeTimelineEventResponse]
+
+
+class AdminForceResolveRequest(BaseModel):
+    decision: AdminDecision
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class AdminForceResolveResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    dispute_id: uuid.UUID
+    transaction_id: uuid.UUID
+    decision: AdminDecision
+    reason: str
+    dispute_status: DisputeStatus
+    transaction_status: TransactionStatus
+    resolved_at: datetime
+    released_at: datetime | None
+    refunded_at: datetime | None

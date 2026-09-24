@@ -7,9 +7,17 @@ from sqlalchemy.orm import Session
 from app.core.auth_context import require_admin_user
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.dispute import DisputeCaseTimelineResponse, EscalationQueueItemResponse
+from app.schemas.dispute import (
+    AdminForceResolveRequest,
+    AdminForceResolveResponse,
+    DisputeCaseTimelineResponse,
+    EscalationQueueItemResponse,
+)
 from app.services.dispute import (
+    DisputeCaseInvalidStateError,
     DisputeCaseNotFoundError,
+    DisputeDecisionReasonRequiredError,
+    force_resolve_dispute_case,
     get_dispute_case_timeline,
     list_escalated_disputes,
 )
@@ -53,3 +61,42 @@ def get_admin_dispute_case_timeline(
         ) from exc
 
     return DisputeCaseTimelineResponse.model_validate(case)
+
+
+@router.post(
+    "/{dispute_id}/force-resolve",
+    response_model=AdminForceResolveResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Force resolve an escalated dispute case",
+)
+def admin_force_resolve_dispute_case(
+    dispute_id: uuid.UUID,
+    payload: AdminForceResolveRequest,
+    current_user: Annotated[User, Depends(require_admin_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminForceResolveResponse:
+    _ = current_user
+    try:
+        result = force_resolve_dispute_case(
+            db,
+            dispute_id=dispute_id,
+            decision=payload.decision,
+            reason=payload.reason,
+        )
+    except DisputeCaseNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dispute case not found.",
+        ) from exc
+    except DisputeDecisionReasonRequiredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except DisputeCaseInvalidStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    return AdminForceResolveResponse.model_validate(result)

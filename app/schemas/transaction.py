@@ -51,3 +51,13 @@ class ReportFunctionalIssueRequest(BaseModel):
     category: str = Field(min_length=2, max_length=64)
     description: str = Field(min_length=5, max_length=2000)
     evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+class SellerResolutionActionRequest(BaseModel):
+    action: str = Field(min_length=3, max_length=64)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class BuyerReconfirmationRequest(BaseModel):
+    accepted: bool
+    notes: str | None = Field(default=None, max_length=2000)

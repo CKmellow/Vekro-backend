@@ -177,6 +177,43 @@ uvicorn app.main:app --reload
    - Category must match one of: not_working, damaged_on_arrival, missing_parts, not_as_described, other.
    - Category other routes dispute directly to admin escalation; all valid reports transition hold_24h -> disputed_functional.
    - Expected response: 200 on successful report transition, 422 for invalid state/category, 403 for unauthorized buyer access, 404 when transaction or listing is missing.
+- POST /transactions/{transaction_id}/buyer-sent-back
+   - Purpose: buyer endpoint to confirm return shipment in functional-dispute flow.
+   - Requires authenticated buyer session and CSRF header for the request.
+   - Allowed only when transaction is in disputed_functional.
+   - Transitions disputed_functional -> return_in_transit.
+   - Expected response: 200 on successful transition, 422 for invalid state, 403 for unauthorized buyer access, 404 when transaction is missing.
+- POST /transactions/{transaction_id}/seller-received
+   - Purpose: seller endpoint to confirm receipt of returned item in dispute flow.
+   - Requires authenticated seller session and CSRF header for the request.
+   - Allowed only when transaction is in return_in_transit.
+   - Transitions return_in_transit -> return_received.
+   - Expected response: 200 on successful transition, 422 for invalid state, 403 for unauthorized seller access, 404 when transaction is missing.
+- POST /transactions/{transaction_id}/seller-resolution-action
+   - Purpose: seller endpoint to apply dispute resolution actions after return receipt.
+   - Requires authenticated seller session and CSRF header for the request.
+   - Allowed only when transaction is in return_received.
+   - Supported actions: refund_issued, repair_shipped, replacement_shipped.
+   - refund_issued transitions to refunded_buyer immediately; repair_shipped/replacement_shipped transition to awaiting_buyer_reconfirmation.
+   - Action acceptance is gated by listing dispute_policy allowed_seller_actions when configured.
+   - Expected response: 200 on successful transition, 422 for invalid state/action/policy-ineligible action, 403 for unauthorized seller access, 404 when transaction or listing is missing.
+- POST /transactions/{transaction_id}/buyer-reconfirmation
+   - Purpose: buyer endpoint to reconfirm seller remediation outcome.
+   - Requires authenticated buyer session and CSRF header for the request.
+   - Allowed only when transaction is in awaiting_buyer_reconfirmation.
+   - accepted=true transitions to resolved_release.
+   - accepted=false transitions to return_received on first rejection, and escalated_admin_review on second rejection (one-retry cap).
+   - Expected response: 200 on successful transition, 422 for invalid state, 403 for unauthorized buyer access, 404 when transaction is missing.
+- POST /transactions/{transaction_id}/confirm-resolved-buyer
+   - Purpose: buyer mutual-confirmation endpoint for resolved-state closure.
+   - Requires authenticated buyer session and CSRF header for the request.
+   - Tracks buyer_confirmed_resolved independently and does not allow unilateral closure.
+   - Expected response: 200 on successful confirmation update, 422 for invalid state, 403 for unauthorized buyer access, 404 when transaction is missing.
+- POST /transactions/{transaction_id}/confirm-resolved-seller
+   - Purpose: seller mutual-confirmation endpoint for resolved-state closure.
+   - Requires authenticated seller session and CSRF header for the request.
+   - Tracks seller_confirmed_resolved independently; closure is only considered complete when both buyer and seller confirmations are true.
+   - Expected response: 200 on successful confirmation update, 422 for invalid state, 403 for unauthorized seller access, 404 when transaction is missing.
 
 ## Payment Abstraction
 
@@ -193,6 +230,8 @@ uvicorn app.main:app --reload
 - Hold auto-release rule (~24 hours from hold_started_at): auto-releases hold_24h transactions to released when no report/dispute transition has occurred.
 - Timeout sweeps are idempotent by status-gated eligibility queries so already-transitioned records are skipped on subsequent runs.
 - Timeout transitions emit SYSTEM_TIMEOUT notifications with transition history payload for audit traceability.
+- Dispute sent-back timeout rule (~3 days from disputed_functional): auto-cancels dispute and releases escrow to seller when buyer never marks sent-back.
+- Seller-received timeout rule (~3 days from return_in_transit): auto-escalates dispute to escalated_admin_review when seller never confirms receipt.
 
 ## Security Hardening
 
@@ -294,3 +333,8 @@ Commands:
 - 2026-09-22: Milestone 5 Issue [M5] Implement serialized OTP-give to HOLD_24H completed with hold_started_at persistence, non-serialized release path preservation, and tests.
 - 2026-09-22: Milestone 5 Issue [M5] Implement 24-hour HOLD_24H auto-release job completed with idempotent eligibility sweep, transition-history notifications, and tests.
 - 2026-09-22: Milestone 5 Issue [M5] Implement report-functional-issue endpoint completed with hold-window/serialized gating, category validation with other admin-escalation routing, disputed_functional transition, and tests.
+- 2026-09-23: Milestone 6 Issue [M6] Implement buyer sent-back and 3-day auto-cancel completed with dispute sent-back endpoint, timeout-driven auto-release fallback, and tests.
+- 2026-09-23: Milestone 6 Issue [M6] Implement seller received and 3-day auto-escalate completed with seller receipt endpoint, timeout-driven admin escalation fallback, and tests.
+- 2026-09-23: Milestone 6 Issue [M6] Implement seller resolution action endpoints completed with policy-gated seller actions, refund immediate close path, reconfirmation transitions, and tests.
+- 2026-09-23: Milestone 6 Issue [M6] Implement buyer reconfirmation with retry cap completed with accept/retry/escalate paths and tests.
+- 2026-09-23: Milestone 6 Issue [M6] Implement mutual-confirmation resolution gating completed with independent buyer/seller confirmation flags and bilateral closure enforcement.

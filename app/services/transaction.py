@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import hash_session_token, verify_hashed_token
 from app.core.settings import get_settings
-from app.models.dispute import Dispute, DisputeStatus, DisputeType
+from app.models.dispute import Dispute, DisputeStatus, DisputeType, SellerResolutionAction
 from app.models.listing import Listing
 from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import Transaction, TransactionStatus
@@ -93,6 +93,8 @@ class TimeoutSweepResult:
     at_door_timeout_count: int
     no_dispatch_timeout_count: int
     hold_auto_release_count: int
+    dispute_buyer_sent_back_timeout_count: int
+    dispute_seller_received_timeout_count: int
 
 
 FUNCTIONAL_ISSUE_CATEGORIES = frozenset(
@@ -104,6 +106,14 @@ FUNCTIONAL_ISSUE_CATEGORIES = frozenset(
         "other",
     }
 )
+
+SELLER_RESOLUTION_ACTION_MAP = {
+    "refund_issued": SellerResolutionAction.REFUND_ISSUED,
+    "repair_shipped": SellerResolutionAction.REPAIR_SHIPPED,
+    "replacement_shipped": SellerResolutionAction.REPLACEMENT_SHIPPED,
+}
+
+BUYER_RECONFIRMATION_RETRY_LIMIT = 1
 
 
 def create_transaction(
@@ -356,6 +366,362 @@ def _create_timeout_notifications(
         event_type=NotificationEventType.SYSTEM_TIMEOUT,
         title="System timeout transition",
         message="A timeout rule executed and updated this transaction workflow.",
+        payload=payload,
+    )
+
+    db.add(buyer_notification)
+    db.add(seller_notification)
+
+
+def _create_dispute_buyer_sent_back_notifications(
+    db: Session,
+    transaction: Transaction,
+    *,
+    now: datetime,
+    initiated_by: str,
+    reason: str,
+) -> None:
+    payload = {
+        "transaction_id": str(transaction.id),
+        "listing_id": str(transaction.listing_id),
+        "reason": reason,
+        "initiated_by": initiated_by,
+        "transition_history": [
+            {
+                "from": TransactionStatus.DISPUTED_FUNCTIONAL.value,
+                "to": TransactionStatus.RETURN_IN_TRANSIT.value,
+                "at": now.isoformat(),
+                "initiated_by": initiated_by,
+                "reason": reason,
+            }
+        ],
+    }
+
+    buyer_notification = Notification(
+        user_id=transaction.buyer_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Buyer marked item sent back",
+        message="Return shipment has been marked and dispute moved to return in transit.",
+        payload=payload,
+    )
+    seller_notification = Notification(
+        user_id=transaction.seller_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Buyer initiated return shipment",
+        message="Buyer marked the item as sent back and dispute moved to return in transit.",
+        payload=payload,
+    )
+
+    db.add(buyer_notification)
+    db.add(seller_notification)
+
+
+def _create_dispute_auto_cancel_notifications(
+    db: Session,
+    transaction: Transaction,
+    *,
+    now: datetime,
+) -> None:
+    payload = {
+        "transaction_id": str(transaction.id),
+        "listing_id": str(transaction.listing_id),
+        "reason": "dispute_buyer_sent_back_timeout_3d",
+        "initiated_by": "system",
+        "transition_history": [
+            {
+                "from": TransactionStatus.DISPUTED_FUNCTIONAL.value,
+                "to": TransactionStatus.RELEASED.value,
+                "at": now.isoformat(),
+                "initiated_by": "system",
+                "reason": "dispute_buyer_sent_back_timeout_3d",
+            }
+        ],
+        "released_at": transaction.released_at.isoformat() if transaction.released_at else None,
+    }
+
+    buyer_notification = Notification(
+        user_id=transaction.buyer_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.SYSTEM_TIMEOUT,
+        title="Dispute auto-canceled",
+        message="Dispute timed out without buyer sent-back confirmation and escrow was released.",
+        payload=payload,
+    )
+    seller_notification = Notification(
+        user_id=transaction.seller_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.SYSTEM_TIMEOUT,
+        title="Dispute auto-canceled",
+        message="Dispute timed out without buyer sent-back confirmation and escrow was released.",
+        payload=payload,
+    )
+
+    db.add(buyer_notification)
+    db.add(seller_notification)
+
+
+def _create_seller_received_notifications(
+    db: Session,
+    transaction: Transaction,
+    *,
+    now: datetime,
+) -> None:
+    payload = {
+        "transaction_id": str(transaction.id),
+        "listing_id": str(transaction.listing_id),
+        "reason": "seller_received",
+        "initiated_by": "seller",
+        "transition_history": [
+            {
+                "from": TransactionStatus.RETURN_IN_TRANSIT.value,
+                "to": TransactionStatus.RETURN_RECEIVED.value,
+                "at": now.isoformat(),
+                "initiated_by": "seller",
+                "reason": "seller_received",
+            }
+        ],
+    }
+
+    buyer_notification = Notification(
+        user_id=transaction.buyer_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Seller confirmed return receipt",
+        message="Seller has confirmed receiving the returned item.",
+        payload=payload,
+    )
+    seller_notification = Notification(
+        user_id=transaction.seller_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Return receipt confirmed",
+        message="You confirmed return receipt and dispute moved to return received.",
+        payload=payload,
+    )
+
+    db.add(buyer_notification)
+    db.add(seller_notification)
+
+
+def _create_seller_received_timeout_notifications(
+    db: Session,
+    transaction: Transaction,
+    *,
+    now: datetime,
+) -> None:
+    payload = {
+        "transaction_id": str(transaction.id),
+        "listing_id": str(transaction.listing_id),
+        "reason": "seller_received_timeout_3d",
+        "initiated_by": "system",
+        "transition_history": [
+            {
+                "from": TransactionStatus.RETURN_IN_TRANSIT.value,
+                "to": TransactionStatus.ESCALATED_ADMIN_REVIEW.value,
+                "at": now.isoformat(),
+                "initiated_by": "system",
+                "reason": "seller_received_timeout_3d",
+            }
+        ],
+        "escalated_at": now.isoformat(),
+    }
+
+    buyer_notification = Notification(
+        user_id=transaction.buyer_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.SYSTEM_TIMEOUT,
+        title="Dispute auto-escalated",
+        message=(
+            "Seller did not confirm return receipt in time; " "dispute escalated for admin review."
+        ),
+        payload=payload,
+    )
+    seller_notification = Notification(
+        user_id=transaction.seller_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.SYSTEM_TIMEOUT,
+        title="Dispute auto-escalated",
+        message="Return receipt was not confirmed in time; dispute escalated for admin review.",
+        payload=payload,
+    )
+
+    db.add(buyer_notification)
+    db.add(seller_notification)
+
+
+def _normalize_seller_resolution_action(action: str) -> SellerResolutionAction:
+    normalized = action.strip().lower().replace("-", "_").replace(" ", "_")
+    mapped = SELLER_RESOLUTION_ACTION_MAP.get(normalized)
+    if mapped is None:
+        allowed_actions = ", ".join(sorted(SELLER_RESOLUTION_ACTION_MAP.keys()))
+        raise TransactionValidationError(
+            f"Invalid seller resolution action. Allowed actions: {allowed_actions}."
+        )
+    return mapped
+
+
+def _create_seller_resolution_notifications(
+    db: Session,
+    transaction: Transaction,
+    *,
+    now: datetime,
+    action: SellerResolutionAction,
+) -> None:
+    to_status = transaction.status.value
+    transition_history = [
+        {
+            "from": TransactionStatus.RETURN_RECEIVED.value,
+            "to": to_status,
+            "at": now.isoformat(),
+            "initiated_by": "seller",
+            "reason": action.value,
+        }
+    ]
+    payload = {
+        "transaction_id": str(transaction.id),
+        "listing_id": str(transaction.listing_id),
+        "action": action.value,
+        "transition_history": transition_history,
+        "refunded_at": transaction.refunded_at.isoformat() if transaction.refunded_at else None,
+        "released_at": transaction.released_at.isoformat() if transaction.released_at else None,
+    }
+
+    buyer_notification = Notification(
+        user_id=transaction.buyer_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Seller resolution submitted",
+        message="Seller submitted a dispute resolution action.",
+        payload=payload,
+    )
+    seller_notification = Notification(
+        user_id=transaction.seller_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Resolution action recorded",
+        message="Your dispute resolution action has been recorded.",
+        payload=payload,
+    )
+
+    db.add(buyer_notification)
+    db.add(seller_notification)
+
+
+def _get_reconfirm_rejection_count(dispute: Dispute | None) -> int:
+    if dispute is None:
+        return 0
+    evidence = dispute.evidence or {}
+    value = evidence.get("buyer_reconfirm_rejection_count", 0)
+    if isinstance(value, int) and value >= 0:
+        return value
+    return 0
+
+
+def _set_reconfirm_rejection_count(dispute: Dispute, count: int) -> None:
+    evidence = dict(dispute.evidence or {})
+    evidence["buyer_reconfirm_rejection_count"] = count
+    dispute.evidence = evidence
+
+
+def _create_buyer_reconfirmation_notifications(
+    db: Session,
+    transaction: Transaction,
+    *,
+    now: datetime,
+    accepted: bool,
+    prior_rejections: int,
+) -> None:
+    if accepted:
+        target_status = TransactionStatus.RESOLVED_RELEASE.value
+        reason = "buyer_reconfirmation_accepted"
+    elif prior_rejections < BUYER_RECONFIRMATION_RETRY_LIMIT:
+        target_status = TransactionStatus.RETURN_RECEIVED.value
+        reason = "buyer_reconfirmation_rejected_retry"
+    else:
+        target_status = TransactionStatus.ESCALATED_ADMIN_REVIEW.value
+        reason = "buyer_reconfirmation_rejected_escalated"
+
+    payload = {
+        "transaction_id": str(transaction.id),
+        "listing_id": str(transaction.listing_id),
+        "accepted": accepted,
+        "prior_rejections": prior_rejections,
+        "transition_history": [
+            {
+                "from": TransactionStatus.AWAITING_BUYER_RECONFIRMATION.value,
+                "to": target_status,
+                "at": now.isoformat(),
+                "initiated_by": "buyer",
+                "reason": reason,
+            }
+        ],
+    }
+
+    buyer_notification = Notification(
+        user_id=transaction.buyer_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Buyer reconfirmation recorded",
+        message="Your reconfirmation response has been recorded.",
+        payload=payload,
+    )
+    seller_notification = Notification(
+        user_id=transaction.seller_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Buyer reconfirmation update",
+        message="Buyer reconfirmation response has updated the dispute state.",
+        payload=payload,
+    )
+
+    db.add(buyer_notification)
+    db.add(seller_notification)
+
+
+def _create_mutual_confirmation_notifications(
+    db: Session,
+    transaction: Transaction,
+    *,
+    now: datetime,
+    actor: str,
+    buyer_confirmed: bool,
+    seller_confirmed: bool,
+    closed: bool,
+) -> None:
+    payload = {
+        "transaction_id": str(transaction.id),
+        "listing_id": str(transaction.listing_id),
+        "actor": actor,
+        "buyer_confirmed_resolved": buyer_confirmed,
+        "seller_confirmed_resolved": seller_confirmed,
+        "closed": closed,
+        "transition_history": [
+            {
+                "from": TransactionStatus.RESOLVED_RELEASE.value,
+                "to": transaction.status.value,
+                "at": now.isoformat(),
+                "initiated_by": actor,
+                "reason": "mutual_confirmation_update",
+            }
+        ],
+    }
+
+    buyer_notification = Notification(
+        user_id=transaction.buyer_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Resolution confirmation updated",
+        message="Mutual resolution confirmation status was updated.",
+        payload=payload,
+    )
+    seller_notification = Notification(
+        user_id=transaction.seller_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.DISPUTE_UPDATED,
+        title="Resolution confirmation updated",
+        message="Mutual resolution confirmation status was updated.",
         payload=payload,
     )
 
@@ -834,6 +1200,409 @@ def report_functional_issue(
     return transaction
 
 
+def mark_buyer_sent_back(
+    db: Session,
+    transaction_id: uuid.UUID,
+    buyer: User,
+) -> Transaction:
+    if buyer.role != UserRole.BUYER:
+        raise TransactionValidationError("Only buyers can mark sent-back action.")
+
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None:
+        raise TransactionNotFoundForBuyerActionError("Transaction not found.")
+
+    if transaction.buyer_id != buyer.id:
+        raise TransactionBuyerActionForbiddenError(
+            "Only the transaction buyer can mark sent-back action."
+        )
+
+    if transaction.status != TransactionStatus.DISPUTED_FUNCTIONAL:
+        raise TransactionBuyerActionInvalidStateError(
+            "Transaction must be in disputed_functional state for buyer sent-back action."
+        )
+
+    now = datetime.now(UTC)
+    transaction.status = TransactionStatus.RETURN_IN_TRANSIT
+    _create_dispute_buyer_sent_back_notifications(
+        db,
+        transaction=transaction,
+        now=now,
+        initiated_by="buyer",
+        reason="buyer_sent_back",
+    )
+    db.commit()
+    db.refresh(transaction)
+
+    audit_logger.info(
+        "transaction_transition transaction_id=%s from_status=disputed_functional "
+        "to_status=return_in_transit buyer_id=%s",
+        transaction.id,
+        buyer.id,
+    )
+
+    return transaction
+
+
+def mark_seller_received(
+    db: Session,
+    transaction_id: uuid.UUID,
+    seller: User,
+) -> Transaction:
+    if seller.role != UserRole.SELLER:
+        raise TransactionValidationError("Only sellers can mark seller-received action.")
+
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None:
+        raise TransactionNotFoundForDispatchError("Transaction not found.")
+
+    if transaction.seller_id != seller.id:
+        raise TransactionDispatchForbiddenError(
+            "Only the transaction seller can mark seller-received action."
+        )
+
+    if transaction.status != TransactionStatus.RETURN_IN_TRANSIT:
+        raise TransactionDispatchInvalidStateError(
+            "Transaction must be in return_in_transit state for seller received action."
+        )
+
+    now = datetime.now(UTC)
+    transaction.status = TransactionStatus.RETURN_RECEIVED
+    _create_seller_received_notifications(
+        db,
+        transaction=transaction,
+        now=now,
+    )
+    db.commit()
+    db.refresh(transaction)
+
+    audit_logger.info(
+        "transaction_transition transaction_id=%s from_status=return_in_transit "
+        "to_status=return_received seller_id=%s",
+        transaction.id,
+        seller.id,
+    )
+
+    return transaction
+
+
+def apply_seller_resolution_action(
+    db: Session,
+    transaction_id: uuid.UUID,
+    seller: User,
+    *,
+    action: str,
+    notes: str | None = None,
+) -> Transaction:
+    if seller.role != UserRole.SELLER:
+        raise TransactionValidationError("Only sellers can apply resolution actions.")
+
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None:
+        raise TransactionNotFoundForDispatchError("Transaction not found.")
+
+    if transaction.seller_id != seller.id:
+        raise TransactionDispatchForbiddenError(
+            "Only the transaction seller can apply resolution actions."
+        )
+
+    if transaction.status != TransactionStatus.RETURN_RECEIVED:
+        raise TransactionDispatchInvalidStateError(
+            "Transaction must be in return_received state for seller resolution actions."
+        )
+
+    listing = db.get(Listing, transaction.listing_id)
+    if listing is None:
+        raise ListingNotFoundForTransactionError("Listing not found.")
+
+    selected_action = _normalize_seller_resolution_action(action)
+    dispute_policy = listing.dispute_policy or {}
+    allowed_actions = dispute_policy.get("allowed_seller_actions")
+    if isinstance(allowed_actions, list) and allowed_actions:
+        normalized_allowed_actions = {
+            str(item).strip().lower().replace("-", "_").replace(" ", "_")
+            for item in allowed_actions
+        }
+        if selected_action.value not in normalized_allowed_actions:
+            raise TransactionValidationError(
+                "Seller resolution action is not allowed by listing dispute policy."
+            )
+
+    now = datetime.now(UTC)
+    if selected_action == SellerResolutionAction.REFUND_ISSUED:
+        transaction.status = TransactionStatus.REFUNDED_BUYER
+        transaction.refunded_at = now
+    else:
+        transaction.status = TransactionStatus.AWAITING_BUYER_RECONFIRMATION
+
+    dispute = (
+        db.execute(
+            select(Dispute)
+            .where(Dispute.transaction_id == transaction.id)
+            .order_by(Dispute.created_at.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+    if dispute is not None:
+        dispute.seller_resolution_action = selected_action
+        dispute.seller_resolution_notes = notes.strip() if notes else None
+        if selected_action == SellerResolutionAction.REFUND_ISSUED:
+            dispute.status = DisputeStatus.RESOLVED_REFUND
+            dispute.resolved_at = now
+        else:
+            dispute.status = DisputeStatus.AWAITING_BUYER_RECONFIRMATION
+
+    _create_seller_resolution_notifications(
+        db,
+        transaction=transaction,
+        now=now,
+        action=selected_action,
+    )
+    db.commit()
+    db.refresh(transaction)
+
+    audit_logger.info(
+        "transaction_transition transaction_id=%s from_status=return_received "
+        "to_status=%s seller_id=%s action=%s",
+        transaction.id,
+        transaction.status.value,
+        seller.id,
+        selected_action.value,
+    )
+
+    return transaction
+
+
+def submit_buyer_reconfirmation(
+    db: Session,
+    transaction_id: uuid.UUID,
+    buyer: User,
+    *,
+    accepted: bool,
+    notes: str | None = None,
+) -> Transaction:
+    if buyer.role != UserRole.BUYER:
+        raise TransactionValidationError("Only buyers can submit reconfirmation.")
+
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None:
+        raise TransactionNotFoundForBuyerActionError("Transaction not found.")
+
+    if transaction.buyer_id != buyer.id:
+        raise TransactionBuyerActionForbiddenError(
+            "Only the transaction buyer can submit reconfirmation."
+        )
+
+    if transaction.status != TransactionStatus.AWAITING_BUYER_RECONFIRMATION:
+        raise TransactionBuyerActionInvalidStateError(
+            "Transaction must be in awaiting_buyer_reconfirmation state for buyer reconfirmation."
+        )
+
+    dispute = (
+        db.execute(
+            select(Dispute)
+            .where(Dispute.transaction_id == transaction.id)
+            .order_by(Dispute.created_at.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+
+    now = datetime.now(UTC)
+    prior_rejections = _get_reconfirm_rejection_count(dispute)
+    if accepted:
+        transaction.status = TransactionStatus.RESOLVED_RELEASE
+        transaction.released_at = now
+        if dispute is not None:
+            dispute.status = DisputeStatus.RESOLVED_RELEASE
+            dispute.resolved_at = now
+    elif prior_rejections < BUYER_RECONFIRMATION_RETRY_LIMIT:
+        transaction.status = TransactionStatus.RETURN_RECEIVED
+        if dispute is not None:
+            _set_reconfirm_rejection_count(dispute, prior_rejections + 1)
+            dispute.status = DisputeStatus.RETURN_RECEIVED
+    else:
+        transaction.status = TransactionStatus.ESCALATED_ADMIN_REVIEW
+        if dispute is not None:
+            _set_reconfirm_rejection_count(dispute, prior_rejections + 1)
+            dispute.status = DisputeStatus.ESCALATED_ADMIN_REVIEW
+            dispute.escalated_at = now
+
+    if dispute is not None and notes:
+        dispute.seller_resolution_notes = notes.strip()
+
+    _create_buyer_reconfirmation_notifications(
+        db,
+        transaction=transaction,
+        now=now,
+        accepted=accepted,
+        prior_rejections=prior_rejections,
+    )
+    db.commit()
+    db.refresh(transaction)
+
+    audit_logger.info(
+        "transaction_transition transaction_id=%s from_status=awaiting_buyer_reconfirmation "
+        "to_status=%s buyer_id=%s accepted=%s prior_rejections=%s",
+        transaction.id,
+        transaction.status.value,
+        buyer.id,
+        accepted,
+        prior_rejections,
+    )
+
+    return transaction
+
+
+def submit_buyer_resolution_confirmation(
+    db: Session,
+    transaction_id: uuid.UUID,
+    buyer: User,
+) -> Transaction:
+    if buyer.role != UserRole.BUYER:
+        raise TransactionValidationError("Only buyers can confirm resolution closure.")
+
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None:
+        raise TransactionNotFoundForBuyerActionError("Transaction not found.")
+
+    if transaction.buyer_id != buyer.id:
+        raise TransactionBuyerActionForbiddenError(
+            "Only the transaction buyer can confirm resolution closure."
+        )
+
+    if transaction.status not in {
+        TransactionStatus.RESOLVED_RELEASE,
+        TransactionStatus.RESOLVED_REFUND,
+        TransactionStatus.RESOLVED_SPLIT,
+    }:
+        raise TransactionBuyerActionInvalidStateError(
+            "Transaction must be in resolved state for mutual confirmation closure."
+        )
+
+    dispute = (
+        db.execute(
+            select(Dispute)
+            .where(Dispute.transaction_id == transaction.id)
+            .order_by(Dispute.created_at.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+    if dispute is None:
+        raise TransactionValidationError("Dispute context not found for resolution confirmation.")
+
+    evidence = dict(dispute.evidence or {})
+    evidence["buyer_confirmed_resolved"] = True
+    seller_confirmed = bool(evidence.get("seller_confirmed_resolved", False))
+    evidence["seller_confirmed_resolved"] = seller_confirmed
+    dispute.evidence = evidence
+
+    now = datetime.now(UTC)
+    closed = seller_confirmed
+    if closed:
+        dispute.resolved_at = dispute.resolved_at or now
+
+    _create_mutual_confirmation_notifications(
+        db,
+        transaction=transaction,
+        now=now,
+        actor="buyer",
+        buyer_confirmed=True,
+        seller_confirmed=seller_confirmed,
+        closed=closed,
+    )
+    db.commit()
+    db.refresh(transaction)
+
+    audit_logger.info(
+        "resolution_confirmation transaction_id=%s actor=buyer buyer_confirmed=true "
+        "seller_confirmed=%s closed=%s",
+        transaction.id,
+        seller_confirmed,
+        closed,
+    )
+
+    return transaction
+
+
+def submit_seller_resolution_confirmation(
+    db: Session,
+    transaction_id: uuid.UUID,
+    seller: User,
+) -> Transaction:
+    if seller.role != UserRole.SELLER:
+        raise TransactionValidationError("Only sellers can confirm resolution closure.")
+
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None:
+        raise TransactionNotFoundForDispatchError("Transaction not found.")
+
+    if transaction.seller_id != seller.id:
+        raise TransactionDispatchForbiddenError(
+            "Only the transaction seller can confirm resolution closure."
+        )
+
+    if transaction.status not in {
+        TransactionStatus.RESOLVED_RELEASE,
+        TransactionStatus.RESOLVED_REFUND,
+        TransactionStatus.RESOLVED_SPLIT,
+    }:
+        raise TransactionDispatchInvalidStateError(
+            "Transaction must be in resolved state for mutual confirmation closure."
+        )
+
+    dispute = (
+        db.execute(
+            select(Dispute)
+            .where(Dispute.transaction_id == transaction.id)
+            .order_by(Dispute.created_at.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+    if dispute is None:
+        raise TransactionValidationError("Dispute context not found for resolution confirmation.")
+
+    evidence = dict(dispute.evidence or {})
+    evidence["seller_confirmed_resolved"] = True
+    buyer_confirmed = bool(evidence.get("buyer_confirmed_resolved", False))
+    evidence["buyer_confirmed_resolved"] = buyer_confirmed
+    dispute.evidence = evidence
+
+    now = datetime.now(UTC)
+    closed = buyer_confirmed
+    if closed:
+        dispute.resolved_at = dispute.resolved_at or now
+
+    _create_mutual_confirmation_notifications(
+        db,
+        transaction=transaction,
+        now=now,
+        actor="seller",
+        buyer_confirmed=buyer_confirmed,
+        seller_confirmed=True,
+        closed=closed,
+    )
+    db.commit()
+    db.refresh(transaction)
+
+    audit_logger.info(
+        "resolution_confirmation transaction_id=%s actor=seller buyer_confirmed=%s "
+        "seller_confirmed=true closed=%s",
+        transaction.id,
+        buyer_confirmed,
+        closed,
+    )
+
+    return transaction
+
+
 def _get_due_at_door_timeout_transactions(db: Session, cutoff_time: datetime) -> list[Transaction]:
     return list(
         db.execute(
@@ -879,6 +1648,38 @@ def _get_due_hold_auto_release_transactions(
     )
 
 
+def _get_due_dispute_buyer_sent_back_timeout_transactions(
+    db: Session,
+    cutoff_time: datetime,
+) -> list[Transaction]:
+    return list(
+        db.execute(
+            select(Transaction).where(
+                Transaction.status == TransactionStatus.DISPUTED_FUNCTIONAL,
+                Transaction.updated_at <= cutoff_time,
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+def _get_due_seller_received_timeout_transactions(
+    db: Session,
+    cutoff_time: datetime,
+) -> list[Transaction]:
+    return list(
+        db.execute(
+            select(Transaction).where(
+                Transaction.status == TransactionStatus.RETURN_IN_TRANSIT,
+                Transaction.updated_at <= cutoff_time,
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
 def run_timeout_jobs(
     db: Session,
     *,
@@ -888,14 +1689,23 @@ def run_timeout_jobs(
     at_door_cutoff = current_time - timedelta(hours=1)
     no_dispatch_cutoff = current_time - timedelta(hours=48)
     hold_auto_release_cutoff = current_time - timedelta(hours=24)
+    dispute_buyer_sent_back_cutoff = current_time - timedelta(days=3)
+    seller_received_cutoff = current_time - timedelta(days=3)
 
     at_door_due = _get_due_at_door_timeout_transactions(db, at_door_cutoff)
     locked_due = _get_due_locked_timeout_transactions(db, no_dispatch_cutoff)
     hold_due = _get_due_hold_auto_release_transactions(db, hold_auto_release_cutoff)
+    dispute_due = _get_due_dispute_buyer_sent_back_timeout_transactions(
+        db,
+        dispute_buyer_sent_back_cutoff,
+    )
+    seller_received_due = _get_due_seller_received_timeout_transactions(db, seller_received_cutoff)
 
     at_door_timeout_count = 0
     no_dispatch_timeout_count = 0
     hold_auto_release_count = 0
+    dispute_buyer_sent_back_timeout_count = 0
+    dispute_seller_received_timeout_count = 0
 
     for transaction in at_door_due:
         transition_history = _apply_withheld_return_refund_flow(
@@ -971,11 +1781,48 @@ def run_timeout_jobs(
             transition_history,
         )
 
-    if at_door_timeout_count or no_dispatch_timeout_count or hold_auto_release_count:
+    for transaction in dispute_due:
+        transaction.status = TransactionStatus.RELEASED
+        transaction.released_at = current_time
+        _create_dispute_auto_cancel_notifications(
+            db,
+            transaction=transaction,
+            now=current_time,
+        )
+        dispute_buyer_sent_back_timeout_count += 1
+        audit_logger.info(
+            "timeout_transition transaction_id=%s rule=dispute_buyer_sent_back_timeout_3d "
+            "from_status=disputed_functional to_status=released",
+            transaction.id,
+        )
+
+    for transaction in seller_received_due:
+        transaction.status = TransactionStatus.ESCALATED_ADMIN_REVIEW
+        _create_seller_received_timeout_notifications(
+            db,
+            transaction=transaction,
+            now=current_time,
+        )
+        dispute_seller_received_timeout_count += 1
+        audit_logger.info(
+            "timeout_transition transaction_id=%s rule=seller_received_timeout_3d "
+            "from_status=return_in_transit to_status=escalated_admin_review",
+            transaction.id,
+        )
+
+    if (
+        at_door_timeout_count
+        or no_dispatch_timeout_count
+        or hold_auto_release_count
+        or dispute_buyer_sent_back_timeout_count
+        or dispute_seller_received_timeout_count
+    ):
         db.commit()
 
     return TimeoutSweepResult(
         at_door_timeout_count=at_door_timeout_count,
         no_dispatch_timeout_count=no_dispatch_timeout_count,
         hold_auto_release_count=hold_auto_release_count,
+        dispute_buyer_sent_back_timeout_count=dispute_buyer_sent_back_timeout_count,
+        dispute_seller_received_timeout_count=dispute_seller_received_timeout_count,
     )

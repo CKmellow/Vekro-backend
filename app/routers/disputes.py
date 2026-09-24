@@ -1,13 +1,18 @@
+import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.auth_context import require_admin_user
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.dispute import EscalationQueueItemResponse
-from app.services.dispute import list_escalated_disputes
+from app.schemas.dispute import DisputeCaseTimelineResponse, EscalationQueueItemResponse
+from app.services.dispute import (
+    DisputeCaseNotFoundError,
+    get_dispute_case_timeline,
+    list_escalated_disputes,
+)
 
 router = APIRouter(prefix="/admin/disputes", tags=["Admin Disputes"])
 
@@ -25,3 +30,26 @@ def list_admin_escalation_queue(
     _ = current_user
     queue_items = list_escalated_disputes(db)
     return [EscalationQueueItemResponse.model_validate(item) for item in queue_items]
+
+
+@router.get(
+    "/{dispute_id}/timeline",
+    response_model=DisputeCaseTimelineResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get admin dispute case timeline detail",
+)
+def get_admin_dispute_case_timeline(
+    dispute_id: uuid.UUID,
+    current_user: Annotated[User, Depends(require_admin_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> DisputeCaseTimelineResponse:
+    _ = current_user
+    try:
+        case = get_dispute_case_timeline(db, dispute_id=dispute_id)
+    except DisputeCaseNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dispute case not found.",
+        ) from exc
+
+    return DisputeCaseTimelineResponse.model_validate(case)

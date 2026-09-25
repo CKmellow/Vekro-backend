@@ -128,6 +128,12 @@ uvicorn app.main:app --reload
    - Response includes serialized flags and dispute policy payload.
    - Missing listing ids return deterministic not-found detail.
    - Expected response: 200 OK with listing data, 404 when not found.
+- GET /notifications
+   - Purpose: authenticated endpoint to fetch notification records for the current user.
+   - Returns only notifications belonging to the authenticated user.
+   - Supports basic pagination through `limit` and `offset` query parameters.
+   - Uses deterministic ordering (newest first) for stable client polling.
+   - Expected response: 200 on success, 401 without authentication.
 - POST /transactions
    - Purpose: buyer-only endpoint to create escrow transactions from listings.
    - Requires authenticated buyer session and CSRF header for the request.
@@ -361,3 +367,4 @@ Commands:
 - 2026-09-24: Milestone 7 Issue [M7] Build dispute case timeline detail endpoint completed with admin-only access controls, dispute+transaction context payload, ordered lifecycle/notification timeline events, and tests.
 - 2026-09-24: Milestone 7 Issue [M7] Build admin force-resolve endpoint completed with decision+reason validation, decision-driven resolved state transitions, persisted admin decision context, and tests.
 - 2026-09-25: Milestone 8 Issue [M8] Hook notifications into key state transitions completed with service-layer notification hooks across transaction creation, delivery, OTP, dispute updates, and timeout sweeps, with test coverage.
+- 2026-09-25: Milestone 8 Issue [M8] Add user notifications retrieval endpoint completed with authenticated user scoping, deterministic newest-first ordering, pagination support, and tests.

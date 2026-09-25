@@ -9,6 +9,7 @@ from app.core.security import hash_session_token
 from app.core.settings import get_settings
 from app.main import app
 from app.models.listing import Listing
+from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User, UserRole
 from app.models.user_session import UserSession
@@ -29,9 +30,9 @@ from sqlalchemy.orm import Session
 class _FakeDb:
     def __init__(self, listing: Listing | None = None) -> None:
         self.listing = listing
-        self.added = None
+        self.added: list[Any] = []
         self.committed = False
-        self.refreshed = False
+        self.refreshed_obj = None
 
     def get(self, _model: Any, listing_id):
         if self.listing is not None and listing_id == self.listing.id:
@@ -39,13 +40,13 @@ class _FakeDb:
         return None
 
     def add(self, obj) -> None:
-        self.added = obj
+        self.added.append(obj)
 
     def commit(self) -> None:
         self.committed = True
 
     def refresh(self, obj) -> None:
-        self.refreshed = obj is self.added
+        self.refreshed_obj = obj
 
 
 def _build_user(role: UserRole) -> User:
@@ -211,13 +212,20 @@ def test_service_creates_transaction_with_participant_linkage() -> None:
         payload=payload,
     )
 
-    assert db.added is created
+    assert db.added[0] is created
     assert db.committed is True
-    assert db.refreshed is True
+    assert db.refreshed_obj is created
     assert created.status == TransactionStatus.AWAITING_PAYMENT
     assert created.amount == Decimal("2200.00")
     assert created.buyer_id == buyer.id
     assert created.seller_id == listing.seller_id
+
+    notifications = [item for item in db.added if isinstance(item, Notification)]
+    assert len(notifications) == 2
+    assert all(
+        item.event_type == NotificationEventType.TRANSACTION_CREATED for item in notifications
+    )
+    assert {item.user_id for item in notifications} == {created.buyer_id, created.seller_id}
 
 
 def test_service_rejects_missing_listing() -> None:

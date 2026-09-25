@@ -133,6 +133,7 @@ uvicorn app.main:app --reload
    - Requires authenticated buyer session and CSRF header for the request.
    - Initializes workflow status to awaiting_payment.
    - Persists listing linkage, buyer/seller linkage, and transaction amount.
+   - Writes transaction_created notification records for buyer and seller to initialize event timeline/audit context.
    - Expected response: 201 Created with transaction data.
 - POST /transactions/payment-callback
    - Purpose: provider callback endpoint to confirm payment and lock a transaction.
@@ -359,3 +360,4 @@ Commands:
 - 2026-09-24: Milestone 7 Issue [M7] Build admin escalation queue endpoint completed with admin-only access controls, escalated-only filtering, triage summary payload, and tests.
 - 2026-09-24: Milestone 7 Issue [M7] Build dispute case timeline detail endpoint completed with admin-only access controls, dispute+transaction context payload, ordered lifecycle/notification timeline events, and tests.
 - 2026-09-24: Milestone 7 Issue [M7] Build admin force-resolve endpoint completed with decision+reason validation, decision-driven resolved state transitions, persisted admin decision context, and tests.
+- 2026-09-25: Milestone 8 Issue [M8] Hook notifications into key state transitions completed with service-layer notification hooks across transaction creation, delivery, OTP, dispute updates, and timeout sweeps, with test coverage.

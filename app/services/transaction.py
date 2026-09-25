@@ -116,6 +116,39 @@ SELLER_RESOLUTION_ACTION_MAP = {
 BUYER_RECONFIRMATION_RETRY_LIMIT = 1
 
 
+def _create_transaction_created_notifications(
+    db: Session,
+    transaction: Transaction,
+) -> None:
+    payload = {
+        "transaction_id": str(transaction.id),
+        "listing_id": str(transaction.listing_id),
+        "status": transaction.status.value,
+        "amount": f"{transaction.amount:.2f}",
+        "created_at": transaction.created_at.isoformat() if transaction.created_at else None,
+    }
+
+    buyer_notification = Notification(
+        user_id=transaction.buyer_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.TRANSACTION_CREATED,
+        title="Transaction created",
+        message="Your escrow transaction has been created and is awaiting payment.",
+        payload=payload,
+    )
+    seller_notification = Notification(
+        user_id=transaction.seller_id,
+        transaction_id=transaction.id,
+        event_type=NotificationEventType.TRANSACTION_CREATED,
+        title="New escrow transaction",
+        message="A buyer created an escrow transaction for your listing.",
+        payload=payload,
+    )
+
+    db.add(buyer_notification)
+    db.add(seller_notification)
+
+
 def create_transaction(
     db: Session,
     buyer: User,
@@ -139,6 +172,7 @@ def create_transaction(
         status=TransactionStatus.AWAITING_PAYMENT,
     )
     db.add(transaction)
+    _create_transaction_created_notifications(db, transaction=transaction)
     db.commit()
     db.refresh(transaction)
 

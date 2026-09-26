@@ -4,15 +4,26 @@ Backend service for the Vekro escrow and dispute-resolution platform.
 
 ## Local Setup
 
-1. Create a virtual environment:
-   python -m venv .venv
-2. Activate it:
-   source .venv/bin/activate
-3. Install dependencies:
-   pip install -r requirements.txt
-4. Create environment file:
-   cp .env.example .env
-5. Update .env with your Neon, Daraja, and Africa's Talking credentials.
+1. Create and activate a virtual environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+2. Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+3. Create and edit environment file:
+
+```bash
+cp .env.example .env
+```
+
+4. Update .env with your Neon, Daraja, and Africa's Talking credentials.
 
 ## Environment Variables
 
@@ -76,9 +87,86 @@ app/
       __init__.py
 ```
 
-## Run (after app entrypoint is added)
+## Architecture Overview
 
+The backend follows a layered FastAPI architecture:
+
+- Routers (`app/routers`): HTTP concerns only (request parsing, auth dependencies, response mapping, status codes).
+- Services (`app/services`): business rules, workflow/state transitions, and domain validation.
+- Schemas (`app/schemas`): request/response contracts and OpenAPI model definitions.
+- Models (`app/models`): SQLAlchemy persistence entities, enums, and relational constraints.
+- Core (`app/core`): cross-cutting concerns such as settings, hashing, and auth context helpers.
+- DB (`app/db`): session factory and database URL normalization.
+
+### Service-Layer Principles
+
+- State-machine transitions are implemented in services, never directly in route handlers.
+- Route handlers translate service/domain exceptions into deterministic HTTP responses.
+- Side effects (notifications, timeout transitions, audit context) are invoked at service transition boundaries.
+- Timeout automation is status-gated and idempotent to keep re-runs safe.
+
+## State Machine Overview
+
+High-level escrow workflow:
+
+- `awaiting_payment` -> `locked` -> `out_for_delivery` -> `at_door_pending_inspection`
+- Non-serialized happy path: `at_door_pending_inspection` -> `released`
+- Serialized review path: `at_door_pending_inspection` -> `hold_24h` -> (`released` or dispute flow)
+
+High-level dispute and admin workflow:
+
+- `hold_24h` -> `disputed_functional` -> `return_in_transit` -> `return_received`
+- Seller action leads to `refunded_buyer` or `awaiting_buyer_reconfirmation`
+- Buyer reconfirmation can resolve, retry once, then escalate to `escalated_admin_review`
+- Admin force-resolve applies terminal outcomes: `resolved_refund`, `resolved_release`, or `resolved_split`
+
+## Local Runbook
+
+### Start API server
+
+```bash
+make run
+```
+
+Equivalent direct command:
+
+```bash
 uvicorn app.main:app --reload
+```
+
+### Lint, format, and tests
+
+```bash
+make lint
+make format
+.venv/bin/pytest
+```
+
+### Migration workflow
+
+Create a migration revision:
+
+```bash
+.venv/bin/alembic revision -m "describe change"
+```
+
+Apply migrations:
+
+```bash
+.venv/bin/alembic upgrade head
+```
+
+Check migration status:
+
+```bash
+.venv/bin/alembic current
+```
+
+Migration notes:
+
+- Runtime URL uses `DATABASE_URL`.
+- Alembic uses `ALEMBIC_DATABASE_URL`.
+- `postgresql://` values are normalized to `postgresql+psycopg://` for sync usage.
 
 ## API
 
@@ -88,7 +176,7 @@ uvicorn app.main:app --reload
 - POST /auth/register
    - Purpose: register buyer/seller accounts.
    - Validates role (buyer/seller only), phone format, and password length.
-   - Persists users with PBKDF2-SHA256 password hashing.
+   - Persists users with Passlib Argon2 hashing (with legacy PBKDF2 compatibility).
    - Expected response: 201 Created with user profile (no password hash).
 - POST /auth/login
    - Purpose: authenticate user and create a server-side session record.
@@ -274,34 +362,9 @@ uvicorn app.main:app --reload
    - Permissions-Policy: camera=(), microphone=(), geolocation=()
    - Strict-Transport-Security in production
 
-## Migrations
+## Runbook Reference
 
-Alembic is initialized in the repository root.
-
-Run migrations with:
-
-1. .venv/bin/alembic revision -m "your message"
-2. .venv/bin/alembic upgrade head
-3. .venv/bin/alembic current
-
-Notes:
-
-- Runtime URL uses DATABASE_URL.
-- Alembic URL uses ALEMBIC_DATABASE_URL.
-- If ALEMBIC_DATABASE_URL is provided as postgresql://..., the migration env normalizes it to postgresql+psycopg://...
-
-## Development Tooling
-
-Configured tools:
-
-- Ruff for linting
-- Black for formatting
-
-Commands:
-
-1. make run
-2. make lint
-3. make format
+- See Local Runbook for the authoritative local run, lint/test, and migration workflow commands.
 
 ## Repository Hygiene
 
@@ -370,3 +433,4 @@ Commands:
 - 2026-09-25: Milestone 8 Issue [M8] Add user notifications retrieval endpoint completed with authenticated user scoping, deterministic newest-first ordering, pagination support, and tests.
 - 2026-09-25: Milestone 9 Issue [M9] Add automated state-machine transition tests completed with explicit valid-flow assertions, invalid-transition rejection coverage, and critical timeout-transition coverage.
 - 2026-09-26: Milestone 9 Issue [M9] Review and refine OpenAPI docs completed with endpoint descriptions, explicit response documentation, enriched schema field metadata, and OpenAPI contract tests.
+- 2026-09-26: Milestone 9 Issue [M9] Finalize README architecture and runbooks completed with layered architecture overview, service-layer principles, state-machine high-level guide, and consolidated local run/migration workflows.

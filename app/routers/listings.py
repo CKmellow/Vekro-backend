@@ -23,6 +23,17 @@ router = APIRouter(prefix="/listings", tags=["Listings"])
     response_model=ListingResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create listing (seller only)",
+    description=(
+        "Create a listing owned by the authenticated seller. "
+        "Serialized listings must satisfy unique_id and dispute policy requirements."
+    ),
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
+        status.HTTP_403_FORBIDDEN: {"description": "Authenticated user is not a seller."},
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
+            "description": "Business-rule or payload validation failed."
+        },
+    },
 )
 def create_seller_listing(
     payload: CreateListingRequest,
@@ -44,6 +55,10 @@ def create_seller_listing(
     "/{listing_id}",
     response_model=ListingResponse,
     summary="Get listing by id",
+    description="Fetch a listing by UUID with serialized/dispute policy metadata when present.",
+    responses={
+        status.HTTP_404_NOT_FOUND: {"description": "Listing not found."},
+    },
 )
 def get_listing(
     listing_id: UUID,

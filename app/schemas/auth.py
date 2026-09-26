@@ -19,12 +19,26 @@ def _normalize_phone_value(value: str | None) -> str | None:
 
 
 class RegisterUserRequest(BaseModel):
-    name: str = Field(min_length=2, max_length=120)
-    phone: str = Field(min_length=7, max_length=32)
+    """Payload for buyer/seller registration."""
+
+    name: str = Field(min_length=2, max_length=120, description="Display name for the account.")
+    phone: str = Field(
+        min_length=7,
+        max_length=32,
+        description="Primary login phone number in digits with optional leading +.",
+    )
     role: UserRole
-    password: str = Field(min_length=8, max_length=128)
-    mpesa_phone: str | None = Field(default=None, max_length=32)
-    mpesa_account_name: str | None = Field(default=None, max_length=120)
+    password: str = Field(min_length=8, max_length=128, description="Account password.")
+    mpesa_phone: str | None = Field(
+        default=None,
+        max_length=32,
+        description="Optional payout/charge phone for M-Pesa flows.",
+    )
+    mpesa_account_name: str | None = Field(
+        default=None,
+        max_length=120,
+        description="Optional account holder name associated with M-Pesa phone.",
+    )
 
     @field_validator("role")
     @classmethod
@@ -40,6 +54,8 @@ class RegisterUserRequest(BaseModel):
 
 
 class RegisterUserResponse(BaseModel):
+    """Registered user profile returned after account creation."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -53,8 +69,14 @@ class RegisterUserResponse(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    phone: str = Field(min_length=7, max_length=32)
-    password: str = Field(min_length=8, max_length=128)
+    """Credentials payload for session-based authentication."""
+
+    phone: str = Field(
+        min_length=7,
+        max_length=32,
+        description="Account phone number used for login.",
+    )
+    password: str = Field(min_length=8, max_length=128, description="Account password.")
 
     @field_validator("phone", mode="before")
     @classmethod
@@ -63,6 +85,8 @@ class LoginRequest(BaseModel):
 
 
 class LoginResponse(BaseModel):
+    """Authenticated user profile plus session expiry metadata."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID

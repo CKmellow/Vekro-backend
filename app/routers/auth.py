@@ -34,6 +34,16 @@ logger.setLevel(logging.INFO)
     response_model=RegisterUserResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Register buyer or seller",
+    description=(
+        "Create a buyer or seller account with validated phone and password fields. "
+        "Registration currently supports only buyer and seller roles."
+    ),
+    responses={
+        status.HTTP_409_CONFLICT: {"description": "Phone number is already registered."},
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
+            "description": "Request payload failed validation."
+        },
+    },
 )
 def register(
     payload: RegisterUserRequest,
@@ -67,6 +77,19 @@ def register(
     "/login",
     response_model=LoginResponse,
     summary="Login user and create session",
+    description=(
+        "Authenticate a user, issue server-side session state, and set session + CSRF cookies. "
+        "Rate limiting and account lockout protections are enforced."
+    ),
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Invalid phone or password."},
+        status.HTTP_429_TOO_MANY_REQUESTS: {
+            "description": "Too many login attempts or account temporarily locked."
+        },
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
+            "description": "Request payload failed validation."
+        },
+    },
 )
 def login(
     payload: LoginRequest,
@@ -170,6 +193,14 @@ def login(
     "/logout",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Logout user and revoke session",
+    description=(
+        "Revoke the active server-side session when present and clear authentication cookies."
+    ),
+    responses={
+        status.HTTP_204_NO_CONTENT: {"description": "Session revoked (or no active session)."},
+        status.HTTP_401_UNAUTHORIZED: {"description": "Invalid or expired session."},
+        status.HTTP_403_FORBIDDEN: {"description": "CSRF token missing, mismatched, or invalid."},
+    },
 )
 def logout(
     request: Request,
@@ -195,6 +226,10 @@ def logout(
     "/me",
     response_model=LoginResponse,
     summary="Get current authenticated user",
+    description="Return the currently authenticated user profile based on active session context.",
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
+    },
 )
 def me(
     request: Request,

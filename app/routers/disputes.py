@@ -30,6 +30,14 @@ router = APIRouter(prefix="/admin/disputes", tags=["Admin Disputes"])
     response_model=list[EscalationQueueItemResponse],
     status_code=status.HTTP_200_OK,
     summary="List escalated disputes awaiting admin review",
+    description=(
+        "Admin-only queue for disputes currently in escalated_admin_review state, "
+        "including buyer/seller/listing triage context."
+    ),
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
+        status.HTTP_403_FORBIDDEN: {"description": "Authenticated user is not an admin."},
+    },
 )
 def list_admin_escalation_queue(
     current_user: Annotated[User, Depends(require_admin_user)],
@@ -45,6 +53,15 @@ def list_admin_escalation_queue(
     response_model=DisputeCaseTimelineResponse,
     status_code=status.HTTP_200_OK,
     summary="Get admin dispute case timeline detail",
+    description=(
+        "Admin-only case view that combines dispute metadata, transaction context, "
+        "and chronologically ordered timeline events."
+    ),
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
+        status.HTTP_403_FORBIDDEN: {"description": "Authenticated user is not an admin."},
+        status.HTTP_404_NOT_FOUND: {"description": "Dispute case not found."},
+    },
 )
 def get_admin_dispute_case_timeline(
     dispute_id: uuid.UUID,
@@ -68,6 +85,18 @@ def get_admin_dispute_case_timeline(
     response_model=AdminForceResolveResponse,
     status_code=status.HTTP_200_OK,
     summary="Force resolve an escalated dispute case",
+    description=(
+        "Admin-only terminal resolution action for escalated disputes. "
+        "Applies refund/release/split decision and persists reason/decision metadata."
+    ),
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
+        status.HTTP_403_FORBIDDEN: {"description": "Authenticated user is not an admin."},
+        status.HTTP_404_NOT_FOUND: {"description": "Dispute case not found."},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "description": "Dispute state is not eligible or reason/decision is invalid."
+        },
+    },
 )
 def admin_force_resolve_dispute_case(
     dispute_id: uuid.UUID,

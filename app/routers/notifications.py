@@ -17,6 +17,16 @@ router = APIRouter(prefix="/notifications", tags=["Notifications"])
     response_model=list[NotificationResponse],
     status_code=status.HTTP_200_OK,
     summary="List notifications for current user",
+    description=(
+        "Return notifications belonging to the authenticated user only, ordered by newest first. "
+        "Supports limit/offset pagination for client polling."
+    ),
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
+            "description": "Pagination query parameters are invalid."
+        },
+    },
 )
 def list_current_user_notifications(
     current_user: Annotated[User, Depends(get_current_user)],

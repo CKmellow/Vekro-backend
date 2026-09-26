@@ -25,7 +25,15 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="Vekro Backend", lifespan=lifespan)
+app = FastAPI(
+    title="Vekro Backend",
+    description=(
+        "Escrow and dispute-resolution backend with state-machine driven transaction flows, "
+        "session-based authentication, and admin dispute tooling."
+    ),
+    version="0.9.0",
+    lifespan=lifespan,
+)
 
 settings = get_settings()
 STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}

@@ -8,6 +8,8 @@ from app.models.notification import NotificationChannel, NotificationEventType
 
 
 class NotificationResponse(BaseModel):
+    """Notification entry returned to the authenticated user feed."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID

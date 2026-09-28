@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
+from app.core.phone import normalize_phone
 from app.services.custody.enums import CollectionOutcome, PayoutOutcome
 
 
@@ -62,6 +63,9 @@ class FundingRequest:
     account_reference: str
     currency: str = "KES"
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "phone_number", normalize_phone(self.phone_number))
+
     def to_payload(self) -> dict[str, str]:
         return {
             "escrow_reference": self.escrow_reference,
@@ -95,6 +99,9 @@ class PayoutRequest:
     destination_phone: str
     purpose: str
     currency: str = "KES"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "destination_phone", normalize_phone(self.destination_phone))
 
     def to_payload(self) -> dict[str, str]:
         return {

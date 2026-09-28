@@ -293,3 +293,32 @@ def test_service_raises_payment_initiation_error_when_gateway_fails() -> None:
             payload=payload,
             payment_gateway=_FailingGateway(),
         )
+
+
+def test_service_sends_normalized_phone_to_payment_gateway() -> None:
+    class _CapturingGateway:
+        def __init__(self) -> None:
+            self.phone_number: str | None = None
+
+        def initiate_stk_push(self, request):
+            self.phone_number = request.phone_number
+            return request
+
+    buyer = _build_user(UserRole.BUYER)
+    buyer.mpesa_phone = "0712345678"
+    listing = _build_listing()
+    db = _FakeDb(listing=listing)
+    payload = CreateTransactionRequest(
+        listing_id=listing.id,
+        amount=Decimal("2200.00"),
+    )
+    gateway = _CapturingGateway()
+
+    create_transaction_service(
+        cast(Session, db),
+        buyer=buyer,
+        payload=payload,
+        payment_gateway=gateway,
+    )
+
+    assert gateway.phone_number == "+254712345678"

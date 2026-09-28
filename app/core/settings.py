@@ -4,6 +4,28 @@ from typing import Any, Literal
 from pydantic import ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+SUPPORTED_CUSTODY_RAILS = frozenset({"simulated", "loop", "intasend"})
+ENABLED_CREDENTIAL_FIELDS: dict[str, tuple[str, ...]] = {
+    "loop": (
+        "loop_base_url",
+        "loop_client_id",
+        "loop_client_secret",
+        "loop_shortcode",
+        "loop_passkey",
+    ),
+    "intasend": (
+        "intasend_base_url",
+        "intasend_publishable_key",
+        "intasend_secret_key",
+        "intasend_webhook_secret",
+    ),
+    "econfirm": (
+        "econfirm_base_url",
+        "econfirm_api_key",
+        "econfirm_api_secret",
+    ),
+}
+
 
 class Settings(BaseSettings):
     app_name: str = "Vekro Backend"
@@ -46,6 +68,29 @@ class Settings(BaseSettings):
     login_lockout_max_attempts: int = 5
     login_lockout_seconds: int = 15 * 60
 
+    custody_mode: Literal["tier_1", "tier_2"] = "tier_2"
+    custody_collection_rail_priority: str = "simulated"
+    custody_payout_rail_priority: str = "simulated"
+    allow_live_payouts: bool = False
+
+    loop_enabled: bool = False
+    loop_base_url: str = ""
+    loop_client_id: str = ""
+    loop_client_secret: str = ""
+    loop_shortcode: str = ""
+    loop_passkey: str = ""
+
+    intasend_enabled: bool = False
+    intasend_base_url: str = ""
+    intasend_publishable_key: str = ""
+    intasend_secret_key: str = ""
+    intasend_webhook_secret: str = ""
+
+    econfirm_enabled: bool = False
+    econfirm_base_url: str = ""
+    econfirm_api_key: str = ""
+    econfirm_api_secret: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -81,35 +126,115 @@ class Settings(BaseSettings):
             raise ValueError("must not be blank")
         return normalized
 
+    def _parse_rail_priority(self, raw: str, setting_name: str) -> list[str]:
+        rails = [value.strip().lower() for value in raw.split(",") if value.strip()]
+        if not rails:
+            raise ValueError(f"{setting_name} must include at least one rail.")
+        if len(rails) != len(set(rails)):
+            raise ValueError(f"{setting_name} must not contain duplicate rails.")
+        return rails
+
+    def _append_missing_credentials(
+        self,
+        *,
+        provider_name: str,
+        enabled: bool,
+        violations: list[str],
+    ) -> None:
+        if not enabled:
+            return
+
+        for field_name in ENABLED_CREDENTIAL_FIELDS[provider_name]:
+            value = str(getattr(self, field_name, "")).strip()
+            if not value:
+                violations.append(
+                    f"{field_name.upper()} must be set when {provider_name.upper()}_ENABLED=true"
+                )
+
     @model_validator(mode="after")
-    def _validate_production_security(self) -> "Settings":
-        if self.environment.strip().lower() != "production":
-            return self
-
+    def _validate_runtime_configuration(self) -> "Settings":
+        environment = self.environment.strip().lower()
         violations: list[str] = []
-        if not self.session_cookie_secure:
-            violations.append("SESSION_COOKIE_SECURE=true")
-        if not self.csrf_cookie_secure:
-            violations.append("CSRF_COOKIE_SECURE=true")
-        if not self.cors_allow_credentials:
-            violations.append("CORS_ALLOW_CREDENTIALS=true")
-        if self.frontend_url.strip().lower().startswith("http://"):
-            violations.append("FRONTEND_URL must use https://")
 
-        insecure_origins = [
-            origin for origin in self.cors_origins_list if origin.lower().startswith("http://")
-        ]
-        if insecure_origins:
-            violations.append("CORS_ORIGINS must use https:// origins in production")
+        if environment == "production":
+            if not self.session_cookie_secure:
+                violations.append("SESSION_COOKIE_SECURE=true")
+            if not self.csrf_cookie_secure:
+                violations.append("CSRF_COOKIE_SECURE=true")
+            if not self.cors_allow_credentials:
+                violations.append("CORS_ALLOW_CREDENTIALS=true")
+            if self.frontend_url.strip().lower().startswith("http://"):
+                violations.append("FRONTEND_URL must use https://")
+
+            insecure_origins = [
+                origin for origin in self.cors_origins_list if origin.lower().startswith("http://")
+            ]
+            if insecure_origins:
+                violations.append("CORS_ORIGINS must use https:// origins in production")
+
+        collection_rails: list[str] = []
+        payout_rails: list[str] = []
+        try:
+            collection_rails = self.custody_collection_rail_priority_list
+            payout_rails = self.custody_payout_rail_priority_list
+        except ValueError as exc:
+            violations.append(str(exc))
+
+        configured_rails = set(collection_rails + payout_rails)
+        unknown_rails = sorted(configured_rails.difference(SUPPORTED_CUSTODY_RAILS))
+        if unknown_rails:
+            violations.append("Unknown rails in custody priorities: " + ", ".join(unknown_rails))
+
+        if "loop" in configured_rails and not self.loop_enabled:
+            violations.append("LOOP rail is listed in priorities but LOOP_ENABLED=false")
+        if "intasend" in configured_rails and not self.intasend_enabled:
+            violations.append("INTASEND rail is listed in priorities but INTASEND_ENABLED=false")
+
+        self._append_missing_credentials(
+            provider_name="loop",
+            enabled=self.loop_enabled,
+            violations=violations,
+        )
+        self._append_missing_credentials(
+            provider_name="intasend",
+            enabled=self.intasend_enabled,
+            violations=violations,
+        )
+        self._append_missing_credentials(
+            provider_name="econfirm",
+            enabled=self.econfirm_enabled,
+            violations=violations,
+        )
+
+        if self.allow_live_payouts and environment != "production":
+            violations.append("ALLOW_LIVE_PAYOUTS=true requires ENVIRONMENT=production")
 
         if violations:
-            raise ValueError("Insecure production configuration: " + "; ".join(violations))
+            raise ValueError("Invalid runtime configuration: " + "; ".join(violations))
 
         return self
 
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def custody_collection_rail_priority_list(self) -> list[str]:
+        return self._parse_rail_priority(
+            self.custody_collection_rail_priority,
+            "CUSTODY_COLLECTION_RAIL_PRIORITY",
+        )
+
+    @property
+    def custody_payout_rail_priority_list(self) -> list[str]:
+        return self._parse_rail_priority(
+            self.custody_payout_rail_priority,
+            "CUSTODY_PAYOUT_RAIL_PRIORITY",
+        )
+
+    @property
+    def live_payouts_enabled(self) -> bool:
+        return self.environment.strip().lower() == "production" and self.allow_live_payouts
 
 
 @lru_cache

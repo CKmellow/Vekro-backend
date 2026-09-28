@@ -17,11 +17,12 @@ from app.routers.notifications import router as notifications_router
 from app.routers.protected import router as protected_router
 from app.routers.transactions import router as transactions_router
 from app.services.auth import is_valid_csrf_for_session, resolve_active_session
+from app.services.custody.registry import build_custody_registry
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    get_settings()
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    app.state.custody_registry = custody_registry
     yield
 
 
@@ -36,6 +37,7 @@ app = FastAPI(
 )
 
 settings = get_settings()
+custody_registry = build_custody_registry(settings)
 STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 audit_logger = logging.getLogger("app.auth.audit")
 

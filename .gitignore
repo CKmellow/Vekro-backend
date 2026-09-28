@@ -26,6 +26,7 @@ env/
 *.sqlite
 *.sqlite3
 LOCAL_EXECUTION_PLAN.md
+CLAUDE_HANDOFF_CONTEXT_*.txt
 
 # Test and quality caches
 .pytest_cache/

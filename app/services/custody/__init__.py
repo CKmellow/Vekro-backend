@@ -10,7 +10,11 @@ from app.services.custody.dto import (
 )
 from app.services.custody.enums import CollectionOutcome, CustodyMode, PayoutOutcome
 from app.services.custody.ports import CollectionRail, CustodyProvider, PayoutRail
-from app.services.custody.registry import CustodyRegistry
+from app.services.custody.registry import (
+    CustodyRegistry,
+    CustodyRuntimeSettings,
+    build_custody_registry,
+)
 
 __all__ = [
     "CollectionOutcome",
@@ -20,6 +24,7 @@ __all__ = [
     "CustodyMode",
     "CustodyProvider",
     "CustodyRegistry",
+    "CustodyRuntimeSettings",
     "EscrowRecord",
     "EscrowStatusResult",
     "FundingRequest",
@@ -28,4 +33,5 @@ __all__ = [
     "PayoutRail",
     "PayoutRequest",
     "PayoutResult",
+    "build_custody_registry",
 ]

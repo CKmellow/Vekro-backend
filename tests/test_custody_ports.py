@@ -10,7 +10,7 @@ from app.services.custody.dto import (
     PayoutRequest,
     PayoutResult,
 )
-from app.services.custody.enums import CollectionOutcome, PayoutOutcome
+from app.services.custody.enums import CollectionOutcome, CustodyMode, PayoutOutcome
 from app.services.custody.ports import CollectionRail, CustodyProvider, PayoutRail
 from app.services.custody.registry import CustodyRegistry
 
@@ -145,6 +145,10 @@ def test_ports_compile_and_registry_imports_contracts() -> None:
         provider=provider,
         collection_rails={"simulated": collection_rail},
         payout_rails={"simulated": payout_rail},
+        custody_mode=CustodyMode.TIER_2,
+        collection_priority=("simulated",),
+        payout_priority=("simulated",),
+        live_payouts_enabled=False,
     )
 
     assert registry.provider.capabilities().supports_split_payout is True

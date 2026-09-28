@@ -35,6 +35,7 @@ The committed .env.example includes placeholders for:
 - Africa's Talking credentials
 - CORS/frontend settings
 - Session and CSRF cookie settings for server-side auth sessions
+- Custody mode, rail priority, and provider credential settings
 
 Minimum required variables for startup validation are:
 
@@ -60,11 +61,21 @@ Login abuse protection settings:
 - LOGIN_LOCKOUT_MAX_ATTEMPTS: failed password attempts before account lockout
 - LOGIN_LOCKOUT_SECONDS: temporary lockout duration
 
+Custody and rail settings:
+
+- CUSTODY_MODE: selects custody tier mode (tier_1 or tier_2)
+- CUSTODY_COLLECTION_RAIL_PRIORITY: comma-separated collection rail order
+- CUSTODY_PAYOUT_RAIL_PRIORITY: comma-separated payout rail order
+- ALLOW_LIVE_PAYOUTS: live payout guard flag (requires production)
+- LOOP_ENABLED / INTASEND_ENABLED / ECONFIRM_ENABLED: enable provider/rail blocks
+- LOOP_*, INTASEND_*, ECONFIRM_*: required credentials when their enabled flag is true
+
 Production safety checks:
 
 - If ENVIRONMENT=production, startup rejects insecure cookie/CORS settings.
 - SESSION_COOKIE_SECURE and CSRF_COOKIE_SECURE must be true.
 - FRONTEND_URL and CORS_ORIGINS must use https:// in production.
+- Live payouts stay blocked unless ENVIRONMENT=production and ALLOW_LIVE_PAYOUTS=true.
 
 ## Project Structure
 
@@ -440,3 +451,4 @@ Migration notes:
 - 2026-09-26: Milestone 9 Issue [M9] Finalize README architecture and runbooks completed with layered architecture overview, service-layer principles, state-machine high-level guide, and consolidated local run/migration workflows.
 - 2026-09-28: Milestone 10 Issue [M10] Write ADR for custody abstraction and tier model completed with Tier 1/Tier 2 semantics, capability flags, honesty disclosure constraints, and outcome taxonomy definitions (SUCCEEDED, FAILED_DEFINITE, UNKNOWN).
 - 2026-09-28: Milestone 10 Issue [M10] Define custody ports, DTOs, enums, and failure taxonomy completed with protocol contracts (`CustodyProvider`, `CollectionRail`, `PayoutRail`), custody capability metadata, and enum/serialization contract tests.
+- 2026-09-28: Milestone 10 Issue [M10] Add custody config, startup validation, and provider/rail registry completed with custody env matrix keys, fail-fast rail/credential validation, and live payout production guard enforcement.

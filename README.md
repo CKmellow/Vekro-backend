@@ -98,6 +98,8 @@ The backend follows a layered FastAPI architecture:
 - Core (`app/core`): cross-cutting concerns such as settings, hashing, and auth context helpers.
 - DB (`app/db`): session factory and database URL normalization.
 
+Custody architecture decisions for provider abstraction and tier semantics are tracked in `docs/adr/custody-abstraction.md`.
+
 ### Service-Layer Principles
 
 - State-machine transitions are implemented in services, never directly in route handlers.
@@ -434,3 +436,4 @@ Migration notes:
 - 2026-09-25: Milestone 9 Issue [M9] Add automated state-machine transition tests completed with explicit valid-flow assertions, invalid-transition rejection coverage, and critical timeout-transition coverage.
 - 2026-09-26: Milestone 9 Issue [M9] Review and refine OpenAPI docs completed with endpoint descriptions, explicit response documentation, enriched schema field metadata, and OpenAPI contract tests.
 - 2026-09-26: Milestone 9 Issue [M9] Finalize README architecture and runbooks completed with layered architecture overview, service-layer principles, state-machine high-level guide, and consolidated local run/migration workflows.
+- 2026-09-28: Milestone 10 Issue [M10] Write ADR for custody abstraction and tier model completed with Tier 1/Tier 2 semantics, capability flags, honesty disclosure constraints, and outcome taxonomy definitions (SUCCEEDED, FAILED_DEFINITE, UNKNOWN).

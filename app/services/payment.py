@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Protocol
 
+from app.core.phone import normalize_phone
+
 
 @dataclass(frozen=True)
 class PaymentRequest:
@@ -9,6 +11,11 @@ class PaymentRequest:
     phone_number: str | None
     account_reference: str
     transaction_desc: str
+
+    def __post_init__(self) -> None:
+        if self.phone_number is None:
+            return
+        object.__setattr__(self, "phone_number", normalize_phone(self.phone_number))
 
 
 @dataclass(frozen=True)

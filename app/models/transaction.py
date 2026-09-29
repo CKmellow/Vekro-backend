@@ -31,6 +31,14 @@ class TransactionStatus(StrEnum):
     RESOLVED_SPLIT = "resolved_split"
 
 
+class TransactionPayoutStatus(StrEnum):
+    NOT_REQUIRED = "not_required"
+    PENDING = "pending"
+    SUCCEEDED = "succeeded"
+    FAILED_DEFINITE = "failed_definite"
+    UNKNOWN = "unknown"
+
+
 class Transaction(Base):
     __tablename__ = "transactions"
     __table_args__ = (
@@ -73,6 +81,18 @@ class Transaction(Base):
         nullable=False,
         default=TransactionStatus.AWAITING_PAYMENT,
         server_default=text("'awaiting_payment'"),
+        index=True,
+    )
+    payout_status: Mapped[TransactionPayoutStatus] = mapped_column(
+        Enum(
+            TransactionPayoutStatus,
+            name="transaction_payout_status",
+            native_enum=True,
+            values_callable=lambda enum_cls: [item.value for item in enum_cls],
+        ),
+        nullable=False,
+        default=TransactionPayoutStatus.NOT_REQUIRED,
+        server_default=text("'not_required'"),
         index=True,
     )
 

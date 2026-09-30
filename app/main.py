@@ -15,6 +15,7 @@ from app.routers.health import router as health_router
 from app.routers.listings import router as listings_router
 from app.routers.notifications import router as notifications_router
 from app.routers.protected import router as protected_router
+from app.routers.simulated_custody_admin import router as simulated_custody_admin_router
 from app.routers.transactions import router as transactions_router
 from app.services.auth import is_valid_csrf_for_session, resolve_active_session
 from app.services.custody.registry import build_custody_registry
@@ -186,3 +187,4 @@ app.include_router(notifications_router)
 app.include_router(protected_router)
 app.include_router(transactions_router)
 app.include_router(disputes_router)
+app.include_router(simulated_custody_admin_router)

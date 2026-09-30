@@ -15,6 +15,7 @@ from app.services.custody.dto import (
 )
 from app.services.custody.enums import CollectionOutcome, CustodyMode, PayoutOutcome
 from app.services.custody.ports import CollectionRail, CustodyProvider, PayoutRail
+from app.services.custody.simulated_rail import SimulatedRail
 
 SUPPORTED_RAILS = frozenset({"simulated", "loop", "intasend"})
 LIVE_PAYOUT_RAILS = frozenset({"loop", "intasend"})
@@ -22,6 +23,9 @@ LIVE_PAYOUT_RAILS = frozenset({"loop", "intasend"})
 
 class CustodyRuntimeSettings(Protocol):
     custody_mode: str
+    simulated_collection_default_scenario: str
+    simulated_payout_default_scenario: str
+    simulated_trigger_prefix: str
     loop_enabled: bool
     intasend_enabled: bool
     live_payouts_enabled: bool
@@ -180,13 +184,25 @@ def build_custody_registry(settings: CustodyRuntimeSettings) -> CustodyRegistry:
     if disabled_payout:
         raise ValueError("Payout priorities include disabled rails: " + ", ".join(disabled_payout))
 
-    collection_rails = {
-        rail_name: PlaceholderCollectionRail(rail_name=rail_name)
-        for rail_name in collection_priority
-    }
-    payout_rails = {
-        rail_name: PlaceholderPayoutRail(rail_name=rail_name) for rail_name in payout_priority
-    }
+    simulated_rail = SimulatedRail(
+        collection_default_scenario=settings.simulated_collection_default_scenario,
+        payout_default_scenario=settings.simulated_payout_default_scenario,
+        trigger_prefix=settings.simulated_trigger_prefix,
+    )
+
+    collection_rails: dict[str, CollectionRail] = {}
+    for rail_name in collection_priority:
+        if rail_name == "simulated":
+            collection_rails[rail_name] = simulated_rail
+        else:
+            collection_rails[rail_name] = PlaceholderCollectionRail(rail_name=rail_name)
+
+    payout_rails: dict[str, PayoutRail] = {}
+    for rail_name in payout_priority:
+        if rail_name == "simulated":
+            payout_rails[rail_name] = simulated_rail
+        else:
+            payout_rails[rail_name] = PlaceholderPayoutRail(rail_name=rail_name)
 
     return CustodyRegistry(
         provider=ConfiguredCustodyProvider(custody_mode=CustodyMode(settings.custody_mode)),

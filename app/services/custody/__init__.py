@@ -15,6 +15,11 @@ from app.services.custody.registry import (
     CustodyRuntimeSettings,
     build_custody_registry,
 )
+from app.services.custody.simulated_rail import (
+    SUPPORTED_SIMULATED_SCENARIOS,
+    SimulatedRail,
+    normalize_simulated_scenario,
+)
 
 __all__ = [
     "CollectionOutcome",
@@ -33,5 +38,8 @@ __all__ = [
     "PayoutRail",
     "PayoutRequest",
     "PayoutResult",
+    "SUPPORTED_SIMULATED_SCENARIOS",
+    "SimulatedRail",
     "build_custody_registry",
+    "normalize_simulated_scenario",
 ]

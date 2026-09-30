@@ -63,6 +63,11 @@ def test_live_payouts_flag_is_rejected_outside_production() -> None:
         _settings(allow_live_payouts=True)
 
 
+def test_invalid_simulated_default_scenario_fails_validation() -> None:
+    with pytest.raises(ValidationError, match="simulated_collection_default_scenario"):
+        _settings(simulated_collection_default_scenario="nonsense")
+
+
 def test_registry_uses_priority_order_and_blocks_non_simulated_payouts_by_default() -> None:
     settings = _settings(
         loop_enabled=True,

@@ -5,6 +5,9 @@ from pydantic import ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SUPPORTED_CUSTODY_RAILS = frozenset({"simulated", "loop", "intasend"})
+SUPPORTED_SIMULATED_SCENARIOS = frozenset(
+    {"success", "failed_definite", "timeout", "duplicate", "out_of_order", "unknown"}
+)
 ENABLED_CREDENTIAL_FIELDS: dict[str, tuple[str, ...]] = {
     "loop": (
         "loop_base_url",
@@ -72,6 +75,9 @@ class Settings(BaseSettings):
     custody_collection_rail_priority: str = "simulated"
     custody_payout_rail_priority: str = "simulated"
     allow_live_payouts: bool = False
+    simulated_collection_default_scenario: str = "success"
+    simulated_payout_default_scenario: str = "success"
+    simulated_trigger_prefix: str = "sim:"
 
     loop_enabled: bool = False
     loop_base_url: str = ""
@@ -122,6 +128,35 @@ class Settings(BaseSettings):
     @classmethod
     def _csrf_header_name_not_blank(cls, value: str) -> str:
         normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be blank")
+        return normalized
+
+    @field_validator(
+        "simulated_collection_default_scenario",
+        "simulated_payout_default_scenario",
+    )
+    @classmethod
+    def _validate_simulated_default_scenario(cls, value: str) -> str:
+        normalized = value.strip().lower().replace("-", "_")
+        aliases = {
+            "succeeded": "success",
+            "ok": "success",
+            "failed": "failed_definite",
+            "failure": "failed_definite",
+            "declined": "failed_definite",
+        }
+        normalized = aliases.get(normalized, normalized)
+
+        if normalized not in SUPPORTED_SIMULATED_SCENARIOS:
+            raise ValueError("must be one of: " + ", ".join(sorted(SUPPORTED_SIMULATED_SCENARIOS)))
+
+        return normalized
+
+    @field_validator("simulated_trigger_prefix")
+    @classmethod
+    def _validate_simulated_trigger_prefix(cls, value: str) -> str:
+        normalized = value.strip().lower()
         if not normalized:
             raise ValueError("must not be blank")
         return normalized

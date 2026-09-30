@@ -15,6 +15,14 @@ from app.services.custody.registry import (
     CustodyRuntimeSettings,
     build_custody_registry,
 )
+from app.services.custody.simulated_provider import (
+    SIMULATED_ESCROW_REFERENCE_PREFIX,
+    SIMULATED_PROVIDER_NAME,
+    SimulatedCustodyProvider,
+    SimulatedCustodyProviderError,
+    SimulatedEscrowNotFoundError,
+    SimulatedEscrowReferenceError,
+)
 from app.services.custody.simulated_rail import (
     SUPPORTED_SIMULATED_SCENARIOS,
     SimulatedRail,
@@ -38,6 +46,12 @@ __all__ = [
     "PayoutRail",
     "PayoutRequest",
     "PayoutResult",
+    "SIMULATED_ESCROW_REFERENCE_PREFIX",
+    "SIMULATED_PROVIDER_NAME",
+    "SimulatedCustodyProvider",
+    "SimulatedCustodyProviderError",
+    "SimulatedEscrowNotFoundError",
+    "SimulatedEscrowReferenceError",
     "SUPPORTED_SIMULATED_SCENARIOS",
     "SimulatedRail",
     "build_custody_registry",

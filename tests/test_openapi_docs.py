@@ -27,6 +27,9 @@ def test_core_endpoints_have_summary_and_description() -> None:
         ("/admin/disputes/escalation-queue", "get"),
         ("/admin/disputes/{dispute_id}/timeline", "get"),
         ("/admin/disputes/{dispute_id}/force-resolve", "post"),
+        ("/admin/simulated-custody/collections/force-complete", "post"),
+        ("/admin/simulated-custody/collections/{provider_reference}/progress", "post"),
+        ("/admin/simulated-custody/payouts/{provider_reference}/progress", "post"),
     ]
 
     for path, method in targets:
@@ -48,6 +51,7 @@ def test_key_request_schema_fields_include_descriptions() -> None:
         ("ReportFunctionalIssueRequest", "category"),
         ("SellerResolutionActionRequest", "action"),
         ("AdminForceResolveRequest", "reason"),
+        ("AdminForceCompleteCollectionRequest", "escrow_reference"),
     ]
 
     for schema_name, field_name in checks:

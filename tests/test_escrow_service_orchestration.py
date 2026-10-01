@@ -1,18 +1,20 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from app.db.base import Base
+from app.models.collection_attempt import AttemptOutcome
 from app.models.escrow import Escrow
 from app.models.ledger_entry import LedgerEntry
 from app.models.listing import Listing
-from app.models.notification import Notification
+from app.models.notification import Notification, NotificationEventType
 from app.models.payout_attempt import PayoutAttempt
 from app.models.transaction import Transaction, TransactionPayoutStatus, TransactionStatus
 from app.models.user import User, UserRole
 from app.services.escrow_service import (
     EscrowService,
     run_payout_executor_once,
+    run_payout_reconciliation,
 )
 from app.services.ledger import ESCROW_HELD_ACCOUNT
 from sqlalchemy import create_engine, select, text
@@ -225,5 +227,175 @@ def test_executor_processes_pending_release_and_marks_succeeded() -> None:
             entry.account_code in {"SELLER_PAYABLE", ESCROW_HELD_ACCOUNT}
             for entry in movement_entries
         )
+    finally:
+        db.close()
+
+
+def test_executor_retries_unknown_with_same_provider_reference() -> None:
+    db = _build_db_session()
+    try:
+        transaction = _seed_transaction(db, status=TransactionStatus.RELEASED)
+        service = EscrowService(db)
+        service.queue_release_full(
+            transaction,
+            purpose=f"sim:out_of_order tx-release:{transaction.id}",
+        )
+        db.commit()
+
+        escrow = db.execute(select(Escrow)).scalar_one()
+        escrow.funded_amount = transaction.amount
+        db.commit()
+
+        first = run_payout_executor_once(db)
+        attempt_after_first = db.execute(select(PayoutAttempt)).scalar_one()
+        reference = attempt_after_first.provider_reference
+
+        second = run_payout_executor_once(db)
+        attempt_after_second = db.execute(select(PayoutAttempt)).scalar_one()
+
+        third = run_payout_executor_once(db)
+        attempt_after_third = db.execute(select(PayoutAttempt)).scalar_one()
+        db.refresh(transaction)
+
+        assert first.unknown == 1
+        assert second.unknown == 1
+        assert third.succeeded == 1
+        assert reference is not None
+        assert attempt_after_second.provider_reference == reference
+        assert attempt_after_third.provider_reference == reference
+        assert transaction.payout_status == TransactionPayoutStatus.SUCCEEDED
+    finally:
+        db.close()
+
+
+def test_executor_marks_timeout_outcome_as_unknown_status() -> None:
+    db = _build_db_session()
+    try:
+        transaction = _seed_transaction(db, status=TransactionStatus.RELEASED)
+        service = EscrowService(db)
+        service.queue_release_full(
+            transaction,
+            purpose=f"sim:timeout tx-release:{transaction.id}",
+        )
+        db.commit()
+
+        escrow = db.execute(select(Escrow)).scalar_one()
+        escrow.funded_amount = transaction.amount
+        db.commit()
+
+        run_result = run_payout_executor_once(db)
+        attempt = db.execute(select(PayoutAttempt)).scalar_one()
+        db.refresh(transaction)
+
+        assert run_result.claimed == 1
+        assert run_result.unknown == 1
+        assert attempt.outcome == AttemptOutcome.UNKNOWN
+        assert attempt.provider_reference is not None
+        assert transaction.payout_status == TransactionPayoutStatus.UNKNOWN
+    finally:
+        db.close()
+
+
+def test_executor_marks_failed_definite_status_when_rail_declines() -> None:
+    db = _build_db_session()
+    try:
+        transaction = _seed_transaction(db, status=TransactionStatus.RELEASED)
+        service = EscrowService(db)
+        service.queue_release_full(
+            transaction,
+            purpose=f"sim:failed tx-release:{transaction.id}",
+        )
+        db.commit()
+
+        escrow = db.execute(select(Escrow)).scalar_one()
+        escrow.funded_amount = transaction.amount
+        db.commit()
+
+        run_result = run_payout_executor_once(db)
+        attempt = db.execute(select(PayoutAttempt)).scalar_one()
+        ledger_entries = list(
+            db.execute(
+                select(LedgerEntry).where(LedgerEntry.idempotency_key == f"outbox:{attempt.id}")
+            )
+            .scalars()
+            .all()
+        )
+        db.refresh(transaction)
+
+        assert run_result.claimed == 1
+        assert run_result.failed_definite == 1
+        assert attempt.outcome == AttemptOutcome.FAILED_DEFINITE
+        assert transaction.payout_status == TransactionPayoutStatus.FAILED_DEFINITE
+        assert ledger_entries == []
+    finally:
+        db.close()
+
+
+def test_reconciliation_flags_unresolved_unknown_for_admin() -> None:
+    db = _build_db_session()
+    try:
+        transaction = _seed_transaction(db, status=TransactionStatus.RELEASED)
+        admin = _build_user(role=UserRole.ADMIN, phone="+254700000099")
+        db.add(admin)
+        db.commit()
+
+        service = EscrowService(db)
+        service.queue_release_full(
+            transaction,
+            purpose=f"sim:timeout tx-release:{transaction.id}",
+        )
+        db.commit()
+
+        run_payout_executor_once(db)
+        reconciliation = run_payout_reconciliation(
+            db,
+            unknown_age_minutes=1,
+            now=datetime.now(UTC) + timedelta(minutes=5),
+        )
+
+        notifications = list(
+            db.execute(
+                select(Notification).where(
+                    Notification.user_id == admin.id,
+                    Notification.transaction_id == transaction.id,
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        assert reconciliation.unknown_alerts == 1
+        assert len(notifications) == 1
+        assert notifications[0].event_type == NotificationEventType.SYSTEM_TIMEOUT
+        assert notifications[0].payload["alert_key"].startswith("payout-unknown:")
+    finally:
+        db.close()
+
+
+def test_reconciliation_flags_terminal_status_mismatch_for_admin() -> None:
+    db = _build_db_session()
+    try:
+        transaction = _seed_transaction(db, status=TransactionStatus.RELEASED)
+        admin = _build_user(role=UserRole.ADMIN, phone="+254700000088")
+        db.add(admin)
+        db.commit()
+
+        reconciliation = run_payout_reconciliation(db, unknown_age_minutes=1)
+
+        notifications = list(
+            db.execute(
+                select(Notification).where(
+                    Notification.user_id == admin.id,
+                    Notification.transaction_id == transaction.id,
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        assert reconciliation.mismatch_alerts == 1
+        assert len(notifications) == 1
+        assert notifications[0].event_type == NotificationEventType.SYSTEM_TIMEOUT
+        assert notifications[0].payload["alert_key"].startswith("payout-mismatch:")
     finally:
         db.close()

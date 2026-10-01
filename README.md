@@ -112,6 +112,7 @@ The backend follows a layered FastAPI architecture:
 Custody contract interfaces and provider/rail DTOs are defined under `app/services/custody`.
 
 Custody architecture decisions for provider abstraction and tier semantics are tracked in `docs/adr/custody-abstraction.md`.
+Milestone 13 transition-to-ledger mapping is documented in `docs/m13_transition_ledger_mapping.md`.
 
 ### Service-Layer Principles
 

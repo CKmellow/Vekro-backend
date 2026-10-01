@@ -17,6 +17,7 @@ from app.services.dispute import (
     DisputeCaseInvalidStateError,
     DisputeCaseNotFoundError,
     DisputeDecisionReasonRequiredError,
+    DisputeSplitPayoutUnsupportedError,
     force_resolve_dispute_case,
     get_dispute_case_timeline,
     list_escalated_disputes,
@@ -93,7 +94,10 @@ def get_admin_dispute_case_timeline(
         status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
         status.HTTP_403_FORBIDDEN: {"description": "Authenticated user is not an admin."},
         status.HTTP_404_NOT_FOUND: {"description": "Dispute case not found."},
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_409_CONFLICT: {
+            "description": "Split payout is not supported by current custody capabilities."
+        },
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "description": "Dispute state is not eligible or reason/decision is invalid."
         },
     },
@@ -119,12 +123,17 @@ def admin_force_resolve_dispute_case(
         ) from exc
     except DisputeDecisionReasonRequiredError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
     except DisputeCaseInvalidStateError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    except DisputeSplitPayoutUnsupportedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         ) from exc
 

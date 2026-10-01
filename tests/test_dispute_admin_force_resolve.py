@@ -18,6 +18,7 @@ from app.services.dispute import (
     AdminForceResolveResult,
     DisputeCaseInvalidStateError,
     DisputeCaseNotFoundError,
+    DisputeSplitPayoutUnsupportedError,
     force_resolve_dispute_case,
 )
 from fastapi.testclient import TestClient
@@ -216,6 +217,30 @@ def test_force_resolve_returns_422_when_dispute_not_escalated(monkeypatch) -> No
 
     assert response.status_code == 422
     assert response.json()["detail"] == "invalid dispute state"
+
+
+def test_force_resolve_returns_409_when_split_not_supported(monkeypatch) -> None:
+    def fake_force_resolve_dispute_case(_db, dispute_id, decision, reason):
+        _ = dispute_id
+        _ = decision
+        _ = reason
+        raise DisputeSplitPayoutUnsupportedError("split payout unsupported")
+
+    monkeypatch.setattr(
+        disputes_router,
+        "force_resolve_dispute_case",
+        fake_force_resolve_dispute_case,
+    )
+
+    client = _authenticated_client(monkeypatch, UserRole.ADMIN)
+    response = client.post(
+        f"/admin/disputes/{uuid.uuid4()}/force-resolve",
+        json={"decision": "split", "reason": "confirmed mixed fault"},
+        headers=_csrf_headers(),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "split payout unsupported"
 
 
 def test_force_resolve_returns_decision_payload_for_admin(monkeypatch) -> None:

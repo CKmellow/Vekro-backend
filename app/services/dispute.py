@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.dispute import AdminDecision, Dispute, DisputeStatus, DisputeType
 from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import Transaction, TransactionStatus
+from app.services.escrow_service import EscrowService, SplitPayoutUnsupportedError
 
 
 class DisputeCaseNotFoundError(Exception):
@@ -20,6 +21,10 @@ class DisputeCaseInvalidStateError(Exception):
 
 
 class DisputeDecisionReasonRequiredError(Exception):
+    pass
+
+
+class DisputeSplitPayoutUnsupportedError(Exception):
     pass
 
 
@@ -234,6 +239,7 @@ def force_resolve_dispute_case(
     now = datetime.now(UTC)
     prior_transaction_status = transaction.status
     prior_dispute_status = dispute.status
+    escrow_service = EscrowService(db)
 
     transaction.released_at = None
     transaction.refunded_at = None
@@ -243,16 +249,35 @@ def force_resolve_dispute_case(
         transaction.status = TransactionStatus.RESOLVED_REFUND
         transaction.refunded_at = now
         dispute.status = DisputeStatus.RESOLVED_REFUND
+        escrow_service.queue_refund_full(
+            transaction,
+            purpose=f"admin-refund:{dispute.id}",
+        )
     elif decision == AdminDecision.RELEASE:
         transaction.status = TransactionStatus.RESOLVED_RELEASE
         transaction.released_at = now
         dispute.status = DisputeStatus.RESOLVED_RELEASE
+        escrow_service.queue_release_full(
+            transaction,
+            purpose=f"admin-release:{dispute.id}",
+        )
     else:
+        split_ratio = Decimal("0.5000")
+        try:
+            escrow_service.queue_split_payout(
+                transaction,
+                release_purpose=f"admin-split-release:{dispute.id}",
+                refund_purpose=f"admin-split-refund:{dispute.id}",
+                split_ratio=split_ratio,
+            )
+        except SplitPayoutUnsupportedError as exc:
+            raise DisputeSplitPayoutUnsupportedError(str(exc)) from exc
+
         transaction.status = TransactionStatus.RESOLVED_SPLIT
         transaction.released_at = now
         transaction.refunded_at = now
         dispute.status = DisputeStatus.RESOLVED_SPLIT
-        dispute.split_ratio = Decimal("0.5000")
+        dispute.split_ratio = split_ratio
 
     dispute.admin_decision = decision
     dispute.admin_reason = normalized_reason

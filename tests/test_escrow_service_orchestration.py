@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pytest
 from app.db.base import Base
 from app.models.collection_attempt import AttemptOutcome
 from app.models.escrow import Escrow
@@ -11,8 +12,10 @@ from app.models.notification import Notification, NotificationEventType
 from app.models.payout_attempt import PayoutAttempt
 from app.models.transaction import Transaction, TransactionPayoutStatus, TransactionStatus
 from app.models.user import User, UserRole
+from app.services.custody.dto import CustodyCapabilities
 from app.services.escrow_service import (
     EscrowService,
+    SplitPayoutUnsupportedError,
     run_payout_executor_once,
     run_payout_reconciliation,
 )
@@ -327,6 +330,99 @@ def test_executor_marks_failed_definite_status_when_rail_declines() -> None:
         assert attempt.outcome == AttemptOutcome.FAILED_DEFINITE
         assert transaction.payout_status == TransactionPayoutStatus.FAILED_DEFINITE
         assert ledger_entries == []
+    finally:
+        db.close()
+
+
+def test_queue_split_unsupported_raises_without_side_effects() -> None:
+    class _Provider:
+        def capabilities(self) -> CustodyCapabilities:
+            return CustodyCapabilities(
+                holds_funds_structurally=False,
+                supports_split_payout=False,
+                supports_partial_release=False,
+                supports_webhook_auth=False,
+            )
+
+    class _Registry:
+        provider = _Provider()
+        payout_priority = ("loop",)
+
+    db = _build_db_session()
+    try:
+        transaction = _seed_transaction(db, status=TransactionStatus.ESCALATED_ADMIN_REVIEW)
+        service = EscrowService(db, registry=_Registry())
+
+        with pytest.raises(SplitPayoutUnsupportedError):
+            service.queue_split_payout(
+                transaction,
+                release_purpose=f"admin-split-release:{uuid.uuid4()}",
+                refund_purpose=f"admin-split-refund:{uuid.uuid4()}",
+                split_ratio=Decimal("0.5000"),
+            )
+
+        attempts = list(db.execute(select(PayoutAttempt)).scalars().all())
+        db.refresh(transaction)
+
+        assert attempts == []
+        assert transaction.payout_status == TransactionPayoutStatus.NOT_REQUIRED
+    finally:
+        db.close()
+
+
+def test_queue_split_generates_two_intents_with_ratio_checks() -> None:
+    db = _build_db_session()
+    try:
+        transaction = _seed_transaction(db, status=TransactionStatus.ESCALATED_ADMIN_REVIEW)
+        service = EscrowService(db)
+
+        release_attempt, refund_attempt = service.queue_split_payout(
+            transaction,
+            release_purpose=f"admin-split-release:{transaction.id}",
+            refund_purpose=f"admin-split-refund:{transaction.id}",
+            split_ratio=Decimal("0.5000"),
+        )
+        db.commit()
+        db.refresh(transaction)
+
+        attempts = list(
+            db.execute(select(PayoutAttempt).order_by(PayoutAttempt.purpose.asc())).scalars().all()
+        )
+
+        assert release_attempt is not None
+        assert refund_attempt is not None
+        assert len(attempts) == 2
+        assert attempts[0].purpose.startswith("admin-split-refund:")
+        assert attempts[1].purpose.startswith("admin-split-release:")
+        assert attempts[0].amount == Decimal("1000.00")
+        assert attempts[1].amount == Decimal("1000.00")
+        assert transaction.payout_status == TransactionPayoutStatus.PENDING
+    finally:
+        db.close()
+
+
+def test_queue_split_is_idempotent_for_retried_admin_calls() -> None:
+    db = _build_db_session()
+    try:
+        transaction = _seed_transaction(db, status=TransactionStatus.ESCALATED_ADMIN_REVIEW)
+        service = EscrowService(db)
+
+        service.queue_split_payout(
+            transaction,
+            release_purpose=f"admin-split-release:{transaction.id}",
+            refund_purpose=f"admin-split-refund:{transaction.id}",
+            split_ratio=Decimal("0.5000"),
+        )
+        service.queue_split_payout(
+            transaction,
+            release_purpose=f"admin-split-release:{transaction.id}",
+            refund_purpose=f"admin-split-refund:{transaction.id}",
+            split_ratio=Decimal("0.5000"),
+        )
+        db.commit()
+
+        attempts = list(db.execute(select(PayoutAttempt)).scalars().all())
+        assert len(attempts) == 2
     finally:
         db.close()
 

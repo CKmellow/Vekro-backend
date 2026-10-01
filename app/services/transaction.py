@@ -19,6 +19,7 @@ from app.schemas.transaction import (
     CreateTransactionRequest,
     PaymentCallbackRequest,
 )
+from app.services.escrow_service import EscrowService
 from app.services.payment import PaymentGateway, PaymentRequest, get_payment_gateway
 
 audit_logger = logging.getLogger("app.transactions.audit")
@@ -33,7 +34,14 @@ class ListingNotFoundForTransactionError(Exception):
 
 
 class PaymentInitiationError(Exception):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        transaction: Transaction | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.transaction = transaction
 
 
 class TransactionNotFoundForCallbackError(Exception):
@@ -172,6 +180,8 @@ def create_transaction(
         status=TransactionStatus.AWAITING_PAYMENT,
     )
     db.add(transaction)
+    # Flush first so defaults/PKs are materialized before dependent notifications are built.
+    db.flush()
     _create_transaction_created_notifications(db, transaction=transaction)
     db.commit()
     db.refresh(transaction)
@@ -188,7 +198,10 @@ def create_transaction(
             )
         )
     except Exception as exc:  # pragma: no cover
-        raise PaymentInitiationError("Failed to initiate payment transport.") from exc
+        raise PaymentInitiationError(
+            "Failed to initiate payment transport.",
+            transaction=transaction,
+        ) from exc
 
     return transaction
 
@@ -1088,6 +1101,10 @@ def confirm_buyer_delivery_otp(
         transaction.released_at = transitioned_at
         transaction.hold_started_at = None
         to_status = TransactionStatus.RELEASED.value
+        EscrowService(db).queue_release_full(
+            transaction,
+            purpose=f"tx-release:{transaction.id}",
+        )
 
     transaction.delivery_otp_hash = None
     transaction.otp_failed_attempts = 0
@@ -1134,6 +1151,10 @@ def withhold_buyer_delivery_otp(
         now=now,
         initiated_by="buyer",
         reason="otp_withheld",
+    )
+    EscrowService(db).queue_refund_full(
+        transaction,
+        purpose=f"tx-refund:{transaction.id}",
     )
     _create_otp_withheld_notifications(
         db,
@@ -1366,6 +1387,10 @@ def apply_seller_resolution_action(
     if selected_action == SellerResolutionAction.REFUND_ISSUED:
         transaction.status = TransactionStatus.REFUNDED_BUYER
         transaction.refunded_at = now
+        EscrowService(db).queue_refund_full(
+            transaction,
+            purpose=f"seller-refund:{transaction.id}",
+        )
     else:
         transaction.status = TransactionStatus.AWAITING_BUYER_RECONFIRMATION
 
@@ -1450,6 +1475,10 @@ def submit_buyer_reconfirmation(
     if accepted:
         transaction.status = TransactionStatus.RESOLVED_RELEASE
         transaction.released_at = now
+        EscrowService(db).queue_release_full(
+            transaction,
+            purpose=f"reconfirm-release:{transaction.id}",
+        )
         if dispute is not None:
             dispute.status = DisputeStatus.RESOLVED_RELEASE
             dispute.resolved_at = now
@@ -1748,6 +1777,10 @@ def run_timeout_jobs(
             initiated_by="system",
             reason="at_door_timeout_1h",
         )
+        EscrowService(db).queue_refund_full(
+            transaction,
+            purpose=f"timeout-at-door-refund:{transaction.id}",
+        )
         _create_timeout_notifications(
             db,
             transaction=transaction,
@@ -1775,6 +1808,10 @@ def run_timeout_jobs(
         transaction.refunded_at = current_time
         transaction.delivery_otp_hash = None
         transaction.otp_failed_attempts = 0
+        EscrowService(db).queue_refund_full(
+            transaction,
+            purpose=f"timeout-refund:{transaction.id}",
+        )
         _create_timeout_notifications(
             db,
             transaction=transaction,
@@ -1802,6 +1839,10 @@ def run_timeout_jobs(
         transaction.released_at = current_time
         transaction.delivery_otp_hash = None
         transaction.otp_failed_attempts = 0
+        EscrowService(db).queue_release_full(
+            transaction,
+            purpose=f"hold-release:{transaction.id}",
+        )
         _create_timeout_notifications(
             db,
             transaction=transaction,
@@ -1818,6 +1859,10 @@ def run_timeout_jobs(
     for transaction in dispute_due:
         transaction.status = TransactionStatus.RELEASED
         transaction.released_at = current_time
+        EscrowService(db).queue_release_full(
+            transaction,
+            purpose=f"dispute-timeout-release:{transaction.id}",
+        )
         _create_dispute_auto_cancel_notifications(
             db,
             transaction=transaction,

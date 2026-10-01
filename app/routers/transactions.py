@@ -21,6 +21,7 @@ from app.services.transaction import (
     InvalidTransactionOtpError,
     ListingNotFoundForTransactionError,
     PaymentCallbackResult,
+    PaymentInitiationError,
     TransactionArrivalForbiddenError,
     TransactionArrivalInvalidStateError,
     TransactionBuyerActionForbiddenError,
@@ -60,9 +61,20 @@ router = APIRouter(prefix="/transactions", tags=["Transactions"])
         "New transactions start in awaiting_payment state."
     ),
     responses={
+        status.HTTP_202_ACCEPTED: {
+            "description": (
+                "Transaction created, but payment initiation transport failed. "
+                "Client should continue with this transaction id."
+            )
+        },
         status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
         status.HTTP_403_FORBIDDEN: {"description": "Authenticated user is not a buyer."},
         status.HTTP_404_NOT_FOUND: {"description": "Listing not found."},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "description": (
+                "Payment initiation failed before a partial-success response " "could be returned."
+            )
+        },
         status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "description": "Business-rule or payload validation failed."
         },
@@ -72,6 +84,7 @@ def create_buyer_transaction(
     payload: CreateTransactionRequest,
     current_user: Annotated[User, Depends(require_buyer_user)],
     db: Annotated[Session, Depends(get_db)],
+    response: Response,
 ) -> TransactionResponse:
     try:
         transaction = create_transaction(db, buyer=current_user, payload=payload)
@@ -80,6 +93,15 @@ def create_buyer_transaction(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Listing not found.",
         ) from exc
+    except PaymentInitiationError as exc:
+        if exc.transaction is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(exc),
+            ) from exc
+        response.status_code = status.HTTP_202_ACCEPTED
+        response.headers["X-Payment-Initiation-Status"] = "failed"
+        return TransactionResponse.model_validate(exc.transaction)
     except TransactionValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

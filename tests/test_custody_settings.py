@@ -32,7 +32,7 @@ def _settings(**overrides) -> Settings:
         "econfirm_api_secret": "",
     }
     base.update(overrides)
-    return Settings(_env_file=None, **base)
+    return Settings.model_validate(base)
 
 
 def test_unknown_rail_in_priority_fails_fast() -> None:

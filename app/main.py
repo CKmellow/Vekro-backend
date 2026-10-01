@@ -22,8 +22,8 @@ from app.services.custody.registry import build_custody_registry
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    app.state.custody_registry = custody_registry
+async def lifespan(fastapi_app: FastAPI) -> AsyncIterator[None]:
+    fastapi_app.state.custody_registry = custody_registry
     yield
 
 

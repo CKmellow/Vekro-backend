@@ -22,15 +22,32 @@ LIVE_PAYOUT_RAILS = frozenset({"loop", "intasend"})
 
 
 class CustodyRuntimeSettings(Protocol):
-    custody_mode: str
-    simulated_collection_default_scenario: str
-    simulated_payout_default_scenario: str
-    simulated_trigger_prefix: str
-    loop_enabled: bool
-    intasend_enabled: bool
-    live_payouts_enabled: bool
-    custody_collection_rail_priority_list: list[str]
-    custody_payout_rail_priority_list: list[str]
+    @property
+    def custody_mode(self) -> str: ...
+
+    @property
+    def simulated_collection_default_scenario(self) -> str: ...
+
+    @property
+    def simulated_payout_default_scenario(self) -> str: ...
+
+    @property
+    def simulated_trigger_prefix(self) -> str: ...
+
+    @property
+    def loop_enabled(self) -> bool: ...
+
+    @property
+    def intasend_enabled(self) -> bool: ...
+
+    @property
+    def live_payouts_enabled(self) -> bool: ...
+
+    @property
+    def custody_collection_rail_priority_list(self) -> list[str]: ...
+
+    @property
+    def custody_payout_rail_priority_list(self) -> list[str]: ...
 
 
 @dataclass(frozen=True)

@@ -205,6 +205,9 @@ def _default_http_transport(
         raise LoopAuthError(f"Token transport error for {url}: {exc.reason}") from exc
 
 
+default_loop_http_transport = _default_http_transport
+
+
 def _safe_json_parse(text_value: str) -> dict[str, Any]:
     try:
         parsed = json.loads(text_value)

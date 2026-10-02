@@ -1,0 +1,5 @@
+{
+  "statusCode": "409",
+  "statusDescription": "Duplicate payout request",
+  "transactionReference": "loop-payout-fixture-duplicate"
+}

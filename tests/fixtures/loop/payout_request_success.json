@@ -1,0 +1,5 @@
+{
+  "statusCode": "0",
+  "statusDescription": "Payout accepted",
+  "transactionReference": "loop-payout-fixture-success"
+}

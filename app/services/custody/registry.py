@@ -16,6 +16,7 @@ from app.services.custody.dto import (
 from app.services.custody.enums import CollectionOutcome, CustodyMode, PayoutOutcome
 from app.services.custody.loop_auth import LoopTokenManager
 from app.services.custody.loop_collection import LoopCollectionRail
+from app.services.custody.loop_payout import LoopPayoutRail
 from app.services.custody.ports import CollectionRail, CustodyProvider, PayoutRail
 from app.services.custody.simulated_rail import SimulatedRail
 
@@ -219,6 +220,12 @@ def build_custody_registry(settings: CustodyRuntimeSettings) -> CustodyRegistry:
         passkey=settings.loop_passkey,
         token_manager=loop_token_manager,
     )
+    loop_payout_rail = LoopPayoutRail(
+        base_url=settings.loop_base_url,
+        shortcode=settings.loop_shortcode,
+        passkey=settings.loop_passkey,
+        token_manager=loop_token_manager,
+    )
 
     collection_rails: dict[str, CollectionRail] = {}
     for rail_name in collection_priority:
@@ -233,6 +240,8 @@ def build_custody_registry(settings: CustodyRuntimeSettings) -> CustodyRegistry:
     for rail_name in payout_priority:
         if rail_name == "simulated":
             payout_rails[rail_name] = simulated_rail
+        elif rail_name == "loop":
+            payout_rails[rail_name] = loop_payout_rail
         else:
             payout_rails[rail_name] = PlaceholderPayoutRail(rail_name=rail_name)
 

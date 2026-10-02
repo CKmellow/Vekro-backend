@@ -156,6 +156,7 @@ uvicorn app.main:app --reload
 make lint
 make format
 .venv/bin/pytest
+make rails-selftest
 ```
 
 ### Migration workflow
@@ -462,3 +463,4 @@ Migration notes:
 - 2026-09-30: Milestone 12 Issue [M12] Implement SimulatedCustodyProvider composing ledger and rails completed with open/fund/release/refund/status methods, non-structural capability reporting, and auditable collection/payout attempt persistence backed by EscrowLedger + SimulatedRail.
 - 2026-09-30: Milestone 12 Issue [M12] Add dev-only admin controls for simulated custody demos completed with admin-protected simulation endpoints, production-environment guardrails, and idempotent deterministic progression controls that persist attempt-table audit state.
 - 2026-09-30: Milestone 12 Issue [M12] Add full-flow simulated custody integration tests completed with offline payment-callback-through-resolution scenarios, deterministic simulated provider funding/release/refund verification, and escalated admin decision payout-intent assertions across refund/release/split outcomes.
+- 2026-10-02: Milestone 14 Issue [M14] Implement LOOP token manager and signing helper with self-test completed with pre-expiry token refresh cache behavior, token endpoint variant fallback support, deterministic HMAC signing vector validation, and `make rails-selftest` failure-on-mismatch enforcement.

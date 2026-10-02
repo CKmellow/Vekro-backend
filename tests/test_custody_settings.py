@@ -1,6 +1,7 @@
 import pytest
 from app.core.settings import Settings
 from app.services.custody.enums import CustodyMode
+from app.services.custody.loop_payout import LoopPayoutRail
 from app.services.custody.registry import build_custody_registry
 from pydantic import ValidationError
 
@@ -114,3 +115,4 @@ def test_production_mode_can_enable_live_payout_rails() -> None:
 
     assert registry.live_payouts_enabled is True
     assert registry.get_payout_rail("loop") is registry.payout_rails["loop"]
+    assert isinstance(registry.payout_rails["loop"], LoopPayoutRail)

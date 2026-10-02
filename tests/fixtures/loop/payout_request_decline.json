@@ -1,0 +1,5 @@
+{
+  "statusCode": "2",
+  "statusDescription": "Payout declined",
+  "transactionReference": "loop-payout-fixture-decline"
+}

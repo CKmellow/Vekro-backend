@@ -23,6 +23,7 @@ def test_core_endpoints_have_summary_and_description() -> None:
         ("/transactions/{transaction_id}/arrival", "post"),
         ("/transactions/{transaction_id}/otp-give", "post"),
         ("/transactions/{transaction_id}/report-functional-issue", "post"),
+        ("/webhooks/loop/collection", "post"),
         ("/notifications", "get"),
         ("/admin/disputes/escalation-queue", "get"),
         ("/admin/disputes/{dispute_id}/timeline", "get"),

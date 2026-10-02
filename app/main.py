@@ -13,6 +13,7 @@ from app.routers.auth import router as auth_router
 from app.routers.disputes import router as disputes_router
 from app.routers.health import router as health_router
 from app.routers.listings import router as listings_router
+from app.routers.loop_webhooks import router as loop_webhooks_router
 from app.routers.notifications import router as notifications_router
 from app.routers.protected import router as protected_router
 from app.routers.simulated_custody_admin import router as simulated_custody_admin_router
@@ -188,3 +189,4 @@ app.include_router(protected_router)
 app.include_router(transactions_router)
 app.include_router(disputes_router)
 app.include_router(simulated_custody_admin_router)
+app.include_router(loop_webhooks_router)

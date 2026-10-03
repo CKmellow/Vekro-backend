@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
@@ -17,11 +18,14 @@ from app.services.custody.enums import CollectionOutcome, CustodyMode, PayoutOut
 from app.services.custody.loop_auth import LoopTokenManager
 from app.services.custody.loop_collection import LoopCollectionRail
 from app.services.custody.loop_payout import LoopPayoutRail
+from app.services.custody.pesapal_auth import PesapalTokenManager
+from app.services.custody.pesapal_collection import PesapalCollectionRail
 from app.services.custody.ports import CollectionRail, CustodyProvider, PayoutRail
 from app.services.custody.simulated_rail import SimulatedRail
 
-SUPPORTED_RAILS = frozenset({"simulated", "loop", "intasend"})
+SUPPORTED_RAILS = frozenset({"simulated", "loop", "pesapal", "intasend"})
 LIVE_PAYOUT_RAILS = frozenset({"loop", "intasend"})
+registry_logger = logging.getLogger("app.custody.registry")
 
 
 class CustodyRuntimeSettings(Protocol):
@@ -41,7 +45,40 @@ class CustodyRuntimeSettings(Protocol):
     def loop_enabled(self) -> bool: ...
 
     @property
+    def loop_base_url(self) -> str: ...
+
+    @property
+    def loop_client_id(self) -> str: ...
+
+    @property
+    def loop_client_secret(self) -> str: ...
+
+    @property
+    def loop_shortcode(self) -> str: ...
+
+    @property
+    def loop_passkey(self) -> str: ...
+
+    @property
+    def pesapal_enabled(self) -> bool: ...
+
+    @property
     def intasend_enabled(self) -> bool: ...
+
+    @property
+    def pesapal_base_url(self) -> str: ...
+
+    @property
+    def pesapal_consumer_key(self) -> str: ...
+
+    @property
+    def pesapal_consumer_secret(self) -> str: ...
+
+    @property
+    def pesapal_callback_url(self) -> str: ...
+
+    @property
+    def pesapal_ipn_id(self) -> str: ...
 
     @property
     def live_payouts_enabled(self) -> bool: ...
@@ -175,6 +212,8 @@ def _rail_enabled(rail_name: str, settings: CustodyRuntimeSettings) -> bool:
         return True
     if rail_name == "loop":
         return settings.loop_enabled
+    if rail_name == "pesapal":
+        return settings.pesapal_enabled
     if rail_name == "intasend":
         return settings.intasend_enabled
     return False
@@ -226,6 +265,23 @@ def build_custody_registry(settings: CustodyRuntimeSettings) -> CustodyRegistry:
         passkey=settings.loop_passkey,
         token_manager=loop_token_manager,
     )
+    pesapal_token_manager = PesapalTokenManager(
+        base_url=settings.pesapal_base_url,
+        consumer_key=settings.pesapal_consumer_key,
+        consumer_secret=settings.pesapal_consumer_secret,
+    )
+    pesapal_collection_rail = PesapalCollectionRail(
+        base_url=settings.pesapal_base_url,
+        callback_url=settings.pesapal_callback_url,
+        ipn_id=settings.pesapal_ipn_id,
+        token_manager=pesapal_token_manager,
+    )
+
+    if settings.pesapal_enabled and not settings.pesapal_ipn_id.strip():
+        registry_logger.warning(
+            "pesapal_enabled_without_ipn_id PESAPAL_ENABLED=true but PESAPAL_IPN_ID is blank; "
+            "submit-order requests may fail until IPN registration is completed."
+        )
 
     collection_rails: dict[str, CollectionRail] = {}
     for rail_name in collection_priority:
@@ -233,6 +289,8 @@ def build_custody_registry(settings: CustodyRuntimeSettings) -> CustodyRegistry:
             collection_rails[rail_name] = simulated_rail
         elif rail_name == "loop":
             collection_rails[rail_name] = loop_collection_rail
+        elif rail_name == "pesapal":
+            collection_rails[rail_name] = pesapal_collection_rail
         else:
             collection_rails[rail_name] = PlaceholderCollectionRail(rail_name=rail_name)
 

@@ -82,13 +82,15 @@ class CollectionResult:
     provider_reference: str
     raw_status: str | None = None
     message: str | None = None
+    metadata: dict[str, str | None] | None = None
 
-    def to_payload(self) -> dict[str, str | None]:
+    def to_payload(self) -> dict[str, str | dict[str, str | None] | None]:
         return {
             "outcome": self.outcome.value,
             "provider_reference": self.provider_reference,
             "raw_status": self.raw_status,
             "message": self.message,
+            "metadata": self.metadata,
         }
 
 

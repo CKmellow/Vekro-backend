@@ -1,4 +1,4 @@
-.PHONY: run lint format rails-selftest
+.PHONY: run lint format rails-selftest pesapal-register-ipn
 
 run:
 	.venv/bin/uvicorn app.main:app --reload
@@ -13,3 +13,6 @@ format:
 
 rails-selftest:
 	.venv/bin/python -m app.services.custody.loop_selftest
+
+pesapal-register-ipn:
+	.venv/bin/python -m app.services.custody.pesapal_ipn_registration

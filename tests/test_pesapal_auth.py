@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from app.services.custody.pesapal_auth import (
@@ -8,6 +10,12 @@ from app.services.custody.pesapal_auth import (
     PesapalHttpResponse,
     PesapalTokenManager,
 )
+
+_FIXTURES_DIR = Path(__file__).parent / "fixtures" / "pesapal"
+
+
+def _fixture(name: str) -> dict[str, str]:
+    return json.loads((_FIXTURES_DIR / name).read_text(encoding="utf-8"))
 
 
 class _Clock:
@@ -100,6 +108,27 @@ def test_nested_token_and_iso_expiry_are_parsed() -> None:
     clock.now = clock.now + timedelta(minutes=3)
     assert manager.get_access_token() == "nested-token"
     assert calls == 1
+
+
+def test_auth_contract_fixture_payload_is_parsed() -> None:
+    fixture_body = _fixture("auth_request_token_success.json")
+
+    def _transport(method, url, headers, payload, timeout_seconds):
+        _ = method
+        _ = url
+        _ = headers
+        _ = payload
+        _ = timeout_seconds
+        return PesapalHttpResponse(status_code=200, body=fixture_body, text="ok")
+
+    manager = PesapalTokenManager(
+        base_url="https://cybqa.pesapal.com/pesapalv3",
+        consumer_key="pesapal-key",
+        consumer_secret="pesapal-secret",
+        transport=_transport,
+    )
+
+    assert manager.get_access_token() == "fixture-pesapal-token"
 
 
 def test_http_error_raises_clear_exception() -> None:

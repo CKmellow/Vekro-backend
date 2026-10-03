@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import json
 from decimal import Decimal
+from pathlib import Path
+from typing import Any
 
 import pytest
 from app.services.custody.dto import FundingRequest
 from app.services.custody.enums import CollectionOutcome
 from app.services.custody.pesapal_auth import PesapalHttpResponse
 from app.services.custody.pesapal_collection import PesapalCollectionRail
+
+_FIXTURES_DIR = Path(__file__).parent / "fixtures" / "pesapal"
+
+
+def _fixture(name: str) -> dict[str, str]:
+    return json.loads((_FIXTURES_DIR / name).read_text(encoding="utf-8"))
 
 
 class _TokenManagerStub:
@@ -24,7 +33,8 @@ def _funding_request() -> FundingRequest:
 
 
 def test_submit_order_returns_tracking_id_and_redirect_url() -> None:
-    observed: dict[str, object] = {}
+    observed: dict[str, Any] = {}
+    fixture_body = _fixture("submit_order_success.json")
 
     def _transport(method, url, headers, payload, timeout_seconds):
         observed["method"] = method
@@ -34,11 +44,7 @@ def test_submit_order_returns_tracking_id_and_redirect_url() -> None:
         observed["timeout"] = timeout_seconds
         return PesapalHttpResponse(
             status_code=200,
-            body={
-                "order_tracking_id": "pesapal-track-9001",
-                "redirect_url": "https://cybqa.pesapal.com/checkout/9001",
-                "status": "200",
-            },
+            body=fixture_body,
             text="ok",
         )
 
@@ -53,10 +59,10 @@ def test_submit_order_returns_tracking_id_and_redirect_url() -> None:
     result = rail.request_funding(_funding_request())
 
     assert result.outcome == CollectionOutcome.SUCCEEDED
-    assert result.provider_reference == "pesapal-track-9001"
+    assert result.provider_reference == "pesapal-track-fixture-1001"
     assert result.metadata == {
-        "order_tracking_id": "pesapal-track-9001",
-        "redirect_url": "https://cybqa.pesapal.com/checkout/9001",
+        "order_tracking_id": "pesapal-track-fixture-1001",
+        "redirect_url": "https://cybqa.pesapal.com/checkout/fixture-1001",
     }
 
     assert observed["method"] == "POST"
@@ -92,19 +98,62 @@ def test_submit_order_returns_unknown_when_ipn_id_is_missing() -> None:
     assert "Run the IPN registration action" in (result.message or "")
 
 
+def test_submit_order_missing_redirect_fixture_is_unknown() -> None:
+    fixture_body = _fixture("submit_order_missing_redirect.json")
+
+    def _transport(method, url, headers, payload, timeout_seconds):
+        _ = method
+        _ = url
+        _ = headers
+        _ = payload
+        _ = timeout_seconds
+        return PesapalHttpResponse(status_code=200, body=fixture_body, text="ok")
+
+    rail = PesapalCollectionRail(
+        base_url="https://cybqa.pesapal.com/pesapalv3",
+        callback_url="https://backend.example/api/webhooks/pesapal/callback",
+        ipn_id="ipn-123",
+        token_manager=_TokenManagerStub(),
+        transport=_transport,
+    )
+
+    result = rail.request_funding(_funding_request())
+
+    assert result.outcome == CollectionOutcome.UNKNOWN
+    assert result.provider_reference == "pesapal-track-fixture-3003"
+    assert result.metadata == {
+        "order_tracking_id": "pesapal-track-fixture-3003",
+        "redirect_url": None,
+    }
+
+
 @pytest.mark.parametrize(
-    ("status_value", "expected_outcome"),
+    ("fixture_name", "expected_outcome", "expected_reference"),
     [
-        ("COMPLETED", CollectionOutcome.SUCCEEDED),
-        ("FAILED", CollectionOutcome.FAILED_DEFINITE),
-        ("PENDING", CollectionOutcome.UNKNOWN),
+        (
+            "get_transaction_status_completed.json",
+            CollectionOutcome.SUCCEEDED,
+            "pesapal-track-fixture-1001",
+        ),
+        (
+            "get_transaction_status_failed.json",
+            CollectionOutcome.FAILED_DEFINITE,
+            "pesapal-track-fixture-4004",
+        ),
+        (
+            "get_transaction_status_pending.json",
+            CollectionOutcome.UNKNOWN,
+            "pesapal-track-fixture-2002",
+        ),
     ],
 )
 def test_status_inquiry_classifies_finality(
-    status_value: str,
+    fixture_name: str,
     expected_outcome: CollectionOutcome,
+    expected_reference: str,
 ) -> None:
-    observed: dict[str, object] = {}
+    observed: dict[str, Any] = {}
+    fixture_body = _fixture(fixture_name)
 
     def _transport(method, url, headers, payload, timeout_seconds):
         observed["method"] = method
@@ -112,15 +161,7 @@ def test_status_inquiry_classifies_finality(
         observed["headers"] = headers
         observed["payload"] = payload
         observed["timeout"] = timeout_seconds
-        return PesapalHttpResponse(
-            status_code=200,
-            body={
-                "orderTrackingId": "pesapal-track-9002",
-                "payment_status_description": status_value,
-                "description": "Status update",
-            },
-            text="ok",
-        )
+        return PesapalHttpResponse(status_code=200, body=fixture_body, text="ok")
 
     rail = PesapalCollectionRail(
         base_url="https://cybqa.pesapal.com/pesapalv3",
@@ -133,7 +174,7 @@ def test_status_inquiry_classifies_finality(
     result = rail.get_funding_status("pesapal-track-9002")
 
     assert result.outcome == expected_outcome
-    assert result.provider_reference == "pesapal-track-9002"
-    assert result.raw_status == status_value.lower()
+    assert result.provider_reference == expected_reference
+    assert result.raw_status == fixture_body["payment_status_description"].lower()
     assert observed["method"] == "GET"
     assert "orderTrackingId=pesapal-track-9002" in str(observed["url"])

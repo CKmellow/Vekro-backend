@@ -5,7 +5,7 @@ import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import urlencode
 
 from app.services.custody.dto import CollectionResult, FundingRequest
@@ -13,7 +13,6 @@ from app.services.custody.enums import CollectionOutcome
 from app.services.custody.pesapal_auth import (
     PesapalHttpResponse,
     PesapalHttpTransport,
-    PesapalTokenManager,
     default_pesapal_http_transport,
 )
 
@@ -34,6 +33,10 @@ _TERMINAL_FAILED_STATES = {"failed", "cancelled", "canceled", "invalid", "reject
 _PENDING_STATES = {"pending", "processing", "queued", "waiting", "initiated"}
 
 
+class PesapalAccessTokenProvider(Protocol):
+    def get_access_token(self) -> str: ...
+
+
 class PesapalCollectionRail:
     def __init__(
         self,
@@ -41,7 +44,7 @@ class PesapalCollectionRail:
         base_url: str,
         callback_url: str,
         ipn_id: str,
-        token_manager: PesapalTokenManager,
+        token_manager: "PesapalAccessTokenProvider",
         transport: PesapalHttpTransport | None = None,
         timeout_seconds: float = 10.0,
         now_fn: Callable[[], datetime] | None = None,

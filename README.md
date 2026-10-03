@@ -67,8 +67,10 @@ Custody and rail settings:
 - CUSTODY_COLLECTION_RAIL_PRIORITY: comma-separated collection rail order
 - CUSTODY_PAYOUT_RAIL_PRIORITY: comma-separated payout rail order
 - ALLOW_LIVE_PAYOUTS: live payout guard flag (requires production)
-- LOOP_ENABLED / INTASEND_ENABLED / ECONFIRM_ENABLED: enable provider/rail blocks
-- LOOP_*, INTASEND_*, ECONFIRM_*: required credentials when their enabled flag is true
+- LOOP_ENABLED / PESAPAL_ENABLED / INTASEND_ENABLED / ECONFIRM_ENABLED: enable provider/rail blocks
+- LOOP_*, PESAPAL_*, INTASEND_*, ECONFIRM_*: required credentials when their enabled flag is true
+- Pesapal routing rule: include `pesapal` in collection priority only; payout priority remains `loop,simulated`.
+- Sandbox key scope note: Pesapal sandbox keys are for non-production smoke and contract verification only.
 
 Production safety checks:
 
@@ -114,6 +116,12 @@ Custody contract interfaces and provider/rail DTOs are defined under `app/servic
 Custody architecture decisions for provider abstraction and tier semantics are tracked in `docs/adr/custody-abstraction.md`.
 Milestone 13 transition-to-ledger mapping is documented in `docs/m13_transition_ledger_mapping.md`.
 Milestone 15 Pesapal collection-only contract and scope decision is documented in `docs/pesapal_collection_contract.md`.
+
+Rail capability signal (Milestone 15):
+
+- `loop`: supports collection and payout.
+- `pesapal`: supports collection only (`supports_payout: false` equivalent behavior).
+- `simulated`: supports collection and payout for local and test workflows.
 
 ### Service-Layer Principles
 
@@ -174,6 +182,18 @@ One-off Pesapal IPN registration (persists `PESAPAL_IPN_ID` into `.env`):
 
 ```bash
 make pesapal-register-ipn
+```
+
+Opt-in live Pesapal sandbox smoke tests:
+
+```bash
+RUN_PESAPAL_LIVE_TESTS=1 \
+PESAPAL_ENABLED=true \
+PESAPAL_BASE_URL=https://cybqa.pesapal.com/pesapalv3 \
+PESAPAL_CONSUMER_KEY=<sandbox-key> \
+PESAPAL_CONSUMER_SECRET=<sandbox-secret> \
+PESAPAL_CALLBACK_URL=https://<your-ngrok-subdomain>.ngrok-free.app/api/webhooks/pesapal/callback \
+.venv/bin/pytest -m live -k pesapal -q
 ```
 
 ### Migration workflow
@@ -492,3 +512,4 @@ Migration notes:
 - 2026-10-02: Milestone 14 Issue [M14] Implement LoopCollectionRail prompt and inquiry adapters completed with body-`statusCode` outcome classification, inquiry `finalState` terminal/pending handling, malformed-response UNKNOWN fallback, and redacted warning logs.
 - 2026-10-02: Milestone 14 Issue [M14] Implement LOOP collection webhook handler with idempotent processing completed with callback signature verification, transaction-reference dedupe storage in provider_events, inquiry-first funding confirmation, and redacted payload/signature-validity audit snapshots.
 - 2026-10-02: Milestone 14 Issue [M14] Implement LoopPayoutRail and contract/live-sandbox tests completed with deterministic retry provider references plus fresh auth signatures, duplicate-response-as-success idempotent handling, fixture-based success/decline/unknown coverage under tests/fixtures/loop, and opt-in `pytest -m live` smoke checks.
+- 2026-10-03: Milestone 15 Issue [M15] Add Pesapal fixtures/tests and collection routing docs completed with fixture-driven auth/submit-order/get-status/callback contracts under tests/fixtures/pesapal, opt-in `pytest -m live -k pesapal` smoke gating, `.env.example` Pesapal variable templates, and explicit collection-only routing/capability documentation (`PAYOUT_RAIL_PRIORITY` remains `loop,simulated`).

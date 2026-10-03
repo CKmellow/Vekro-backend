@@ -1,0 +1,6 @@
+{
+  "OrderTrackingId": "pesapal-track-fixture-1001",
+  "OrderMerchantReference": "escrow-fixture-1001",
+  "OrderNotificationType": "IPNCHANGE",
+  "status": "COMPLETED"
+}

@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterator
+from pathlib import Path
 from types import SimpleNamespace
 
 from app.db.session import get_db
@@ -12,6 +13,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+
+_FIXTURES_DIR = Path(__file__).parent / "fixtures" / "pesapal"
+
+
+def _fixture(name: str) -> dict[str, str]:
+    return json.loads((_FIXTURES_DIR / name).read_text(encoding="utf-8"))
 
 
 def _build_db_session() -> Session:
@@ -59,11 +66,8 @@ def _build_db_session() -> Session:
 def test_webhook_uses_inquiry_confirmation_not_callback_claim() -> None:
     db = _build_db_session()
     try:
-        payload = {
-            "OrderTrackingId": "pesapal-track-501",
-            "OrderNotificationType": "IPNCHANGE",
-            "status": "COMPLETED",
-        }
+        payload = _fixture("callback_notification_shape.json")
+        payload["OrderTrackingId"] = "pesapal-track-501"
         raw_payload = json.dumps(payload, separators=(",", ":"), sort_keys=True)
 
         inquiry_calls: list[str] = []
@@ -100,10 +104,8 @@ def test_webhook_uses_inquiry_confirmation_not_callback_claim() -> None:
 def test_webhook_processing_is_idempotent() -> None:
     db = _build_db_session()
     try:
-        payload = {
-            "OrderTrackingId": "pesapal-track-502",
-            "OrderNotificationType": "IPNCHANGE",
-        }
+        payload = _fixture("callback_notification_shape.json")
+        payload["OrderTrackingId"] = "pesapal-track-502"
         raw_payload = json.dumps(payload, separators=(",", ":"), sort_keys=True)
         call_count = 0
 
@@ -142,9 +144,8 @@ def test_webhook_processing_is_idempotent() -> None:
 def test_webhook_handles_missing_tracking_id_without_inquiry() -> None:
     db = _build_db_session()
     try:
-        payload = {
-            "OrderNotificationType": "IPNCHANGE",
-        }
+        payload = _fixture("callback_notification_shape.json")
+        payload.pop("OrderTrackingId", None)
         raw_payload = json.dumps(payload, separators=(",", ":"), sort_keys=True)
 
         def _unexpected_inquiry(_provider_reference: str) -> CollectionResult:

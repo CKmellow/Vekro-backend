@@ -159,6 +159,16 @@ make format
 make rails-selftest
 ```
 
+Optional live Pesapal auth verification (opt-in):
+
+```bash
+RUN_PESAPAL_LIVE_AUTH_SELFTEST=1 \
+PESAPAL_BASE_URL=https://cybqa.pesapal.com/pesapalv3 \
+PESAPAL_CONSUMER_KEY=<sandbox-key> \
+PESAPAL_CONSUMER_SECRET=<sandbox-secret> \
+make rails-selftest
+```
+
 ### Migration workflow
 
 Create a migration revision:

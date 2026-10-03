@@ -22,6 +22,12 @@ def _settings(**overrides) -> Settings:
         "loop_client_secret": "",
         "loop_shortcode": "",
         "loop_passkey": "",
+        "pesapal_enabled": False,
+        "pesapal_base_url": "",
+        "pesapal_consumer_key": "",
+        "pesapal_consumer_secret": "",
+        "pesapal_callback_url": "",
+        "pesapal_ipn_id": "",
         "intasend_enabled": False,
         "intasend_base_url": "",
         "intasend_publishable_key": "",
@@ -50,12 +56,33 @@ def test_enabled_loop_requires_credentials() -> None:
         )
 
 
+def test_enabled_pesapal_requires_credentials() -> None:
+    with pytest.raises(ValidationError, match="PESAPAL_BASE_URL"):
+        _settings(
+            pesapal_enabled=True,
+            custody_collection_rail_priority="simulated,pesapal",
+        )
+
+
 def test_enabled_intasend_requires_credentials() -> None:
     with pytest.raises(ValidationError, match="INTASEND_BASE_URL"):
         _settings(
             intasend_enabled=True,
             custody_collection_rail_priority="simulated,intasend",
             custody_payout_rail_priority="simulated,intasend",
+        )
+
+
+def test_pesapal_is_rejected_in_payout_priority() -> None:
+    with pytest.raises(ValidationError, match="collection-only"):
+        _settings(
+            pesapal_enabled=True,
+            pesapal_base_url="https://cybqa.pesapal.com/pesapalv3",
+            pesapal_consumer_key="pesapal-key",
+            pesapal_consumer_secret="pesapal-secret",
+            pesapal_callback_url="https://example.test/api/webhooks/pesapal/callback",
+            custody_collection_rail_priority="simulated,pesapal",
+            custody_payout_rail_priority="simulated,pesapal",
         )
 
 

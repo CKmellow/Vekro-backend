@@ -10,6 +10,11 @@ from app.services.custody.dto import (
 )
 from app.services.custody.enums import CollectionOutcome, CustodyMode, PayoutOutcome
 from app.services.custody.ports import CollectionRail, CustodyProvider, PayoutRail
+from app.services.custody.pesapal_collection import (
+    PESAPAL_PROVIDER_NAME,
+    PesapalCollectionRail,
+)
+from app.services.custody.pesapal_webhook import process_pesapal_collection_webhook
 from app.services.custody.registry import (
     CustodyRegistry,
     CustodyRuntimeSettings,
@@ -42,10 +47,12 @@ __all__ = [
     "EscrowStatusResult",
     "FundingRequest",
     "OpenEscrowRequest",
+    "PESAPAL_PROVIDER_NAME",
     "PayoutOutcome",
     "PayoutRail",
     "PayoutRequest",
     "PayoutResult",
+    "PesapalCollectionRail",
     "SIMULATED_ESCROW_REFERENCE_PREFIX",
     "SIMULATED_PROVIDER_NAME",
     "SimulatedCustodyProvider",
@@ -56,4 +63,5 @@ __all__ = [
     "SimulatedRail",
     "build_custody_registry",
     "normalize_simulated_scenario",
+    "process_pesapal_collection_webhook",
 ]

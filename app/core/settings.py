@@ -4,7 +4,7 @@ from typing import Any, Literal
 from pydantic import ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-SUPPORTED_CUSTODY_RAILS = frozenset({"simulated", "loop", "intasend"})
+SUPPORTED_CUSTODY_RAILS = frozenset({"simulated", "loop", "pesapal", "intasend"})
 SUPPORTED_SIMULATED_SCENARIOS = frozenset(
     {"success", "failed_definite", "timeout", "duplicate", "out_of_order", "unknown"}
 )
@@ -15,6 +15,12 @@ ENABLED_CREDENTIAL_FIELDS: dict[str, tuple[str, ...]] = {
         "loop_client_secret",
         "loop_shortcode",
         "loop_passkey",
+    ),
+    "pesapal": (
+        "pesapal_base_url",
+        "pesapal_consumer_key",
+        "pesapal_consumer_secret",
+        "pesapal_callback_url",
     ),
     "intasend": (
         "intasend_base_url",
@@ -85,6 +91,13 @@ class Settings(BaseSettings):
     loop_client_secret: str = ""
     loop_shortcode: str = ""
     loop_passkey: str = ""
+
+    pesapal_enabled: bool = False
+    pesapal_base_url: str = ""
+    pesapal_consumer_key: str = ""
+    pesapal_consumer_secret: str = ""
+    pesapal_callback_url: str = ""
+    pesapal_ipn_id: str = ""
 
     intasend_enabled: bool = False
     intasend_base_url: str = ""
@@ -222,12 +235,24 @@ class Settings(BaseSettings):
 
         if "loop" in configured_rails and not self.loop_enabled:
             violations.append("LOOP rail is listed in priorities but LOOP_ENABLED=false")
+        if "pesapal" in configured_rails and not self.pesapal_enabled:
+            violations.append("PESAPAL rail is listed in priorities but PESAPAL_ENABLED=false")
         if "intasend" in configured_rails and not self.intasend_enabled:
             violations.append("INTASEND rail is listed in priorities but INTASEND_ENABLED=false")
+
+        if "pesapal" in payout_rails:
+            violations.append(
+                "PESAPAL is collection-only and must not appear in CUSTODY_PAYOUT_RAIL_PRIORITY"
+            )
 
         self._append_missing_credentials(
             provider_name="loop",
             enabled=self.loop_enabled,
+            violations=violations,
+        )
+        self._append_missing_credentials(
+            provider_name="pesapal",
+            enabled=self.pesapal_enabled,
             violations=violations,
         )
         self._append_missing_credentials(

@@ -170,6 +170,12 @@ PESAPAL_CONSUMER_SECRET=<sandbox-secret> \
 make rails-selftest
 ```
 
+One-off Pesapal IPN registration (persists `PESAPAL_IPN_ID` into `.env`):
+
+```bash
+make pesapal-register-ipn
+```
+
 ### Migration workflow
 
 Create a migration revision:
@@ -264,6 +270,14 @@ Migration notes:
    - Unsuccessful callback result codes are acknowledged safely with 202 and no transition.
    - Successful lock transition writes transaction_locked notification events for buyer and seller for timeline/audit use.
    - Expected response: 200 on transition or duplicate, 202 when callback is non-successful or state-ineligible, 404 when transaction is missing.
+- GET /api/webhooks/pesapal/callback
+   - Purpose: Pesapal callback trigger endpoint for collection confirmation.
+   - Callback fields are treated as trigger-only and never trusted as final funding status.
+   - Finality is always confirmed via server-side Pesapal status inquiry.
+   - Expected response: 200 when callback is accepted and recorded, 503 when Pesapal rail is unavailable.
+- POST /api/webhooks/pesapal/callback
+   - Purpose: same trigger semantics as GET variant for providers sending JSON payload callbacks.
+   - Behavior remains inquiry-first before any funding confirmation.
 - POST /transactions/{transaction_id}/dispatch
    - Purpose: seller action endpoint to dispatch a locked transaction.
    - Requires authenticated seller session and CSRF header for the request.

@@ -113,6 +113,7 @@ Custody contract interfaces and provider/rail DTOs are defined under `app/servic
 
 Custody architecture decisions for provider abstraction and tier semantics are tracked in `docs/adr/custody-abstraction.md`.
 Milestone 13 transition-to-ledger mapping is documented in `docs/m13_transition_ledger_mapping.md`.
+Milestone 15 Pesapal collection-only contract and scope decision is documented in `docs/pesapal_collection_contract.md`.
 
 ### Service-Layer Principles
 

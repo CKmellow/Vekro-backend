@@ -96,3 +96,15 @@ def test_rails_selftest_fails_loudly_on_vector_mismatch(monkeypatch: pytest.Monk
 
     with pytest.raises(RuntimeError, match="LOOP signing self-test failed"):
         run_rails_selftest()
+
+
+def test_rails_selftest_live_mode_requires_pesapal_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RUN_PESAPAL_LIVE_AUTH_SELFTEST", "1")
+    monkeypatch.delenv("PESAPAL_BASE_URL", raising=False)
+    monkeypatch.delenv("PESAPAL_CONSUMER_KEY", raising=False)
+    monkeypatch.delenv("PESAPAL_CONSUMER_SECRET", raising=False)
+
+    with pytest.raises(RuntimeError, match="required env values are missing"):
+        run_rails_selftest()

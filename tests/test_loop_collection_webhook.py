@@ -212,6 +212,75 @@ def test_webhook_rejects_invalid_signature_without_inquiry() -> None:
         db.close()
 
 
+def test_webhook_handles_missing_provider_reference_without_inquiry() -> None:
+    db = _build_db_session()
+    try:
+        payload = {
+            "eventType": "collection.callback",
+            "statusCode": "0",
+            "statusDescription": "Accepted",
+        }
+        raw_payload = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+        headers = _signed_headers(raw_payload)
+
+        def _unexpected_inquiry(_provider_reference: str) -> CollectionResult:
+            raise AssertionError("Inquiry should not run when provider reference is missing.")
+
+        result = process_loop_collection_webhook(
+            db,
+            payload=payload,
+            raw_payload=raw_payload,
+            headers=headers,
+            signing_secret="loop-signing-secret",
+            inquiry_status_fn=_unexpected_inquiry,
+        )
+
+        assert result.accepted is True
+        assert result.signature_valid is True
+        assert result.provider_reference is None
+        assert result.inquiry_outcome is None
+
+        event = db.execute(select(ProviderEvent)).scalar_one()
+        assert event.response_snapshot["state"] == "ignored_missing_provider_reference"
+    finally:
+        db.close()
+
+
+def test_webhook_records_inquiry_failure_state() -> None:
+    db = _build_db_session()
+    try:
+        payload = {
+            "eventType": "collection.callback",
+            "transactionReference": "loop-ref-905",
+            "statusCode": "0",
+        }
+        raw_payload = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+        headers = _signed_headers(raw_payload)
+
+        def _failing_inquiry(_provider_reference: str) -> CollectionResult:
+            raise RuntimeError("sandbox inquiry temporarily unavailable")
+
+        result = process_loop_collection_webhook(
+            db,
+            payload=payload,
+            raw_payload=raw_payload,
+            headers=headers,
+            signing_secret="loop-signing-secret",
+            inquiry_status_fn=_failing_inquiry,
+        )
+
+        assert result.accepted is True
+        assert result.signature_valid is True
+        assert result.provider_reference == "loop-ref-905"
+        assert result.inquiry_outcome is None
+
+        event = db.execute(select(ProviderEvent)).scalar_one()
+        assert event.response_snapshot["state"] == "inquiry_failed"
+        assert "temporarily unavailable" in event.response_snapshot["message"]
+    finally:
+        db.close()
+
+
 def test_loop_webhook_endpoint_processes_signed_callback(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _build_db_session()
     fake_rail = SimpleNamespace(
@@ -263,6 +332,98 @@ def test_loop_webhook_endpoint_processes_signed_callback(monkeypatch: pytest.Mon
         event = db.execute(select(ProviderEvent)).scalar_one()
         assert event.dedupe_key == "collection:loop-ref-904"
         assert event.response_snapshot["funding_confirmed"] is True
+    finally:
+        if original_registry is None:
+            if hasattr(app.state, "custody_registry"):
+                delattr(app.state, "custody_registry")
+        else:
+            app.state.custody_registry = original_registry
+        app.dependency_overrides.pop(get_db, None)
+        db.close()
+
+
+def test_loop_webhook_endpoint_returns_503_when_loop_rail_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _build_db_session()
+    original_registry = getattr(app.state, "custody_registry", None)
+
+    def _override_get_db() -> Iterator[Session]:
+        yield db
+
+    try:
+        app.state.custody_registry = SimpleNamespace(collection_rails={})
+        monkeypatch.setattr(
+            loop_webhooks,
+            "get_settings",
+            lambda: SimpleNamespace(loop_passkey="loop-signing-secret"),
+        )
+        app.dependency_overrides[get_db] = _override_get_db
+
+        client = TestClient(app)
+        response = client.post(
+            "/webhooks/loop/collection",
+            data='{"eventType":"collection.callback"}',
+            headers={"Content-Type": "application/json"},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "LOOP collection rail is unavailable."
+    finally:
+        if original_registry is None:
+            if hasattr(app.state, "custody_registry"):
+                delattr(app.state, "custody_registry")
+        else:
+            app.state.custody_registry = original_registry
+        app.dependency_overrides.pop(get_db, None)
+        db.close()
+
+
+def test_loop_webhook_endpoint_accepts_malformed_json_payload_as_unknown_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _build_db_session()
+    fake_rail = SimpleNamespace(
+        get_funding_status=lambda provider_reference: CollectionResult(
+            outcome=CollectionOutcome.SUCCEEDED,
+            provider_reference=provider_reference,
+            raw_status="completed",
+            message="Settled.",
+        )
+    )
+    original_registry = getattr(app.state, "custody_registry", None)
+
+    def _override_get_db() -> Iterator[Session]:
+        yield db
+
+    try:
+        app.state.custody_registry = SimpleNamespace(collection_rails={"loop": fake_rail})
+        monkeypatch.setattr(
+            loop_webhooks,
+            "get_settings",
+            lambda: SimpleNamespace(loop_passkey="loop-signing-secret"),
+        )
+        app.dependency_overrides[get_db] = _override_get_db
+
+        malformed_payload = '{"eventType":"collection.callback",'
+        headers = _signed_headers(malformed_payload)
+
+        client = TestClient(app)
+        response = client.post(
+            "/webhooks/loop/collection",
+            data=malformed_payload,
+            headers=headers,
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is True
+        assert body["signature_valid"] is True
+        assert body["provider_reference"] is None
+        assert body["inquiry_outcome"] is None
+
+        event = db.execute(select(ProviderEvent)).scalar_one()
+        assert event.response_snapshot["state"] == "ignored_missing_provider_reference"
     finally:
         if original_registry is None:
             if hasattr(app.state, "custody_registry"):

@@ -151,6 +151,31 @@ def test_loop_payout_duplicate_status_is_treated_as_success() -> None:
     assert result.raw_status == "duplicate"
 
 
+def test_loop_payout_malformed_send_money_response_is_unknown() -> None:
+    def _transport(_method, _url, _headers, _payload, _timeout):
+        body = {
+            "statusDescription": "missing status code",
+            "transactionReference": "loop-payout-malformed-send",
+        }
+        return LoopHttpResponse(status_code=200, body=body, text=json.dumps(body))
+
+    rail = LoopPayoutRail(
+        base_url="https://sandbox.loop.example",
+        shortcode="600111",
+        passkey="loop-passkey",
+        token_manager=_TokenManagerStub(),
+        transport=_transport,
+        now_fn=lambda: datetime(2026, 10, 2, 14, 25, 0, tzinfo=UTC),
+        nonce_fn=lambda: "nonce-malformed-send",
+    )
+
+    result = rail.request_payout(_payout_request("release-malformed-send"))
+
+    assert result.outcome == PayoutOutcome.UNKNOWN
+    assert result.provider_reference == "loop-payout-malformed-send"
+    assert result.raw_status == "malformed_response"
+
+
 @pytest.mark.parametrize(
     ("final_state", "expected_outcome"),
     [
@@ -185,3 +210,29 @@ def test_loop_payout_inquiry_classifies_terminal_and_pending_states(
 
     assert result.provider_reference == "loop-payout-inquiry-712"
     assert result.outcome == expected_outcome
+
+
+def test_loop_payout_malformed_inquiry_response_is_unknown() -> None:
+    def _transport(_method, _url, _headers, _payload, _timeout):
+        body = {
+            "statusCode": "0",
+            "statusDescription": "missing final state",
+            "transactionReference": "loop-payout-malformed-inquiry",
+        }
+        return LoopHttpResponse(status_code=200, body=body, text=json.dumps(body))
+
+    rail = LoopPayoutRail(
+        base_url="https://sandbox.loop.example",
+        shortcode="600111",
+        passkey="loop-passkey",
+        token_manager=_TokenManagerStub(),
+        transport=_transport,
+        now_fn=lambda: datetime(2026, 10, 2, 14, 35, 0, tzinfo=UTC),
+        nonce_fn=lambda: "nonce-malformed-inquiry",
+    )
+
+    result = rail.get_payout_status("loop-payout-malformed-inquiry")
+
+    assert result.outcome == PayoutOutcome.UNKNOWN
+    assert result.provider_reference == "loop-payout-malformed-inquiry"
+    assert result.raw_status == "0"

@@ -233,13 +233,6 @@ class Settings(BaseSettings):
         if unknown_rails:
             violations.append("Unknown rails in custody priorities: " + ", ".join(unknown_rails))
 
-        if "loop" in configured_rails and not self.loop_enabled:
-            violations.append("LOOP rail is listed in priorities but LOOP_ENABLED=false")
-        if "pesapal" in configured_rails and not self.pesapal_enabled:
-            violations.append("PESAPAL rail is listed in priorities but PESAPAL_ENABLED=false")
-        if "intasend" in configured_rails and not self.intasend_enabled:
-            violations.append("INTASEND rail is listed in priorities but INTASEND_ENABLED=false")
-
         if "pesapal" in payout_rails:
             violations.append(
                 "PESAPAL is collection-only and must not appear in CUSTODY_PAYOUT_RAIL_PRIORITY"

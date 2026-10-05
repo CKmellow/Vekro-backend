@@ -121,6 +121,66 @@ def test_registry_uses_priority_order_and_blocks_non_simulated_payouts_by_defaul
         registry.get_payout_rail("loop")
 
 
+def test_disabled_rails_are_skipped_without_runtime_exception() -> None:
+    settings = _settings(
+        pesapal_enabled=True,
+        pesapal_base_url="https://cybqa.pesapal.com/pesapalv3",
+        pesapal_consumer_key="pesapal-key",
+        pesapal_consumer_secret="pesapal-secret",
+        pesapal_callback_url="https://example.test/api/webhooks/pesapal/callback",
+        custody_collection_rail_priority="loop,pesapal,simulated",
+        custody_payout_rail_priority="loop,simulated",
+    )
+
+    registry = build_custody_registry(settings)
+
+    assert registry.collection_priority == ("loop", "pesapal", "simulated")
+    assert registry.payout_priority == ("loop", "simulated")
+    assert registry.ordered_collection_rail_names() == ("pesapal", "simulated")
+    assert registry.ordered_payout_rail_names() == ("simulated",)
+    assert registry.select_collection_rail()[0] == "pesapal"
+    assert registry.select_payout_rail()[0] == "simulated"
+
+    with pytest.raises(RuntimeError, match="not available at runtime"):
+        registry.get_collection_rail("loop")
+
+
+def test_collection_fallback_order_is_deterministic() -> None:
+    settings = _settings(
+        loop_enabled=True,
+        loop_base_url="https://sandbox.loop.example",
+        loop_client_id="loop-client",
+        loop_client_secret="loop-secret",
+        loop_shortcode="600111",
+        loop_passkey="loop-passkey",
+        pesapal_enabled=True,
+        pesapal_base_url="https://cybqa.pesapal.com/pesapalv3",
+        pesapal_consumer_key="pesapal-key",
+        pesapal_consumer_secret="pesapal-secret",
+        pesapal_callback_url="https://example.test/api/webhooks/pesapal/callback",
+        custody_collection_rail_priority="loop,pesapal,simulated",
+    )
+
+    registry = build_custody_registry(settings)
+
+    assert registry.ordered_collection_rail_names() == ("loop", "pesapal", "simulated")
+    assert registry.ordered_collection_rail_names(exclude={"loop"}) == ("pesapal", "simulated")
+    assert registry.ordered_collection_rail_names(exclude={"loop", "pesapal"}) == (
+        "simulated",
+    )
+    assert registry.select_collection_rail(exclude={"loop"})[0] == "pesapal"
+
+
+def test_registry_fails_when_no_enabled_rails_are_available() -> None:
+    settings = _settings(
+        custody_collection_rail_priority="loop,pesapal",
+        custody_payout_rail_priority="loop,intasend",
+    )
+
+    with pytest.raises(ValueError, match="No enabled collection rails"):
+        build_custody_registry(settings)
+
+
 def test_production_mode_can_enable_live_payout_rails() -> None:
     settings = _settings(
         environment="production",

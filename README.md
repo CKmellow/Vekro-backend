@@ -118,6 +118,7 @@ Custody contract interfaces and provider/rail DTOs are defined under `app/servic
 Custody architecture decisions for provider abstraction and tier semantics are tracked in `docs/adr/custody-abstraction.md`.
 Milestone 13 transition-to-ledger mapping is documented in `docs/m13_transition_ledger_mapping.md`.
 Milestone 15 Pesapal collection-only contract and scope decision is documented in `docs/pesapal_collection_contract.md`.
+Milestone 16 failover taxonomy and chaos scenario matrix are documented in `docs/failover.md`.
 
 Rail capability signal (Milestone 15):
 
@@ -516,3 +517,4 @@ Migration notes:
 - 2026-10-02: Milestone 14 Issue [M14] Implement LoopPayoutRail and contract/live-sandbox tests completed with deterministic retry provider references plus fresh auth signatures, duplicate-response-as-success idempotent handling, fixture-based success/decline/unknown coverage under tests/fixtures/loop, and opt-in `pytest -m live` smoke checks.
 - 2026-10-03: Milestone 15 Issue [M15] Add Pesapal fixtures/tests and collection routing docs completed with fixture-driven auth/submit-order/get-status/callback contracts under tests/fixtures/pesapal, opt-in `pytest -m live -k pesapal` smoke gating, `.env.example` Pesapal variable templates, and explicit collection-only routing/capability documentation (`PAYOUT_RAIL_PRIORITY` remains `loop,simulated`).
 - 2026-10-06: Milestone 16 Issue [M16] Add payout failover matrix behavior and duplicate-compensation handling completed with breaker-aware auth failover queueing, UNKNOWN same-reference retry tracking before alternate-rail failover, out-of-order reconciliation guard preservation, simulated duplicate collection compensation refund intent queuing, and full non-live regression validation (`pytest -m "not live"`: 295 passed, 2 deselected).
+- 2026-10-06: Milestone 16 Issue [M16] Publish failover taxonomy docs and chaos scenarios completed with actionable failure-class matrix in `docs/failover.md`, explicit failover-forbidden guardrails to avoid double payout, and deterministic `sim:timeout` / `sim:malformed` / `sim:out_of_order` regression coverage.

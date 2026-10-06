@@ -893,8 +893,13 @@ def _should_escalate_unknown_failover(raw_status: str | None) -> bool:
     if not normalized:
         return True
 
-    # Out-of-order callback flows are expected to settle on subsequent polls.
-    return not normalized.startswith("out_of_order")
+    # Out-of-order and malformed flows are reconciled manually to avoid
+    # uncertain duplicate payout risks.
+    if normalized.startswith("out_of_order"):
+        return False
+    if normalized == "malformed_response":
+        return False
+    return True
 
 
 def _is_auth_or_credential_failure(*, error_code: str | None, error_message: str | None) -> bool:
@@ -985,6 +990,6 @@ def _queue_failover_attempt(
 
 def _parse_int(value: str | int | float | None, *, default: int) -> int:
     try:
-        return int(value)
+        return int(str(value))
     except (TypeError, ValueError):
         return default

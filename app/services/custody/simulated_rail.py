@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass
+from typing import cast
 from uuid import NAMESPACE_URL, uuid5
 
 from app.services.custody.dto import (
@@ -15,6 +16,7 @@ SUPPORTED_SIMULATED_SCENARIOS = frozenset(
         "success",
         "failed_definite",
         "timeout",
+        "malformed",
         "duplicate",
         "out_of_order",
         "unknown",
@@ -167,7 +169,7 @@ class SimulatedRail:
             provider_reference=provider_reference,
         )
         return CollectionResult(
-            outcome=outcome,
+            outcome=cast(CollectionOutcome, outcome),
             provider_reference=provider_reference,
             raw_status=raw_status,
             message=message,
@@ -190,7 +192,7 @@ class SimulatedRail:
             provider_reference=provider_reference,
         )
         return PayoutResult(
-            outcome=outcome,
+            outcome=cast(PayoutOutcome, outcome),
             provider_reference=provider_reference,
             raw_status=raw_status,
             message=message,
@@ -217,6 +219,13 @@ class SimulatedRail:
 
         if scenario == "timeout":
             return unknown_outcome, "timeout", "Simulated rail timed out; finality is unknown."
+
+        if scenario == "malformed":
+            return (
+                unknown_outcome,
+                "malformed_response",
+                "Simulated rail returned malformed payload semantics.",
+            )
 
         if scenario == "unknown":
             return unknown_outcome, "unknown", "Simulated rail returned unknown finality."

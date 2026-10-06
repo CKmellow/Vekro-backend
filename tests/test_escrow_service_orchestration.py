@@ -325,6 +325,42 @@ def test_executor_marks_timeout_outcome_as_unknown_status() -> None:
         db.close()
 
 
+def test_executor_keeps_malformed_unknown_without_automatic_failover() -> None:
+    db = _build_db_session()
+    try:
+        transaction = _seed_transaction(db, status=TransactionStatus.RELEASED)
+        service = EscrowService(db)
+        service.queue_release_full(
+            transaction,
+            purpose=f"sim:malformed tx-release:{transaction.id}",
+        )
+        db.commit()
+
+        escrow = db.execute(select(Escrow)).scalar_one()
+        escrow.funded_amount = transaction.amount
+        db.commit()
+
+        first = run_payout_executor_once(db)
+        second = run_payout_executor_once(db)
+
+        attempts = list(
+            db.execute(select(PayoutAttempt).order_by(PayoutAttempt.created_at.asc())).scalars().all()
+        )
+        attempt = attempts[0]
+        db.refresh(transaction)
+
+        assert first.unknown == 1
+        assert second.unknown == 1
+        assert len(attempts) == 1
+        assert attempt.outcome == AttemptOutcome.UNKNOWN
+        assert attempt.failure_code == "malformed_response"
+        assert attempt.response_snapshot.get("raw_status") == "malformed_response"
+        assert "unknown_retry_count" not in attempt.response_snapshot
+        assert transaction.payout_status == TransactionPayoutStatus.UNKNOWN
+    finally:
+        db.close()
+
+
 def test_executor_marks_failed_definite_status_when_rail_declines() -> None:
     db = _build_db_session()
     try:

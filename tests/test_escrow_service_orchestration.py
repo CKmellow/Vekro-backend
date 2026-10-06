@@ -1,6 +1,7 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import cast
 
 import pytest
 from app.db.base import Base
@@ -13,6 +14,7 @@ from app.models.payout_attempt import PayoutAttempt
 from app.models.transaction import Transaction, TransactionPayoutStatus, TransactionStatus
 from app.models.user import User, UserRole
 from app.services.custody.dto import CustodyCapabilities
+from app.services.custody.registry import CustodyRegistry
 from app.services.escrow_service import (
     EscrowService,
     SplitPayoutUnsupportedError,
@@ -334,6 +336,37 @@ def test_executor_marks_failed_definite_status_when_rail_declines() -> None:
         db.close()
 
 
+def test_executor_marks_attempt_unknown_when_target_rail_is_unavailable() -> None:
+    db = _build_db_session()
+    try:
+        transaction = _seed_transaction(db, status=TransactionStatus.RELEASED)
+        service = EscrowService(db)
+        service.queue_release_full(
+            transaction,
+            purpose=f"sim:success tx-release:{transaction.id}",
+        )
+        db.commit()
+
+        attempt = db.execute(select(PayoutAttempt)).scalar_one()
+        attempt.rail_name = "loop"
+        attempt.provider_name = "loop"
+        db.add(attempt)
+        db.commit()
+
+        run_result = run_payout_executor_once(db)
+        db.refresh(attempt)
+        db.refresh(transaction)
+
+        assert run_result.claimed == 1
+        assert run_result.unknown == 1
+        assert attempt.outcome == AttemptOutcome.UNKNOWN
+        assert attempt.failure_code == "rail_unavailable"
+        assert "not available at runtime" in (attempt.failure_reason or "")
+        assert transaction.payout_status == TransactionPayoutStatus.PENDING
+    finally:
+        db.close()
+
+
 def test_queue_split_unsupported_raises_without_side_effects() -> None:
     class _Provider:
         def capabilities(self) -> CustodyCapabilities:
@@ -347,11 +380,18 @@ def test_queue_split_unsupported_raises_without_side_effects() -> None:
     class _Registry:
         provider = _Provider()
         payout_priority = ("loop",)
+        payout_rails = {"loop": object()}
+
+        @staticmethod
+        def ordered_payout_rail_names(*, exclude=None):
+            if exclude and "loop" in exclude:
+                return tuple()
+            return ("loop",)
 
     db = _build_db_session()
     try:
         transaction = _seed_transaction(db, status=TransactionStatus.ESCALATED_ADMIN_REVIEW)
-        service = EscrowService(db, registry=_Registry())
+        service = EscrowService(db, registry=cast(CustodyRegistry, _Registry()))
 
         with pytest.raises(SplitPayoutUnsupportedError):
             service.queue_split_payout(

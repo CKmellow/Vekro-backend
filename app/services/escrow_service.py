@@ -332,9 +332,12 @@ class EscrowService:
         return destination
 
     def _default_payout_rail_name(self) -> str:
-        if self._registry.payout_priority:
-            return self._registry.payout_priority[0]
-        return "simulated"
+        ordered = self._registry.ordered_payout_rail_names()
+        if ordered:
+            return ordered[0]
+        if "simulated" in self._registry.payout_rails:
+            return "simulated"
+        raise EscrowServiceError("No enabled payout rails are available for escrow orchestration.")
 
     def _is_split_capability_supported(self) -> bool:
         if self._default_payout_rail_name() == "simulated":
@@ -431,7 +434,23 @@ def run_payout_executor_once(
                 payout_kind=payout_kind,
             )
 
-        rail = service.registry.get_payout_rail(attempt.rail_name)
+        try:
+            rail = service.registry.get_payout_rail(attempt.rail_name)
+        except RuntimeError as exc:
+            attempt.outcome = AttemptOutcome.UNKNOWN
+            attempt.failure_code = "rail_unavailable"
+            attempt.failure_reason = str(exc)
+            attempt.response_snapshot = {
+                **attempt.response_snapshot,
+                "message": str(exc),
+            }
+            attempt.attempted_at = current_time
+            db.add(attempt)
+            unknown += 1
+            service.refresh_transaction_payout_status(transaction)
+            db.add(transaction)
+            continue
+
         if attempt.provider_reference:
             result = _resolve_payout_status_with_inquiry(
                 rail,

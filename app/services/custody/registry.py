@@ -195,10 +195,60 @@ class CustodyRegistry:
     payout_priority: tuple[str, ...]
     live_payouts_enabled: bool
 
+    def ordered_collection_rail_names(self, *, exclude: set[str] | None = None) -> tuple[str, ...]:
+        excluded = exclude or set()
+        ordered: list[str] = []
+        for rail_name in self.collection_priority:
+            if rail_name in excluded:
+                continue
+            if rail_name not in self.collection_rails:
+                continue
+            ordered.append(rail_name)
+        return tuple(ordered)
+
+    def ordered_payout_rail_names(self, *, exclude: set[str] | None = None) -> tuple[str, ...]:
+        excluded = exclude or set()
+        ordered: list[str] = []
+        for rail_name in self.payout_priority:
+            if rail_name in excluded:
+                continue
+            if rail_name not in self.payout_rails:
+                continue
+            if rail_name in LIVE_PAYOUT_RAILS and not self.live_payouts_enabled:
+                continue
+            ordered.append(rail_name)
+        return tuple(ordered)
+
+    def select_collection_rail(
+        self,
+        *,
+        exclude: set[str] | None = None,
+    ) -> tuple[str, CollectionRail]:
+        ordered = self.ordered_collection_rail_names(exclude=exclude)
+        if not ordered:
+            raise RuntimeError("No available collection rails are routable.")
+        selected = ordered[0]
+        return selected, self.collection_rails[selected]
+
+    def select_payout_rail(
+        self,
+        *,
+        exclude: set[str] | None = None,
+    ) -> tuple[str, PayoutRail]:
+        ordered = self.ordered_payout_rail_names(exclude=exclude)
+        if not ordered:
+            raise RuntimeError("No available payout rails are routable.")
+        selected = ordered[0]
+        return selected, self.payout_rails[selected]
+
     def get_collection_rail(self, rail_name: str) -> CollectionRail:
+        if rail_name not in self.collection_rails:
+            raise RuntimeError(f"Collection rail '{rail_name}' is not available at runtime.")
         return self.collection_rails[rail_name]
 
     def get_payout_rail(self, rail_name: str) -> PayoutRail:
+        if rail_name not in self.payout_rails:
+            raise RuntimeError(f"Payout rail '{rail_name}' is not available at runtime.")
         if rail_name in LIVE_PAYOUT_RAILS and not self.live_payouts_enabled:
             raise RuntimeError(
                 "Live payouts are blocked. Set ENVIRONMENT=production and "

@@ -1,6 +1,7 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import cast
 
 import pytest
 from app.db.base import Base
@@ -13,6 +14,7 @@ from app.models.payout_attempt import PayoutAttempt
 from app.models.transaction import Transaction, TransactionPayoutStatus, TransactionStatus
 from app.models.user import User, UserRole
 from app.services.custody.dto import CustodyCapabilities
+from app.services.custody.registry import CustodyRegistry
 from app.services.escrow_service import (
     EscrowService,
     SplitPayoutUnsupportedError,
@@ -348,10 +350,16 @@ def test_queue_split_unsupported_raises_without_side_effects() -> None:
         provider = _Provider()
         payout_priority = ("loop",)
 
+        @staticmethod
+        def select_payout_rail(*, exclude=None):
+            if exclude and "loop" in exclude:
+                raise RuntimeError("No available payout rails are routable.")
+            return "loop", object()
+
     db = _build_db_session()
     try:
         transaction = _seed_transaction(db, status=TransactionStatus.ESCALATED_ADMIN_REVIEW)
-        service = EscrowService(db, registry=_Registry())
+        service = EscrowService(db, registry=cast(CustodyRegistry, _Registry()))
 
         with pytest.raises(SplitPayoutUnsupportedError):
             service.queue_split_payout(

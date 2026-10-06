@@ -17,6 +17,11 @@ from app.models.transaction import Transaction, TransactionPayoutStatus, Transac
 from app.models.user import User, UserRole
 from app.services.custody.dto import PayoutRequest, PayoutResult
 from app.services.custody.enums import PayoutOutcome
+from app.services.custody.rail_breaker import (
+    record_rail_failure,
+    record_rail_success,
+    select_payout_rail_for_routing,
+)
 from app.services.custody.registry import CustodyRegistry, build_custody_registry
 from app.services.ledger import ESCROW_HELD_ACCOUNT, EscrowLedger, LedgerMovement
 
@@ -332,9 +337,11 @@ class EscrowService:
         return destination
 
     def _default_payout_rail_name(self) -> str:
-        if self._registry.payout_priority:
-            return self._registry.payout_priority[0]
-        return "simulated"
+        try:
+            selected, _ = select_payout_rail_for_routing(self._db, self._registry)
+            return selected
+        except RuntimeError as exc:
+            raise EscrowServiceError("No payout rail is currently routable.") from exc
 
     def _is_split_capability_supported(self) -> bool:
         if self._default_payout_rail_name() == "simulated":
@@ -431,22 +438,45 @@ def run_payout_executor_once(
                 payout_kind=payout_kind,
             )
 
-        rail = service.registry.get_payout_rail(attempt.rail_name)
-        if attempt.provider_reference:
-            result = _resolve_payout_status_with_inquiry(
-                rail,
-                attempt=attempt,
-            )
-        else:
-            result = rail.request_payout(
-                PayoutRequest(
-                    escrow_reference=str(escrow.id),
-                    amount=attempt.amount,
-                    destination_phone=destination_phone,
-                    purpose=attempt.purpose,
-                    currency=attempt.currency,
+        try:
+            rail = service.registry.get_payout_rail(attempt.rail_name)
+            if attempt.provider_reference:
+                result = _resolve_payout_status_with_inquiry(
+                    rail,
+                    attempt=attempt,
                 )
+            else:
+                result = rail.request_payout(
+                    PayoutRequest(
+                        escrow_reference=str(escrow.id),
+                        amount=attempt.amount,
+                        destination_phone=destination_phone,
+                        purpose=attempt.purpose,
+                        currency=attempt.currency,
+                    )
+                )
+        except (RuntimeError, ValueError, TypeError, LookupError) as exc:
+            attempt.outcome = AttemptOutcome.UNKNOWN
+            attempt.failure_code = "rail_request_error"
+            attempt.failure_reason = str(exc)
+            attempt.response_snapshot = {
+                **attempt.response_snapshot,
+                "message": str(exc),
+            }
+            attempt.attempted_at = current_time
+            db.add(attempt)
+            record_rail_failure(
+                db,
+                rail_name=attempt.rail_name,
+                provider_name=attempt.provider_name,
+                error_code=attempt.failure_code,
+                error_message=attempt.failure_reason,
+                now=current_time,
             )
+            unknown += 1
+            service.refresh_transaction_payout_status(transaction)
+            db.add(transaction)
+            continue
 
         attempt.provider_reference = result.provider_reference or attempt.provider_reference
         attempt.response_snapshot = result.to_payload()
@@ -455,6 +485,24 @@ def run_payout_executor_once(
         attempt.failure_reason = _failure_reason(attempt.outcome, result.message)
         attempt.attempted_at = current_time
         db.add(attempt)
+
+        rail_level_outcome = attempt.outcome
+        if rail_level_outcome == AttemptOutcome.SUCCEEDED:
+            record_rail_success(
+                db,
+                rail_name=attempt.rail_name,
+                provider_name=attempt.provider_name,
+                now=current_time,
+            )
+        else:
+            record_rail_failure(
+                db,
+                rail_name=attempt.rail_name,
+                provider_name=attempt.provider_name,
+                error_code=attempt.failure_code,
+                error_message=attempt.failure_reason,
+                now=current_time,
+            )
 
         if attempt.outcome == AttemptOutcome.SUCCEEDED:
             available_balance = _quantize(

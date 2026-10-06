@@ -226,7 +226,7 @@ class CustodyRegistry:
     ) -> tuple[str, CollectionRail]:
         ordered = self.ordered_collection_rail_names(exclude=exclude)
         if not ordered:
-            raise RuntimeError("No available collection rails are routable.")
+            raise RuntimeError("No enabled collection rails are available for routing.")
         selected = ordered[0]
         return selected, self.collection_rails[selected]
 
@@ -237,7 +237,7 @@ class CustodyRegistry:
     ) -> tuple[str, PayoutRail]:
         ordered = self.ordered_payout_rail_names(exclude=exclude)
         if not ordered:
-            raise RuntimeError("No available payout rails are routable.")
+            raise RuntimeError("No enabled payout rails are available for routing.")
         selected = ordered[0]
         return selected, self.payout_rails[selected]
 
@@ -279,19 +279,6 @@ def build_custody_registry(settings: CustodyRuntimeSettings) -> CustodyRegistry:
         raise ValueError("Unknown collection rails configured: " + ", ".join(unknown_collection))
     if unknown_payout:
         raise ValueError("Unknown payout rails configured: " + ", ".join(unknown_payout))
-
-    disabled_collection = [
-        rail_name for rail_name in collection_priority if not _rail_enabled(rail_name, settings)
-    ]
-    disabled_payout = [
-        rail_name for rail_name in payout_priority if not _rail_enabled(rail_name, settings)
-    ]
-    if disabled_collection:
-        raise ValueError(
-            "Collection priorities include disabled rails: " + ", ".join(disabled_collection)
-        )
-    if disabled_payout:
-        raise ValueError("Payout priorities include disabled rails: " + ", ".join(disabled_payout))
 
     simulated_rail = SimulatedRail(
         collection_default_scenario=settings.simulated_collection_default_scenario,
@@ -335,6 +322,8 @@ def build_custody_registry(settings: CustodyRuntimeSettings) -> CustodyRegistry:
 
     collection_rails: dict[str, CollectionRail] = {}
     for rail_name in collection_priority:
+        if not _rail_enabled(rail_name, settings):
+            continue
         if rail_name == "simulated":
             collection_rails[rail_name] = simulated_rail
         elif rail_name == "loop":
@@ -346,12 +335,21 @@ def build_custody_registry(settings: CustodyRuntimeSettings) -> CustodyRegistry:
 
     payout_rails: dict[str, PayoutRail] = {}
     for rail_name in payout_priority:
+        if not _rail_enabled(rail_name, settings):
+            continue
         if rail_name == "simulated":
             payout_rails[rail_name] = simulated_rail
         elif rail_name == "loop":
             payout_rails[rail_name] = loop_payout_rail
         else:
             payout_rails[rail_name] = PlaceholderPayoutRail(rail_name=rail_name)
+
+    if not collection_rails:
+        raise ValueError(
+            "No enabled collection rails are available from CUSTODY_COLLECTION_RAIL_PRIORITY."
+        )
+    if not payout_rails:
+        raise ValueError("No enabled payout rails are available from CUSTODY_PAYOUT_RAIL_PRIORITY.")
 
     return CustodyRegistry(
         provider=ConfiguredCustodyProvider(custody_mode=CustodyMode(settings.custody_mode)),

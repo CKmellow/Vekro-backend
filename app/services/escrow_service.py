@@ -462,12 +462,28 @@ def run_payout_executor_once(
 
         try:
             rail = service.registry.get_payout_rail(attempt.rail_name)
-            if attempt.provider_reference:
-                result = _resolve_payout_status_with_inquiry(
-                    rail,
-                    attempt=attempt,
-                )
-            else:
+        except RuntimeError as exc:
+            attempt.outcome = AttemptOutcome.UNKNOWN
+            attempt.failure_code = "rail_unavailable"
+            attempt.failure_reason = str(exc)
+            attempt.response_snapshot = {
+                **attempt.response_snapshot,
+                "message": str(exc),
+            }
+            attempt.attempted_at = current_time
+            db.add(attempt)
+            unknown += 1
+            service.refresh_transaction_payout_status(transaction)
+            db.add(transaction)
+            continue
+
+        if attempt.provider_reference:
+            result = _resolve_payout_status_with_inquiry(
+                rail,
+                attempt=attempt,
+            )
+        else:
+            try:
                 result = rail.request_payout(
                     PayoutRequest(
                         escrow_reference=str(escrow.id),
@@ -477,53 +493,53 @@ def run_payout_executor_once(
                         currency=attempt.currency,
                     )
                 )
-        except (RuntimeError, ValueError, TypeError, LookupError) as exc:
-            auth_failure = _is_auth_or_credential_failure(
-                error_code="rail_request_error",
-                error_message=str(exc),
-            )
-            attempt.outcome = (
-                AttemptOutcome.FAILED_DEFINITE if auth_failure else AttemptOutcome.UNKNOWN
-            )
-            attempt.failure_code = "auth_failure" if auth_failure else "rail_request_error"
-            attempt.failure_reason = str(exc)
-            attempt.response_snapshot = {
-                **attempt.response_snapshot,
-                "message": str(exc),
-            }
-            attempt.attempted_at = current_time
-            db.add(attempt)
-            record_rail_failure(
-                db,
-                rail_name=attempt.rail_name,
-                provider_name=attempt.provider_name,
-                error_code=attempt.failure_code,
-                error_message=attempt.failure_reason,
-                now=current_time,
-                policy=AUTH_FAILURE_BREAKER_POLICY if auth_failure else None,
-            )
-
-            if auth_failure:
-                failover_queued = _queue_failover_attempt(
-                    db,
-                    service=service,
-                    attempt=attempt,
-                    current_time=current_time,
-                    reason="auth_failure",
+            except (RuntimeError, ValueError, TypeError, LookupError) as exc:
+                auth_failure = _is_auth_or_credential_failure(
+                    error_code="rail_request_error",
+                    error_message=str(exc),
                 )
+                attempt.outcome = (
+                    AttemptOutcome.FAILED_DEFINITE if auth_failure else AttemptOutcome.UNKNOWN
+                )
+                attempt.failure_code = "auth_failure" if auth_failure else "rail_request_error"
+                attempt.failure_reason = str(exc)
                 attempt.response_snapshot = {
                     **attempt.response_snapshot,
-                    "failover_queued": failover_queued,
+                    "message": str(exc),
                 }
+                attempt.attempted_at = current_time
                 db.add(attempt)
-                failed_definite += 1
-            else:
-                unknown += 1
+                record_rail_failure(
+                    db,
+                    rail_name=attempt.rail_name,
+                    provider_name=attempt.provider_name,
+                    error_code=attempt.failure_code,
+                    error_message=attempt.failure_reason,
+                    now=current_time,
+                    policy=AUTH_FAILURE_BREAKER_POLICY if auth_failure else None,
+                )
 
-            db.flush()
-            service.refresh_transaction_payout_status(transaction)
-            db.add(transaction)
-            continue
+                if auth_failure:
+                    failover_queued = _queue_failover_attempt(
+                        db,
+                        service=service,
+                        attempt=attempt,
+                        current_time=current_time,
+                        reason="auth_failure",
+                    )
+                    attempt.response_snapshot = {
+                        **attempt.response_snapshot,
+                        "failover_queued": failover_queued,
+                    }
+                    db.add(attempt)
+                    failed_definite += 1
+                else:
+                    unknown += 1
+
+                db.flush()
+                service.refresh_transaction_payout_status(transaction)
+                db.add(transaction)
+                continue
 
         prior_snapshot = dict(attempt.response_snapshot or {})
         attempt.provider_reference = result.provider_reference or attempt.provider_reference

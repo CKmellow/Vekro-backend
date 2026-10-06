@@ -388,6 +388,12 @@ def test_queue_split_unsupported_raises_without_side_effects() -> None:
                 return tuple()
             return ("loop",)
 
+        @staticmethod
+        def select_payout_rail(*, exclude=None):
+            if exclude and "loop" in exclude:
+                raise RuntimeError("No available payout rails are routable.")
+            return "loop", object()
+
     db = _build_db_session()
     try:
         transaction = _seed_transaction(db, status=TransactionStatus.ESCALATED_ADMIN_REVIEW)

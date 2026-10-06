@@ -105,28 +105,32 @@ def select_collection_rail_for_routing(
     db: Session,
     registry: CustodyRegistry,
     *,
+    exclude: set[str] | None = None,
     now: datetime | None = None,
 ) -> tuple[str, Any]:
+    excluded = exclude or set()
     blocked = blocked_rails_for_routing(
         db,
         rail_names=registry.collection_priority,
         now=now,
     )
-    return registry.select_collection_rail(exclude=blocked)
+    return registry.select_collection_rail(exclude=blocked.union(excluded))
 
 
 def select_payout_rail_for_routing(
     db: Session,
     registry: CustodyRegistry,
     *,
+    exclude: set[str] | None = None,
     now: datetime | None = None,
 ) -> tuple[str, Any]:
+    excluded = exclude or set()
     blocked = blocked_rails_for_routing(
         db,
         rail_names=registry.payout_priority,
         now=now,
     )
-    return registry.select_payout_rail(exclude=blocked)
+    return registry.select_payout_rail(exclude=blocked.union(excluded))
 
 
 def build_admin_rail_health_payload(

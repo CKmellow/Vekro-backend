@@ -284,3 +284,43 @@ def test_duplicate_success_payout_reuses_attempt_and_preserves_single_ledger_pos
         assert status.released_amount == Decimal("150.00")
     finally:
         db.close()
+
+
+def test_duplicate_collection_queues_compensating_refund_and_admin_flag() -> None:
+    db = _build_db_session()
+    try:
+        rail = SimulatedRail()
+        provider = SimulatedCustodyProvider(db, collection_rail=rail, payout_rail=rail)
+
+        escrow_record = provider.open_escrow(
+            OpenEscrowRequest(
+                transaction_id=str(uuid.uuid4()),
+                buyer_id=str(uuid.uuid4()),
+                seller_id=str(uuid.uuid4()),
+                amount=Decimal("500.00"),
+            )
+        )
+
+        duplicate_result = provider.request_funding(
+            FundingRequest(
+                escrow_reference=escrow_record.escrow_reference,
+                amount=Decimal("500.00"),
+                phone_number="+254712345678",
+                account_reference="sim:duplicate issue-87",
+            )
+        )
+
+        collection_attempt = db.execute(select(CollectionAttempt)).scalar_one()
+        payout_attempts = list(db.execute(select(PayoutAttempt)).scalars().all())
+
+        assert duplicate_result.outcome == CollectionOutcome.SUCCEEDED
+        assert duplicate_result.raw_status == "duplicate"
+        assert len(payout_attempts) == 1
+        assert payout_attempts[0].purpose.startswith("dup-refund:")
+        assert payout_attempts[0].failure_code == "compensating_refund_required"
+        assert (
+            collection_attempt.response_snapshot["metadata"]["compensating_refund_queued"] is True
+        )
+        assert collection_attempt.response_snapshot["metadata"]["admin_flag_required"] is True
+    finally:
+        db.close()

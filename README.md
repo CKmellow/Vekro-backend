@@ -66,6 +66,8 @@ Custody and rail settings:
 - CUSTODY_MODE: selects custody tier mode (tier_1 or tier_2)
 - CUSTODY_COLLECTION_RAIL_PRIORITY: comma-separated collection rail order
 - CUSTODY_PAYOUT_RAIL_PRIORITY: comma-separated payout rail order
+- Routing examples referenced in project planning docs: `COLLECTION_RAIL_PRIORITY=loop,pesapal,daraja,simulated` and `PAYOUT_RAIL_PRIORITY=loop,simulated`.
+- Runtime variable names in this backend are `CUSTODY_COLLECTION_RAIL_PRIORITY` and `CUSTODY_PAYOUT_RAIL_PRIORITY`.
 - ALLOW_LIVE_PAYOUTS: live payout guard flag (requires production)
 - LOOP_ENABLED / PESAPAL_ENABLED / INTASEND_ENABLED / ECONFIRM_ENABLED: enable provider/rail blocks
 - LOOP_*, PESAPAL_*, INTASEND_*, ECONFIRM_*: required credentials when their enabled flag is true

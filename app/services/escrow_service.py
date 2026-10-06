@@ -440,12 +440,28 @@ def run_payout_executor_once(
 
         try:
             rail = service.registry.get_payout_rail(attempt.rail_name)
-            if attempt.provider_reference:
-                result = _resolve_payout_status_with_inquiry(
-                    rail,
-                    attempt=attempt,
-                )
-            else:
+        except RuntimeError as exc:
+            attempt.outcome = AttemptOutcome.UNKNOWN
+            attempt.failure_code = "rail_unavailable"
+            attempt.failure_reason = str(exc)
+            attempt.response_snapshot = {
+                **attempt.response_snapshot,
+                "message": str(exc),
+            }
+            attempt.attempted_at = current_time
+            db.add(attempt)
+            unknown += 1
+            service.refresh_transaction_payout_status(transaction)
+            db.add(transaction)
+            continue
+
+        if attempt.provider_reference:
+            result = _resolve_payout_status_with_inquiry(
+                rail,
+                attempt=attempt,
+            )
+        else:
+            try:
                 result = rail.request_payout(
                     PayoutRequest(
                         escrow_reference=str(escrow.id),
@@ -455,28 +471,28 @@ def run_payout_executor_once(
                         currency=attempt.currency,
                     )
                 )
-        except (RuntimeError, ValueError, TypeError, LookupError) as exc:
-            attempt.outcome = AttemptOutcome.UNKNOWN
-            attempt.failure_code = "rail_request_error"
-            attempt.failure_reason = str(exc)
-            attempt.response_snapshot = {
-                **attempt.response_snapshot,
-                "message": str(exc),
-            }
-            attempt.attempted_at = current_time
-            db.add(attempt)
-            record_rail_failure(
-                db,
-                rail_name=attempt.rail_name,
-                provider_name=attempt.provider_name,
-                error_code=attempt.failure_code,
-                error_message=attempt.failure_reason,
-                now=current_time,
-            )
-            unknown += 1
-            service.refresh_transaction_payout_status(transaction)
-            db.add(transaction)
-            continue
+            except (RuntimeError, ValueError, TypeError, LookupError) as exc:
+                attempt.outcome = AttemptOutcome.UNKNOWN
+                attempt.failure_code = "rail_request_error"
+                attempt.failure_reason = str(exc)
+                attempt.response_snapshot = {
+                    **attempt.response_snapshot,
+                    "message": str(exc),
+                }
+                attempt.attempted_at = current_time
+                db.add(attempt)
+                record_rail_failure(
+                    db,
+                    rail_name=attempt.rail_name,
+                    provider_name=attempt.provider_name,
+                    error_code=attempt.failure_code,
+                    error_message=attempt.failure_reason,
+                    now=current_time,
+                )
+                unknown += 1
+                service.refresh_transaction_payout_status(transaction)
+                db.add(transaction)
+                continue
 
         attempt.provider_reference = result.provider_reference or attempt.provider_reference
         attempt.response_snapshot = result.to_payload()

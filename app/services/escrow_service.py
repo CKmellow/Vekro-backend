@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import inspect, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.settings import get_settings
@@ -18,12 +19,16 @@ from app.models.user import User, UserRole
 from app.services.custody.dto import PayoutRequest, PayoutResult
 from app.services.custody.enums import PayoutOutcome
 from app.services.custody.rail_breaker import (
+    RailBreakerPolicy,
     record_rail_failure,
     record_rail_success,
     select_payout_rail_for_routing,
 )
 from app.services.custody.registry import CustodyRegistry, build_custody_registry
 from app.services.ledger import ESCROW_HELD_ACCOUNT, EscrowLedger, LedgerMovement
+
+UNKNOWN_PAYOUT_RETRIES_BEFORE_FAILOVER = 1
+AUTH_FAILURE_BREAKER_POLICY = RailBreakerPolicy(failure_threshold=1, cooldown_seconds=300)
 
 
 class EscrowServiceError(Exception):
@@ -52,7 +57,17 @@ class PayoutReconciliationResult:
 class EscrowService:
     def __init__(self, db: Session, *, registry: CustodyRegistry | None = None) -> None:
         self._db = db
-        self._registry = registry or build_custody_registry(get_settings())
+        session_registry: CustodyRegistry | None = None
+        if registry is None and hasattr(db, "info"):
+            candidate = db.info.get("custody_registry")
+            if isinstance(candidate, CustodyRegistry):
+                session_registry = candidate
+
+        self._registry = registry or session_registry or build_custody_registry(get_settings())
+
+        if hasattr(db, "info"):
+            db.info["custody_registry"] = self._registry
+
         self._escrow_cache: dict[uuid.UUID, Escrow] = {}
 
     @property
@@ -63,10 +78,17 @@ class EscrowService:
         if not hasattr(self._db, "get_bind"):
             return False
 
-        bind = self._db.get_bind()
-        inspector = inspect(bind)
         required = {"escrows", "payout_attempts", "users", "transactions"}
-        return required.issubset(set(inspector.get_table_names()))
+
+        try:
+            # Inspect the current session connection so readiness checks do not
+            # open a separate engine-level transaction that can interfere with
+            # in-flight ORM work.
+            connection = self._db.connection()
+            inspector = inspect(connection)
+            return required.issubset(set(inspector.get_table_names()))
+        except (AttributeError, TypeError, ValueError, SQLAlchemyError):
+            return False
 
     def queue_release_full(self, transaction: Transaction, *, purpose: str) -> PayoutAttempt | None:
         return self._enqueue_payout_intent(
@@ -472,8 +494,14 @@ def run_payout_executor_once(
                     )
                 )
             except (RuntimeError, ValueError, TypeError, LookupError) as exc:
-                attempt.outcome = AttemptOutcome.UNKNOWN
-                attempt.failure_code = "rail_request_error"
+                auth_failure = _is_auth_or_credential_failure(
+                    error_code="rail_request_error",
+                    error_message=str(exc),
+                )
+                attempt.outcome = (
+                    AttemptOutcome.FAILED_DEFINITE if auth_failure else AttemptOutcome.UNKNOWN
+                )
+                attempt.failure_code = "auth_failure" if auth_failure else "rail_request_error"
                 attempt.failure_reason = str(exc)
                 attempt.response_snapshot = {
                     **attempt.response_snapshot,
@@ -488,14 +516,37 @@ def run_payout_executor_once(
                     error_code=attempt.failure_code,
                     error_message=attempt.failure_reason,
                     now=current_time,
+                    policy=AUTH_FAILURE_BREAKER_POLICY if auth_failure else None,
                 )
-                unknown += 1
+
+                if auth_failure:
+                    failover_queued = _queue_failover_attempt(
+                        db,
+                        service=service,
+                        attempt=attempt,
+                        current_time=current_time,
+                        reason="auth_failure",
+                    )
+                    attempt.response_snapshot = {
+                        **attempt.response_snapshot,
+                        "failover_queued": failover_queued,
+                    }
+                    db.add(attempt)
+                    failed_definite += 1
+                else:
+                    unknown += 1
+
+                db.flush()
                 service.refresh_transaction_payout_status(transaction)
                 db.add(transaction)
                 continue
 
+        prior_snapshot = dict(attempt.response_snapshot or {})
         attempt.provider_reference = result.provider_reference or attempt.provider_reference
-        attempt.response_snapshot = result.to_payload()
+        attempt.response_snapshot = {
+            **prior_snapshot,
+            **result.to_payload(),
+        }
         attempt.outcome = _attempt_outcome_from_payout(result.outcome)
         attempt.failure_code = _failure_code(attempt.outcome, result.raw_status)
         attempt.failure_reason = _failure_reason(attempt.outcome, result.message)
@@ -511,6 +562,10 @@ def run_payout_executor_once(
                 now=current_time,
             )
         else:
+            auth_failure = _is_auth_or_credential_failure(
+                error_code=attempt.failure_code,
+                error_message=attempt.failure_reason,
+            )
             record_rail_failure(
                 db,
                 rail_name=attempt.rail_name,
@@ -518,7 +573,57 @@ def run_payout_executor_once(
                 error_code=attempt.failure_code,
                 error_message=attempt.failure_reason,
                 now=current_time,
+                policy=AUTH_FAILURE_BREAKER_POLICY if auth_failure else None,
             )
+
+        if (
+            attempt.outcome == AttemptOutcome.UNKNOWN
+            and attempt.provider_reference
+            and _should_escalate_unknown_failover(result.raw_status)
+        ):
+            retry_count = _parse_int(prior_snapshot.get("unknown_retry_count"), default=0)
+            retry_count += 1
+            attempt.response_snapshot = {
+                **attempt.response_snapshot,
+                "unknown_retry_count": retry_count,
+            }
+
+            if retry_count > UNKNOWN_PAYOUT_RETRIES_BEFORE_FAILOVER:
+                attempt.outcome = AttemptOutcome.FAILED_DEFINITE
+                attempt.failure_code = "unknown_retry_exhausted"
+                attempt.failure_reason = (
+                    "Payout finality remained UNKNOWN after same-reference retries; "
+                    "failover is queued on next rail."
+                )
+                failover_queued = _queue_failover_attempt(
+                    db,
+                    service=service,
+                    attempt=attempt,
+                    current_time=current_time,
+                    reason="unknown_retry_exhausted",
+                )
+                attempt.response_snapshot = {
+                    **attempt.response_snapshot,
+                    "failover_queued": failover_queued,
+                }
+                db.add(attempt)
+
+        if attempt.outcome == AttemptOutcome.FAILED_DEFINITE and _is_auth_or_credential_failure(
+            error_code=attempt.failure_code,
+            error_message=attempt.failure_reason,
+        ):
+            failover_queued = _queue_failover_attempt(
+                db,
+                service=service,
+                attempt=attempt,
+                current_time=current_time,
+                reason="auth_failure",
+            )
+            attempt.response_snapshot = {
+                **attempt.response_snapshot,
+                "failover_queued": failover_queued,
+            }
+            db.add(attempt)
 
         if attempt.outcome == AttemptOutcome.SUCCEEDED:
             available_balance = _quantize(
@@ -536,6 +641,7 @@ def run_payout_executor_once(
                 }
                 db.add(attempt)
                 unknown += 1
+                db.flush()
                 service.refresh_transaction_payout_status(transaction)
                 db.add(transaction)
                 continue
@@ -564,6 +670,7 @@ def run_payout_executor_once(
         else:
             unknown += 1
 
+        db.flush()
         service.refresh_transaction_payout_status(transaction)
         db.add(transaction)
 
@@ -779,3 +886,105 @@ def _resolve_destination_phone_for_transaction(
     if not destination:
         raise EscrowServiceError("Payout destination phone is missing.")
     return destination
+
+
+def _should_escalate_unknown_failover(raw_status: str | None) -> bool:
+    normalized = str(raw_status or "").strip().lower()
+    if not normalized:
+        return True
+
+    # Out-of-order callback flows are expected to settle on subsequent polls.
+    return not normalized.startswith("out_of_order")
+
+
+def _is_auth_or_credential_failure(*, error_code: str | None, error_message: str | None) -> bool:
+    candidate = " ".join(
+        part for part in [str(error_code or ""), str(error_message or "")] if part
+    ).lower()
+    if not candidate:
+        return False
+
+    signals = (
+        "auth",
+        "token",
+        "credential",
+        "unauthorized",
+        "forbidden",
+        "invalid_client",
+        "invalid client",
+        "401",
+        "403",
+    )
+    return any(signal in candidate for signal in signals)
+
+
+def _queue_failover_attempt(
+    db: Session,
+    *,
+    service: EscrowService,
+    attempt: PayoutAttempt,
+    current_time: datetime,
+    reason: str,
+) -> bool:
+    try:
+        next_rail_name, _ = select_payout_rail_for_routing(
+            db,
+            service.registry,
+            exclude={attempt.rail_name},
+            now=current_time,
+        )
+    except RuntimeError:
+        return False
+
+    existing = (
+        db.execute(
+            select(PayoutAttempt).where(
+                PayoutAttempt.escrow_id == attempt.escrow_id,
+                PayoutAttempt.purpose == attempt.purpose,
+                PayoutAttempt.outcome == AttemptOutcome.UNKNOWN,
+                PayoutAttempt.rail_name == next_rail_name,
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if existing is not None:
+        return True
+
+    request_snapshot = {
+        **attempt.request_snapshot,
+        "failover_from_rail": attempt.rail_name,
+        "failover_reason": reason,
+        "failover_at": current_time.isoformat(),
+    }
+
+    db.add(
+        PayoutAttempt(
+            escrow_id=attempt.escrow_id,
+            purpose=attempt.purpose,
+            rail_name=next_rail_name,
+            provider_name=next_rail_name,
+            idempotency_key=f"outbox:{attempt.purpose}:failover:{next_rail_name}",
+            provider_reference=None,
+            amount=attempt.amount,
+            currency=attempt.currency,
+            outcome=AttemptOutcome.UNKNOWN,
+            request_snapshot=request_snapshot,
+            response_snapshot={
+                "state": "queued_failover",
+                "from_rail": attempt.rail_name,
+                "reason": reason,
+            },
+            failure_code=None,
+            failure_reason=None,
+            attempted_at=current_time,
+        )
+    )
+    return True
+
+
+def _parse_int(value: str | int | float | None, *, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default

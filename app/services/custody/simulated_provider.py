@@ -1,5 +1,6 @@
 import uuid
 from decimal import Decimal, InvalidOperation
+from uuid import NAMESPACE_URL, uuid5
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -90,38 +91,67 @@ class SimulatedCustodyProvider:
         escrow = self._get_escrow_from_reference(request.escrow_reference)
         result = self._collection_rail.request_funding(request)
         attempt_outcome = self._attempt_outcome_from_collection(result.outcome)
+        amount = self._normalize_amount(request.amount)
+        currency = self._normalize_currency(request.currency)
 
-        self._db.add(
-            CollectionAttempt(
-                escrow_id=escrow.id,
-                rail_name=SIMULATED_PROVIDER_NAME,
-                provider_name=SIMULATED_PROVIDER_NAME,
-                idempotency_key=self._funding_idempotency_key(result),
-                provider_reference=result.provider_reference,
-                amount=self._normalize_amount(request.amount),
-                currency=self._normalize_currency(request.currency),
-                outcome=attempt_outcome,
-                request_snapshot=request.to_payload(),
-                response_snapshot=result.to_payload(),
-                failure_code=self._failure_code(attempt_outcome, result.raw_status),
-                failure_reason=self._failure_reason(attempt_outcome, result.message),
-            )
+        collection_attempt = CollectionAttempt(
+            escrow_id=escrow.id,
+            rail_name=SIMULATED_PROVIDER_NAME,
+            provider_name=SIMULATED_PROVIDER_NAME,
+            idempotency_key=self._funding_idempotency_key(result),
+            provider_reference=result.provider_reference,
+            amount=amount,
+            currency=currency,
+            outcome=attempt_outcome,
+            request_snapshot=request.to_payload(),
+            response_snapshot=result.to_payload(),
+            failure_code=self._failure_code(attempt_outcome, result.raw_status),
+            failure_reason=self._failure_reason(attempt_outcome, result.message),
         )
+        self._db.add(collection_attempt)
+
+        duplicate_compensation = False
 
         if result.outcome == CollectionOutcome.SUCCEEDED:
             post_result = self._ledger.post_movement(
                 LedgerMovement(
                     escrow_id=escrow.id,
                     idempotency_key=self._funding_idempotency_key(result),
-                    amount=self._normalize_amount(request.amount),
+                    amount=amount,
                     debit_account_code=ESCROW_HELD_ACCOUNT,
                     credit_account_code="BUYER_CLEARING",
                     description="Simulated custody funding",
-                    currency=self._normalize_currency(request.currency),
+                    currency=currency,
                 )
             )
             if post_result.created_entries == 2:
                 escrow.funded_amount = self._quantize(escrow.funded_amount + request.amount)
+
+            duplicate_compensation = self._queue_duplicate_compensating_refund(
+                escrow=escrow,
+                amount=amount,
+                currency=currency,
+                provider_reference=result.provider_reference,
+                raw_status=result.raw_status,
+            )
+
+        if duplicate_compensation:
+            metadata = {
+                "compensating_refund_queued": True,
+                "admin_flag_required": True,
+            }
+            current_payload = dict(collection_attempt.response_snapshot)
+            existing_metadata = current_payload.get("metadata")
+            merged_metadata = (
+                {**existing_metadata, **metadata}
+                if isinstance(existing_metadata, dict)
+                else metadata
+            )
+            collection_attempt.response_snapshot = {
+                **current_payload,
+                "metadata": merged_metadata,
+            }
+            self._db.add(collection_attempt)
 
         self._db.commit()
         return result
@@ -281,6 +311,65 @@ class SimulatedCustodyProvider:
     @staticmethod
     def _payout_idempotency_key(payout_type: str, result: PayoutResult) -> str:
         return f"sim-{payout_type}:{result.provider_reference}"
+
+    def _queue_duplicate_compensating_refund(
+        self,
+        *,
+        escrow: Escrow,
+        amount: Decimal,
+        currency: str,
+        provider_reference: str,
+        raw_status: str | None,
+    ) -> bool:
+        status = str(raw_status or "").strip().lower()
+        if status not in {"duplicate", "duplicate_confirmed"}:
+            return False
+
+        purpose = self._duplicate_refund_purpose(provider_reference)
+        existing = self._db.execute(
+            select(PayoutAttempt).where(
+                PayoutAttempt.escrow_id == escrow.id,
+                PayoutAttempt.purpose == purpose,
+                PayoutAttempt.outcome != AttemptOutcome.FAILED_DEFINITE,
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return True
+
+        self._db.add(
+            PayoutAttempt(
+                escrow_id=escrow.id,
+                purpose=purpose,
+                rail_name=SIMULATED_PROVIDER_NAME,
+                provider_name=SIMULATED_PROVIDER_NAME,
+                idempotency_key=f"sim-dup-refund:{provider_reference}",
+                provider_reference=f"sim-compensate-{uuid5(NAMESPACE_URL, provider_reference).hex[:16]}",
+                amount=amount,
+                currency=currency,
+                outcome=AttemptOutcome.UNKNOWN,
+                request_snapshot={
+                    "escrow_reference": self._format_escrow_reference(escrow.id),
+                    "amount": str(amount),
+                    "currency": currency,
+                    "duplicate_provider_reference": provider_reference,
+                    "reason": "duplicate_confirmed_collection",
+                },
+                response_snapshot={
+                    "state": "queued_compensating_refund",
+                    "admin_flag": "duplicate_funding_auto_refund",
+                },
+                failure_code="compensating_refund_required",
+                failure_reason=(
+                    "Duplicate confirmed collection requires compensating refund and admin review."
+                ),
+            )
+        )
+        return True
+
+    @staticmethod
+    def _duplicate_refund_purpose(provider_reference: str) -> str:
+        suffix = uuid5(NAMESPACE_URL, provider_reference).hex[:20]
+        return f"dup-refund:{suffix}"
 
     @staticmethod
     def _format_escrow_reference(escrow_id: uuid.UUID) -> str:

@@ -11,10 +11,13 @@ from app.models.ledger_entry import LedgerEntry
 from app.models.listing import Listing
 from app.models.notification import Notification, NotificationEventType
 from app.models.payout_attempt import PayoutAttempt
+from app.models.rail_health import RailBreakerState, RailHealth
 from app.models.transaction import Transaction, TransactionPayoutStatus, TransactionStatus
 from app.models.user import User, UserRole
-from app.services.custody.dto import CustodyCapabilities
-from app.services.custody.registry import CustodyRegistry
+from app.services.custody.dto import CustodyCapabilities, PayoutRequest, PayoutResult
+from app.services.custody.enums import CustodyMode, PayoutOutcome
+from app.services.custody.registry import ConfiguredCustodyProvider, CustodyRegistry
+from app.services.custody.simulated_rail import SimulatedRail
 from app.services.escrow_service import (
     EscrowService,
     SplitPayoutUnsupportedError,
@@ -87,6 +90,27 @@ def _build_db_session() -> Session:
             CREATE UNIQUE INDEX ux_payout_attempts_one_non_failed_per_escrow_purpose
             ON payout_attempts (escrow_id, purpose)
             WHERE outcome <> 'failed_definite'
+            """))
+        connection.execute(text("""
+            CREATE TABLE rail_health (
+                id TEXT PRIMARY KEY,
+                rail_name VARCHAR(40) NOT NULL,
+                provider_name VARCHAR(40),
+                breaker_state VARCHAR(20) NOT NULL DEFAULT 'closed',
+                consecutive_failures INTEGER NOT NULL DEFAULT 0,
+                last_error_code VARCHAR(64),
+                last_error_message VARCHAR(255),
+                opened_at DATETIME,
+                last_success_at DATETIME,
+                last_failure_at DATETIME,
+                cooldown_until DATETIME,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            )
+            """))
+        connection.execute(text("""
+            CREATE UNIQUE INDEX ix_rail_health_rail_name
+            ON rail_health (rail_name)
             """))
 
     session_factory = sessionmaker(
@@ -332,6 +356,146 @@ def test_executor_marks_failed_definite_status_when_rail_declines() -> None:
         assert attempt.outcome == AttemptOutcome.FAILED_DEFINITE
         assert transaction.payout_status == TransactionPayoutStatus.FAILED_DEFINITE
         assert ledger_entries == []
+    finally:
+        db.close()
+
+
+def test_unknown_payout_retries_same_reference_before_failover() -> None:
+    db = _build_db_session()
+    try:
+        transaction = _seed_transaction(db, status=TransactionStatus.RELEASED)
+
+        timeout_rail = SimulatedRail(payout_default_scenario="timeout")
+        fallback_rail = SimulatedRail(payout_default_scenario="success")
+        registry = CustodyRegistry(
+            provider=ConfiguredCustodyProvider(custody_mode=CustodyMode.TIER_2),
+            collection_rails={"simulated": fallback_rail},
+            payout_rails={"loop": timeout_rail, "simulated": fallback_rail},
+            custody_mode=CustodyMode.TIER_2,
+            collection_priority=("simulated",),
+            payout_priority=("loop", "simulated"),
+            live_payouts_enabled=True,
+        )
+
+        service = EscrowService(db, registry=registry)
+        service.queue_release_full(
+            transaction,
+            purpose=f"unknown-failover-release:{transaction.id}",
+        )
+        db.commit()
+
+        escrow = db.execute(select(Escrow)).scalar_one()
+        escrow.funded_amount = transaction.amount
+        db.commit()
+
+        first_run = run_payout_executor_once(db)
+        attempts_after_first = list(
+            db.execute(select(PayoutAttempt).order_by(PayoutAttempt.created_at.asc())).scalars().all()
+        )
+        first_attempt = attempts_after_first[0]
+
+        assert first_run.claimed == 1
+        assert first_attempt.outcome == AttemptOutcome.UNKNOWN
+        assert first_attempt.provider_reference is not None
+        assert first_attempt.response_snapshot.get("unknown_retry_count") == 1
+        assert len(attempts_after_first) == 1
+
+        second_run = run_payout_executor_once(db)
+        attempts_after_second = list(
+            db.execute(select(PayoutAttempt).order_by(PayoutAttempt.created_at.asc())).scalars().all()
+        )
+        first_attempt = attempts_after_second[0]
+        fallback_attempt = attempts_after_second[1]
+
+        assert second_run.failed_definite == 1
+        assert first_attempt.outcome == AttemptOutcome.FAILED_DEFINITE
+        assert first_attempt.failure_code == "unknown_retry_exhausted"
+        assert first_attempt.response_snapshot.get("failover_queued") is True
+        assert fallback_attempt.rail_name == "simulated"
+        assert fallback_attempt.outcome == AttemptOutcome.UNKNOWN
+        assert fallback_attempt.provider_reference is None
+
+        third_run = run_payout_executor_once(db)
+        attempts_after_third = list(
+            db.execute(select(PayoutAttempt).order_by(PayoutAttempt.created_at.asc())).scalars().all()
+        )
+        db.refresh(transaction)
+
+        assert third_run.succeeded == 1
+        assert attempts_after_third[1].outcome == AttemptOutcome.SUCCEEDED
+        assert transaction.payout_status == TransactionPayoutStatus.SUCCEEDED
+    finally:
+        db.close()
+
+
+def test_auth_failure_trips_breaker_and_routes_to_next_rail() -> None:
+    class _AuthFailingRail:
+        def request_payout(self, request: PayoutRequest) -> PayoutResult:
+            _ = request
+            raise RuntimeError("invalid credentials for token refresh")
+
+        def get_payout_status(self, provider_reference: str) -> PayoutResult:
+            return PayoutResult(
+                outcome=PayoutOutcome.UNKNOWN,
+                provider_reference=provider_reference,
+                raw_status="unknown",
+                message="status unknown",
+            )
+
+    db = _build_db_session()
+    try:
+        transaction = _seed_transaction(db, status=TransactionStatus.RELEASED)
+
+        fallback_rail = SimulatedRail(payout_default_scenario="success")
+        registry = CustodyRegistry(
+            provider=ConfiguredCustodyProvider(custody_mode=CustodyMode.TIER_2),
+            collection_rails={"simulated": fallback_rail},
+            payout_rails={"loop": _AuthFailingRail(), "simulated": fallback_rail},
+            custody_mode=CustodyMode.TIER_2,
+            collection_priority=("simulated",),
+            payout_priority=("loop", "simulated"),
+            live_payouts_enabled=True,
+        )
+
+        service = EscrowService(db, registry=registry)
+        service.queue_release_full(
+            transaction,
+            purpose=f"auth-failover-release:{transaction.id}",
+        )
+        db.commit()
+
+        escrow = db.execute(select(Escrow)).scalar_one()
+        escrow.funded_amount = transaction.amount
+        db.commit()
+
+        first_run = run_payout_executor_once(db)
+        attempts_after_first = list(
+            db.execute(select(PayoutAttempt).order_by(PayoutAttempt.created_at.asc())).scalars().all()
+        )
+        first_attempt = attempts_after_first[0]
+        fallback_attempt = attempts_after_first[1]
+        breaker = db.execute(select(RailHealth).where(RailHealth.rail_name == "loop")).scalar_one()
+
+        assert first_run.failed_definite == 1
+        assert first_attempt.outcome == AttemptOutcome.FAILED_DEFINITE
+        assert first_attempt.failure_code == "auth_failure"
+        assert first_attempt.response_snapshot.get("failover_queued") is True
+        assert fallback_attempt.rail_name == "simulated"
+        assert fallback_attempt.outcome == AttemptOutcome.UNKNOWN
+        assert breaker.breaker_state == RailBreakerState.OPEN
+
+        second_run = run_payout_executor_once(db)
+        attempts_after_second = list(
+            db.execute(select(PayoutAttempt).order_by(PayoutAttempt.created_at.asc())).scalars().all()
+        )
+        db.refresh(transaction)
+
+        assert second_run.succeeded == 1
+        assert attempts_after_second[1].outcome == AttemptOutcome.SUCCEEDED
+        assert {attempt.rail_name for attempt in attempts_after_second}.issubset(
+            {"loop", "simulated"}
+        )
+        assert transaction.payout_status == TransactionPayoutStatus.SUCCEEDED
     finally:
         db.close()
 

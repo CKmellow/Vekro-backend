@@ -95,10 +95,13 @@ def test_timeout_and_failed_definite_are_distinguishable() -> None:
     rail = SimulatedRail()
 
     timeout_result = rail.request_funding(_funding_request("sim:timeout"))
+    malformed_result = rail.request_funding(_funding_request("sim:malformed"))
     failed_result = rail.request_funding(_funding_request("sim:failure"))
 
     assert timeout_result.outcome == CollectionOutcome.UNKNOWN
     assert timeout_result.raw_status == "timeout"
+    assert malformed_result.outcome == CollectionOutcome.UNKNOWN
+    assert malformed_result.raw_status == "malformed_response"
     assert failed_result.outcome == CollectionOutcome.FAILED_DEFINITE
     assert failed_result.raw_status == "declined"
 

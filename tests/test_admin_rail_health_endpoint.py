@@ -1,6 +1,6 @@
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Iterator
 
 import pytest
 from app import main as app_main
@@ -184,6 +184,7 @@ def test_admin_rail_health_reports_mode_capabilities_and_breaker_state(
         registry = build_custody_registry(_settings())
         app.state.custody_registry = registry
         app.dependency_overrides[get_db] = _override_get_db
+        now = datetime.now(UTC)
 
         record_rail_failure(
             db,
@@ -191,7 +192,7 @@ def test_admin_rail_health_reports_mode_capabilities_and_breaker_state(
             provider_name="loop",
             error_code="auth_error",
             error_message="invalid credentials",
-            now=datetime(2026, 10, 5, 16, 0, tzinfo=UTC),
+            now=now,
             policy=RailBreakerPolicy(failure_threshold=1, cooldown_seconds=86400),
         )
 

@@ -118,12 +118,14 @@ Custody contract interfaces and provider/rail DTOs are defined under `app/servic
 Custody architecture decisions for provider abstraction and tier semantics are tracked in `docs/adr/custody-abstraction.md`.
 Milestone 13 transition-to-ledger mapping is documented in `docs/m13_transition_ledger_mapping.md`.
 Milestone 15 Pesapal collection-only contract and scope decision is documented in `docs/pesapal_collection_contract.md`.
+Milestone 17 custody mode switching and capability gating guidance is documented in `docs/custody-tiers.md`.
 
 Rail capability signal (Milestone 15):
 
 - `loop`: supports collection and payout.
 - `pesapal`: supports collection only (`supports_payout: false` equivalent behavior).
 - `simulated`: supports collection and payout for local and test workflows.
+- `econfirm`: supports collection and payout adapter contracts; split/partial payouts are explicitly unsupported.
 
 ### Service-Layer Principles
 
@@ -515,3 +517,6 @@ Migration notes:
 - 2026-10-02: Milestone 14 Issue [M14] Implement LOOP collection webhook handler with idempotent processing completed with callback signature verification, transaction-reference dedupe storage in provider_events, inquiry-first funding confirmation, and redacted payload/signature-validity audit snapshots.
 - 2026-10-02: Milestone 14 Issue [M14] Implement LoopPayoutRail and contract/live-sandbox tests completed with deterministic retry provider references plus fresh auth signatures, duplicate-response-as-success idempotent handling, fixture-based success/decline/unknown coverage under tests/fixtures/loop, and opt-in `pytest -m live` smoke checks.
 - 2026-10-03: Milestone 15 Issue [M15] Add Pesapal fixtures/tests and collection routing docs completed with fixture-driven auth/submit-order/get-status/callback contracts under tests/fixtures/pesapal, opt-in `pytest -m live -k pesapal` smoke gating, `.env.example` Pesapal variable templates, and explicit collection-only routing/capability documentation (`PAYOUT_RAIL_PRIORITY` remains `loop,simulated`).
+- 2026-10-07: Milestone 17 Issue [#89] Add disabled-by-default eConfirm custody adapter completed with mocked HTTP open/fund/status/release/reversal contracts, explicit no-split capability signaling, and registry/settings wiring behind `ECONFIRM_ENABLED`.
+- 2026-10-07: Milestone 17 Issue [#90] Add reusable provider conformance suite completed with shared open/fund/release/refund/idempotency checks and taxonomy assertions (`SUCCEEDED`, `FAILED_DEFINITE`, `UNKNOWN`) for both simulated and eConfirm adapters.
+- 2026-10-07: Milestone 17 Issue [#91] Add custody tier mode-switching documentation and capability-aware split gating completed with deterministic unsupported split rejection behavior mapped to HTTP 409.

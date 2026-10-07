@@ -4,7 +4,7 @@ from typing import Any, Literal
 from pydantic import ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-SUPPORTED_CUSTODY_RAILS = frozenset({"simulated", "loop", "pesapal", "intasend"})
+SUPPORTED_CUSTODY_RAILS = frozenset({"simulated", "loop", "pesapal", "intasend", "econfirm"})
 SUPPORTED_SIMULATED_SCENARIOS = frozenset(
     {"success", "failed_definite", "timeout", "duplicate", "out_of_order", "unknown"}
 )

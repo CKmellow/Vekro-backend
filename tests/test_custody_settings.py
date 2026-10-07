@@ -1,5 +1,6 @@
 import pytest
 from app.core.settings import Settings
+from app.services.custody.econfirm_provider import EconfirmCustodyProvider
 from app.services.custody.enums import CustodyMode
 from app.services.custody.loop_payout import LoopPayoutRail
 from app.services.custody.registry import build_custody_registry
@@ -70,6 +71,15 @@ def test_enabled_intasend_requires_credentials() -> None:
             intasend_enabled=True,
             custody_collection_rail_priority="simulated,intasend",
             custody_payout_rail_priority="simulated,intasend",
+        )
+
+
+def test_enabled_econfirm_requires_credentials() -> None:
+    with pytest.raises(ValidationError, match="ECONFIRM_BASE_URL"):
+        _settings(
+            econfirm_enabled=True,
+            custody_collection_rail_priority="simulated,econfirm",
+            custody_payout_rail_priority="simulated,econfirm",
         )
 
 
@@ -203,3 +213,29 @@ def test_production_mode_can_enable_live_payout_rails() -> None:
     assert registry.live_payouts_enabled is True
     assert registry.get_payout_rail("loop") is registry.payout_rails["loop"]
     assert isinstance(registry.payout_rails["loop"], LoopPayoutRail)
+
+
+def test_tier_1_registry_uses_econfirm_provider_and_rails_when_enabled() -> None:
+    settings = _settings(
+        custody_mode="tier_1",
+        econfirm_enabled=True,
+        econfirm_base_url="https://sandbox.econfirm.example",
+        econfirm_api_key="econfirm-api-key",
+        econfirm_api_secret="econfirm-api-secret",
+        custody_collection_rail_priority="econfirm,simulated",
+        custody_payout_rail_priority="econfirm,simulated",
+    )
+
+    registry = build_custody_registry(settings)
+
+    assert registry.custody_mode == CustodyMode.TIER_1
+    assert registry.ordered_collection_rail_names() == ("econfirm", "simulated")
+    assert registry.ordered_payout_rail_names() == ("econfirm", "simulated")
+    assert isinstance(registry.provider, EconfirmCustodyProvider)
+    assert registry.collection_rails["econfirm"] is registry.provider
+    assert registry.payout_rails["econfirm"] is registry.provider
+
+    capabilities = registry.provider.capabilities()
+    assert capabilities.holds_funds_structurally is True
+    assert capabilities.supports_split_payout is False
+    assert capabilities.supports_partial_release is False

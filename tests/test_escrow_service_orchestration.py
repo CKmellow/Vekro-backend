@@ -416,6 +416,101 @@ def test_queue_split_unsupported_raises_without_side_effects() -> None:
         db.close()
 
 
+def test_queue_split_supported_when_provider_reports_partial_release() -> None:
+    class _Provider:
+        def capabilities(self) -> CustodyCapabilities:
+            return CustodyCapabilities(
+                holds_funds_structurally=True,
+                supports_split_payout=False,
+                supports_partial_release=True,
+                supports_webhook_auth=False,
+            )
+
+    class _Registry:
+        provider = _Provider()
+        payout_priority = ("loop",)
+        payout_rails = {"loop": object()}
+
+        @staticmethod
+        def ordered_payout_rail_names(*, exclude=None):
+            if exclude and "loop" in exclude:
+                return tuple()
+            return ("loop",)
+
+        @staticmethod
+        def select_payout_rail(*, exclude=None):
+            if exclude and "loop" in exclude:
+                raise RuntimeError("No available payout rails are routable.")
+            return "loop", object()
+
+    db = _build_db_session()
+    try:
+        transaction = _seed_transaction(db, status=TransactionStatus.ESCALATED_ADMIN_REVIEW)
+        service = EscrowService(db, registry=cast(CustodyRegistry, _Registry()))
+
+        release_attempt, refund_attempt = service.queue_split_payout(
+            transaction,
+            release_purpose=f"admin-split-release:{transaction.id}",
+            refund_purpose=f"admin-split-refund:{transaction.id}",
+            split_ratio=Decimal("0.5000"),
+        )
+        db.commit()
+
+        attempts = list(db.execute(select(PayoutAttempt)).scalars().all())
+
+        assert release_attempt is not None
+        assert refund_attempt is not None
+        assert len(attempts) == 2
+    finally:
+        db.close()
+
+
+def test_queue_split_structural_hold_provider_rejects_even_with_simulated_rail() -> None:
+    class _Provider:
+        def capabilities(self) -> CustodyCapabilities:
+            return CustodyCapabilities(
+                holds_funds_structurally=True,
+                supports_split_payout=False,
+                supports_partial_release=False,
+                supports_webhook_auth=False,
+            )
+
+    class _Registry:
+        provider = _Provider()
+        payout_priority = ("simulated",)
+        payout_rails = {"simulated": object()}
+
+        @staticmethod
+        def ordered_payout_rail_names(*, exclude=None):
+            if exclude and "simulated" in exclude:
+                return tuple()
+            return ("simulated",)
+
+        @staticmethod
+        def select_payout_rail(*, exclude=None):
+            if exclude and "simulated" in exclude:
+                raise RuntimeError("No available payout rails are routable.")
+            return "simulated", object()
+
+    db = _build_db_session()
+    try:
+        transaction = _seed_transaction(db, status=TransactionStatus.ESCALATED_ADMIN_REVIEW)
+        service = EscrowService(db, registry=cast(CustodyRegistry, _Registry()))
+
+        with pytest.raises(SplitPayoutUnsupportedError):
+            service.queue_split_payout(
+                transaction,
+                release_purpose=f"admin-split-release:{uuid.uuid4()}",
+                refund_purpose=f"admin-split-refund:{uuid.uuid4()}",
+                split_ratio=Decimal("0.5000"),
+            )
+
+        attempts = list(db.execute(select(PayoutAttempt)).scalars().all())
+        assert attempts == []
+    finally:
+        db.close()
+
+
 def test_queue_split_generates_two_intents_with_ratio_checks() -> None:
     db = _build_db_session()
     try:

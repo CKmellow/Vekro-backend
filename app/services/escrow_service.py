@@ -344,11 +344,14 @@ class EscrowService:
             raise EscrowServiceError("No payout rail is currently routable.") from exc
 
     def _is_split_capability_supported(self) -> bool:
-        if self._default_payout_rail_name() == "simulated":
+        capabilities = self._registry.provider.capabilities()
+        if capabilities.supports_split_payout or capabilities.supports_partial_release:
             return True
 
-        capabilities = self._registry.provider.capabilities()
-        return capabilities.supports_split_payout or capabilities.supports_partial_release
+        if capabilities.holds_funds_structurally:
+            return False
+
+        return self._default_payout_rail_name() == "simulated"
 
     @staticmethod
     def _normalize_amount(value: Decimal) -> Decimal:

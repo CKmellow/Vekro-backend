@@ -8,13 +8,17 @@ from app.services.custody.dto import (
     PayoutRequest,
     PayoutResult,
 )
+from app.services.custody.econfirm_provider import (
+    ECONFIRM_PROVIDER_NAME,
+    EconfirmCustodyProvider,
+)
 from app.services.custody.enums import CollectionOutcome, CustodyMode, PayoutOutcome
-from app.services.custody.ports import CollectionRail, CustodyProvider, PayoutRail
 from app.services.custody.pesapal_collection import (
     PESAPAL_PROVIDER_NAME,
     PesapalCollectionRail,
 )
 from app.services.custody.pesapal_webhook import process_pesapal_collection_webhook
+from app.services.custody.ports import CollectionRail, CustodyProvider, PayoutRail
 from app.services.custody.registry import (
     CustodyRegistry,
     CustodyRuntimeSettings,
@@ -38,6 +42,8 @@ __all__ = [
     "CollectionOutcome",
     "CollectionRail",
     "CollectionResult",
+    "ECONFIRM_PROVIDER_NAME",
+    "EconfirmCustodyProvider",
     "CustodyCapabilities",
     "CustodyMode",
     "CustodyProvider",

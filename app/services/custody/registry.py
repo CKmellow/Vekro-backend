@@ -14,6 +14,7 @@ from app.services.custody.dto import (
     PayoutRequest,
     PayoutResult,
 )
+from app.services.custody.econfirm_provider import EconfirmCustodyProvider
 from app.services.custody.enums import CollectionOutcome, CustodyMode, PayoutOutcome
 from app.services.custody.loop_auth import LoopTokenManager
 from app.services.custody.loop_collection import LoopCollectionRail
@@ -23,7 +24,7 @@ from app.services.custody.pesapal_collection import PesapalCollectionRail
 from app.services.custody.ports import CollectionRail, CustodyProvider, PayoutRail
 from app.services.custody.simulated_rail import SimulatedRail
 
-SUPPORTED_RAILS = frozenset({"simulated", "loop", "pesapal", "intasend"})
+SUPPORTED_RAILS = frozenset({"simulated", "loop", "pesapal", "intasend", "econfirm"})
 LIVE_PAYOUT_RAILS = frozenset({"loop", "intasend"})
 registry_logger = logging.getLogger("app.custody.registry")
 
@@ -66,6 +67,9 @@ class CustodyRuntimeSettings(Protocol):
     def intasend_enabled(self) -> bool: ...
 
     @property
+    def econfirm_enabled(self) -> bool: ...
+
+    @property
     def pesapal_base_url(self) -> str: ...
 
     @property
@@ -79,6 +83,15 @@ class CustodyRuntimeSettings(Protocol):
 
     @property
     def pesapal_ipn_id(self) -> str: ...
+
+    @property
+    def econfirm_base_url(self) -> str: ...
+
+    @property
+    def econfirm_api_key(self) -> str: ...
+
+    @property
+    def econfirm_api_secret(self) -> str: ...
 
     @property
     def live_payouts_enabled(self) -> bool: ...
@@ -266,6 +279,8 @@ def _rail_enabled(rail_name: str, settings: CustodyRuntimeSettings) -> bool:
         return settings.pesapal_enabled
     if rail_name == "intasend":
         return settings.intasend_enabled
+    if rail_name == "econfirm":
+        return settings.econfirm_enabled
     return False
 
 
@@ -313,6 +328,11 @@ def build_custody_registry(settings: CustodyRuntimeSettings) -> CustodyRegistry:
         ipn_id=settings.pesapal_ipn_id,
         token_manager=pesapal_token_manager,
     )
+    econfirm_provider = EconfirmCustodyProvider(
+        base_url=settings.econfirm_base_url,
+        api_key=settings.econfirm_api_key,
+        api_secret=settings.econfirm_api_secret,
+    )
 
     if settings.pesapal_enabled and not settings.pesapal_ipn_id.strip():
         registry_logger.warning(
@@ -330,6 +350,8 @@ def build_custody_registry(settings: CustodyRuntimeSettings) -> CustodyRegistry:
             collection_rails[rail_name] = loop_collection_rail
         elif rail_name == "pesapal":
             collection_rails[rail_name] = pesapal_collection_rail
+        elif rail_name == "econfirm":
+            collection_rails[rail_name] = econfirm_provider
         else:
             collection_rails[rail_name] = PlaceholderCollectionRail(rail_name=rail_name)
 
@@ -341,6 +363,8 @@ def build_custody_registry(settings: CustodyRuntimeSettings) -> CustodyRegistry:
             payout_rails[rail_name] = simulated_rail
         elif rail_name == "loop":
             payout_rails[rail_name] = loop_payout_rail
+        elif rail_name == "econfirm":
+            payout_rails[rail_name] = econfirm_provider
         else:
             payout_rails[rail_name] = PlaceholderPayoutRail(rail_name=rail_name)
 
@@ -351,11 +375,18 @@ def build_custody_registry(settings: CustodyRuntimeSettings) -> CustodyRegistry:
     if not payout_rails:
         raise ValueError("No enabled payout rails are available from CUSTODY_PAYOUT_RAIL_PRIORITY.")
 
+    custody_mode = CustodyMode(settings.custody_mode)
+    provider: CustodyProvider
+    if custody_mode == CustodyMode.TIER_1 and settings.econfirm_enabled:
+        provider = econfirm_provider
+    else:
+        provider = ConfiguredCustodyProvider(custody_mode=custody_mode)
+
     return CustodyRegistry(
-        provider=ConfiguredCustodyProvider(custody_mode=CustodyMode(settings.custody_mode)),
+        provider=provider,
         collection_rails=collection_rails,
         payout_rails=payout_rails,
-        custody_mode=CustodyMode(settings.custody_mode),
+        custody_mode=custody_mode,
         collection_priority=collection_priority,
         payout_priority=payout_priority,
         live_payouts_enabled=settings.live_payouts_enabled,

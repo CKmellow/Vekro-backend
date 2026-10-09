@@ -246,6 +246,63 @@ def test_force_complete_is_disabled_in_production(monkeypatch) -> None:
     assert response.json()["detail"] == "Simulation admin controls are disabled in production."
 
 
+def test_progress_payout_requires_authentication(monkeypatch) -> None:
+    _install_dummy_db_override()
+    try:
+        monkeypatch.setattr(
+            simulated_admin_router,
+            "progress_simulated_payout_scenario",
+            lambda *args, **kwargs: None,
+        )
+        client = TestClient(app)
+        response = client.post(
+            "/admin/simulated-custody/payouts/sim:payout:success:abc123/progress",
+        )
+    finally:
+        _clear_dummy_db_override()
+
+    assert response.status_code == 401
+
+
+def test_progress_payout_rejects_non_admin(monkeypatch) -> None:
+    _install_dummy_db_override()
+    try:
+        monkeypatch.setattr(
+            simulated_admin_router,
+            "progress_simulated_payout_scenario",
+            lambda *args, **kwargs: None,
+        )
+        client = _authenticated_client(monkeypatch, UserRole.BUYER)
+        response = client.post(
+            "/admin/simulated-custody/payouts/sim:payout:success:abc123/progress",
+            headers=_csrf_headers(),
+        )
+    finally:
+        _clear_dummy_db_override()
+
+    assert response.status_code == 403
+
+
+def test_progress_payout_is_disabled_in_production(monkeypatch) -> None:
+    _install_dummy_db_override()
+    try:
+        monkeypatch.setattr(
+            simulated_admin_router,
+            "get_settings",
+            lambda: SimpleNamespace(environment="production"),
+        )
+        client = _authenticated_client(monkeypatch, UserRole.ADMIN)
+        response = client.post(
+            "/admin/simulated-custody/payouts/sim:payout:success:abc123/progress",
+            headers=_csrf_headers(),
+        )
+    finally:
+        _clear_dummy_db_override()
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Simulation admin controls are disabled in production."
+
+
 def test_force_complete_returns_result_payload_for_admin(monkeypatch) -> None:
     _install_dummy_db_override()
     try:

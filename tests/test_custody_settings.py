@@ -131,6 +131,50 @@ def test_registry_uses_priority_order_and_blocks_non_simulated_payouts_by_defaul
         registry.get_payout_rail("loop")
 
 
+@pytest.mark.parametrize(
+    ("custody_mode", "rail_overrides", "blocked_rail_name"),
+    [
+        (
+            "tier_2",
+            {
+                "loop_enabled": True,
+                "loop_base_url": "https://sandbox.loop.example",
+                "loop_client_id": "loop-client",
+                "loop_client_secret": "loop-secret",
+                "loop_shortcode": "600111",
+                "loop_passkey": "loop-passkey",
+                "custody_collection_rail_priority": "loop,simulated",
+                "custody_payout_rail_priority": "simulated,loop",
+            },
+            "loop",
+        ),
+        (
+            "tier_1",
+            {
+                "econfirm_enabled": True,
+                "econfirm_base_url": "https://sandbox.econfirm.example",
+                "econfirm_api_key": "econfirm-api-key",
+                "econfirm_api_secret": "econfirm-api-secret",
+                "custody_collection_rail_priority": "econfirm,simulated",
+                "custody_payout_rail_priority": "simulated,econfirm",
+            },
+            "econfirm",
+        ),
+    ],
+)
+def test_live_payout_rails_are_blocked_by_default_across_custody_modes(
+    custody_mode: str,
+    rail_overrides: dict[str, object],
+    blocked_rail_name: str,
+) -> None:
+    settings = _settings(custody_mode=custody_mode, **rail_overrides)
+    registry = build_custody_registry(settings)
+
+    assert registry.get_payout_rail("simulated") is registry.payout_rails["simulated"]
+    with pytest.raises(RuntimeError, match="Live payouts are blocked"):
+        registry.get_payout_rail(blocked_rail_name)
+
+
 def test_disabled_rails_are_skipped_without_runtime_exception() -> None:
     settings = _settings(
         pesapal_enabled=True,
@@ -215,6 +259,46 @@ def test_production_mode_can_enable_live_payout_rails() -> None:
     assert isinstance(registry.payout_rails["loop"], LoopPayoutRail)
 
 
+def test_tier_1_econfirm_payout_fails_closed_without_simulated_fallback() -> None:
+    settings = _settings(
+        custody_mode="tier_1",
+        econfirm_enabled=True,
+        econfirm_base_url="https://sandbox.econfirm.example",
+        econfirm_api_key="econfirm-api-key",
+        econfirm_api_secret="econfirm-api-secret",
+        custody_collection_rail_priority="econfirm",
+        custody_payout_rail_priority="econfirm",
+    )
+
+    registry = build_custody_registry(settings)
+
+    with pytest.raises(RuntimeError, match="No enabled payout rails"):
+        registry.select_payout_rail()
+
+
+def test_tier_1_production_mode_can_enable_live_econfirm_payouts() -> None:
+    settings = _settings(
+        environment="production",
+        allow_live_payouts=True,
+        session_cookie_secure=True,
+        csrf_cookie_secure=True,
+        frontend_url="https://frontend.example",
+        cors_origins="https://frontend.example",
+        custody_mode="tier_1",
+        econfirm_enabled=True,
+        econfirm_base_url="https://sandbox.econfirm.example",
+        econfirm_api_key="econfirm-api-key",
+        econfirm_api_secret="econfirm-api-secret",
+        custody_collection_rail_priority="econfirm,simulated",
+        custody_payout_rail_priority="econfirm,simulated",
+    )
+
+    registry = build_custody_registry(settings)
+
+    assert registry.live_payouts_enabled is True
+    assert registry.get_payout_rail("econfirm") is registry.payout_rails["econfirm"]
+
+
 def test_tier_1_registry_uses_econfirm_provider_and_rails_when_enabled() -> None:
     settings = _settings(
         custody_mode="tier_1",
@@ -230,10 +314,13 @@ def test_tier_1_registry_uses_econfirm_provider_and_rails_when_enabled() -> None
 
     assert registry.custody_mode == CustodyMode.TIER_1
     assert registry.ordered_collection_rail_names() == ("econfirm", "simulated")
-    assert registry.ordered_payout_rail_names() == ("econfirm", "simulated")
+    assert registry.ordered_payout_rail_names() == ("simulated",)
     assert isinstance(registry.provider, EconfirmCustodyProvider)
     assert registry.collection_rails["econfirm"] is registry.provider
     assert registry.payout_rails["econfirm"] is registry.provider
+
+    with pytest.raises(RuntimeError, match="Live payouts are blocked"):
+        registry.get_payout_rail("econfirm")
 
     capabilities = registry.provider.capabilities()
     assert capabilities.holds_funds_structurally is True

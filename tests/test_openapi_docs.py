@@ -62,3 +62,31 @@ def test_key_request_schema_fields_include_descriptions() -> None:
         schema = schemas[schema_name]
         field = schema["properties"][field_name]
         assert field.get("description"), f"Missing field description for {schema_name}.{field_name}"
+
+
+def test_openapi_blocks_arbitrary_payout_trigger_paths() -> None:
+    client = TestClient(app)
+    spec = client.get("/openapi.json").json()
+    paths = spec["paths"]
+
+    payout_post_paths = sorted(
+        path for path, operations in paths.items() if "post" in operations and "payout" in path
+    )
+
+    assert payout_post_paths == ["/admin/simulated-custody/payouts/{provider_reference}/progress"]
+
+    payout_progress_operation = _operation(
+        spec,
+        "/admin/simulated-custody/payouts/{provider_reference}/progress",
+        "post",
+    )
+    # Guardrail: endpoint accepts only a provider reference and cannot
+    # carry arbitrary payout params.
+    assert "requestBody" not in payout_progress_operation
+
+    forbidden_paths = {
+        "/admin/payouts/run",
+        "/admin/payouts/reconcile",
+        "/transactions/{transaction_id}/payout",
+    }
+    assert forbidden_paths.isdisjoint(set(paths.keys()))

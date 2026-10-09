@@ -25,7 +25,7 @@ from app.services.custody.ports import CollectionRail, CustodyProvider, PayoutRa
 from app.services.custody.simulated_rail import SimulatedRail
 
 SUPPORTED_RAILS = frozenset({"simulated", "loop", "pesapal", "intasend", "econfirm"})
-LIVE_PAYOUT_RAILS = frozenset({"loop", "intasend"})
+LIVE_PAYOUT_RAILS = frozenset({"loop", "intasend", "econfirm"})
 registry_logger = logging.getLogger("app.custody.registry")
 
 

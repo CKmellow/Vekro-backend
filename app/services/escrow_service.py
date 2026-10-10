@@ -15,6 +15,7 @@ from app.models.notification import Notification, NotificationEventType
 from app.models.payout_attempt import PayoutAttempt
 from app.models.transaction import Transaction, TransactionPayoutStatus, TransactionStatus
 from app.models.user import User, UserRole
+from app.services.audit import ACTOR_SYSTEM, record_money_audit_event
 from app.services.custody.dto import PayoutRequest, PayoutResult
 from app.services.custody.enums import PayoutOutcome
 from app.services.custody.rail_breaker import (
@@ -50,10 +51,21 @@ class PayoutReconciliationResult:
 
 
 class EscrowService:
-    def __init__(self, db: Session, *, registry: CustodyRegistry | None = None) -> None:
+    def __init__(
+        self,
+        db: Session,
+        *,
+        registry: CustodyRegistry | None = None,
+        actor_type: str = ACTOR_SYSTEM,
+        actor_id: uuid.UUID | None = None,
+        audit_reason: str | None = None,
+    ) -> None:
         self._db = db
         self._registry = registry or build_custody_registry(get_settings())
         self._escrow_cache: dict[uuid.UUID, Escrow] = {}
+        self._actor_type = actor_type
+        self._actor_id = actor_id
+        self._audit_reason = audit_reason
 
     @property
     def registry(self) -> CustodyRegistry:
@@ -271,6 +283,20 @@ class EscrowService:
             failure_reason=None,
         )
         self._db.add(attempt)
+        record_money_audit_event(
+            self._db,
+            action=f"payout_{payout_kind}_queued",
+            actor_type=self._actor_type,
+            actor_id=self._actor_id,
+            reason=self._audit_reason or normalized_purpose,
+            transaction_id=transaction.id,
+            escrow_id=escrow.id,
+            attempt_id=attempt.id,
+            rail_name=rail_name,
+            amount=payout_amount,
+            currency=escrow.currency,
+            details={"purpose": normalized_purpose},
+        )
 
         transaction.payout_status = TransactionPayoutStatus.PENDING
         self._db.add(transaction)
@@ -454,6 +480,7 @@ def run_payout_executor_once(
             attempt.attempted_at = current_time
             db.add(attempt)
             unknown += 1
+            _audit_payout_attempt(db, attempt=attempt, transaction=transaction, kind=payout_kind)
             service.refresh_transaction_payout_status(transaction)
             db.add(transaction)
             continue
@@ -493,6 +520,9 @@ def run_payout_executor_once(
                     now=current_time,
                 )
                 unknown += 1
+                _audit_payout_attempt(
+                    db, attempt=attempt, transaction=transaction, kind=payout_kind
+                )
                 service.refresh_transaction_payout_status(transaction)
                 db.add(transaction)
                 continue
@@ -539,6 +569,9 @@ def run_payout_executor_once(
                 }
                 db.add(attempt)
                 unknown += 1
+                _audit_payout_attempt(
+                    db, attempt=attempt, transaction=transaction, kind=payout_kind
+                )
                 service.refresh_transaction_payout_status(transaction)
                 db.add(transaction)
                 continue
@@ -567,6 +600,7 @@ def run_payout_executor_once(
         else:
             unknown += 1
 
+        _audit_payout_attempt(db, attempt=attempt, transaction=transaction, kind=payout_kind)
         service.refresh_transaction_payout_status(transaction)
         db.add(transaction)
 
@@ -697,6 +731,30 @@ def run_payout_reconciliation(
     return PayoutReconciliationResult(
         unknown_alerts=unknown_alerts,
         mismatch_alerts=mismatch_alerts,
+    )
+
+
+def _audit_payout_attempt(
+    db: Session,
+    *,
+    attempt: PayoutAttempt,
+    transaction: Transaction,
+    kind: str,
+) -> None:
+    outcome = AttemptOutcome(attempt.outcome).value
+    record_money_audit_event(
+        db,
+        action=f"payout_{kind}_{outcome}",
+        actor_type=ACTOR_SYSTEM,
+        reason=attempt.failure_reason or attempt.purpose,
+        transaction_id=transaction.id,
+        escrow_id=attempt.escrow_id,
+        attempt_id=attempt.id,
+        provider_reference=attempt.provider_reference,
+        rail_name=attempt.rail_name,
+        amount=attempt.amount,
+        currency=attempt.currency,
+        details={"purpose": attempt.purpose, "failure_code": attempt.failure_code},
     )
 
 

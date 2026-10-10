@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.provider_event import ProviderEvent
+from app.services.audit import ACTOR_PROVIDER, record_money_audit_event
 from app.services.custody.dto import CollectionResult
 from app.services.custody.enums import CollectionOutcome
 from app.services.custody.pesapal_auth import PesapalAuthError
@@ -158,6 +159,17 @@ def process_pesapal_collection_webhook(
         "funding_confirmed": funding_confirmed,
     }
     event.processed_at = now
+    if funding_confirmed:
+        record_money_audit_event(
+            db,
+            action="funding_confirmed",
+            actor_type=ACTOR_PROVIDER,
+            reason="Pesapal callback confirmed via server-side status inquiry.",
+            provider_reference=provider_reference,
+            rail_name=PESAPAL_RAIL_NAME,
+            details={"dedupe_key": dedupe_key},
+            occurred_at=now,
+        )
     db.commit()
 
     return PesapalWebhookProcessResult(

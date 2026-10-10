@@ -172,7 +172,7 @@ def test_force_resolve_rejects_blank_reason(monkeypatch) -> None:
 
 
 def test_force_resolve_returns_404_when_dispute_missing(monkeypatch) -> None:
-    def fake_force_resolve_dispute_case(_db, dispute_id, decision, reason):
+    def fake_force_resolve_dispute_case(_db, dispute_id, decision, reason, **_kwargs):
         _ = dispute_id
         _ = decision
         _ = reason
@@ -196,7 +196,7 @@ def test_force_resolve_returns_404_when_dispute_missing(monkeypatch) -> None:
 
 
 def test_force_resolve_returns_422_when_dispute_not_escalated(monkeypatch) -> None:
-    def fake_force_resolve_dispute_case(_db, dispute_id, decision, reason):
+    def fake_force_resolve_dispute_case(_db, dispute_id, decision, reason, **_kwargs):
         _ = dispute_id
         _ = decision
         _ = reason
@@ -220,7 +220,7 @@ def test_force_resolve_returns_422_when_dispute_not_escalated(monkeypatch) -> No
 
 
 def test_force_resolve_returns_409_when_split_not_supported(monkeypatch) -> None:
-    def fake_force_resolve_dispute_case(_db, dispute_id, decision, reason):
+    def fake_force_resolve_dispute_case(_db, dispute_id, decision, reason, **_kwargs):
         _ = dispute_id
         _ = decision
         _ = reason
@@ -261,7 +261,7 @@ def test_force_resolve_returns_decision_payload_for_admin(monkeypatch) -> None:
     monkeypatch.setattr(
         disputes_router,
         "force_resolve_dispute_case",
-        lambda _db, dispute_id, decision, reason: result,
+        lambda _db, dispute_id, decision, reason, **_kwargs: result,
     )
 
     client = _authenticated_client(monkeypatch, UserRole.ADMIN)

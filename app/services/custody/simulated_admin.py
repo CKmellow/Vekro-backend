@@ -1,3 +1,4 @@
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -9,6 +10,7 @@ from app.core.settings import get_settings
 from app.models.collection_attempt import AttemptOutcome, CollectionAttempt
 from app.models.escrow import Escrow
 from app.models.payout_attempt import PayoutAttempt
+from app.services.audit import ACTOR_ADMIN, record_money_audit_event
 from app.services.custody.dto import CollectionResult, FundingRequest, PayoutResult
 from app.services.custody.enums import CollectionOutcome, PayoutOutcome
 from app.services.custody.simulated_provider import SimulatedCustodyProvider
@@ -61,6 +63,7 @@ def force_complete_simulated_collection(
     phone_number: str,
     account_reference: str | None = None,
     currency: str = "KES",
+    actor_id: uuid.UUID | None = None,
 ) -> SimulatedCollectionAdminResult:
     rail = _build_simulated_rail_from_settings()
     provider = SimulatedCustodyProvider(db, collection_rail=rail, payout_rail=rail)
@@ -93,6 +96,23 @@ def force_complete_simulated_collection(
         )
 
     result = provider.request_funding(request)
+    escrow_id = SimulatedCustodyProvider._parse_escrow_reference(escrow_reference)
+    escrow = db.get(Escrow, escrow_id)
+    record_money_audit_event(
+        db,
+        action="simulated_collection_forced",
+        actor_type=ACTOR_ADMIN,
+        actor_id=actor_id,
+        reason="Admin forced simulated collection success.",
+        transaction_id=escrow.transaction_id if escrow else None,
+        escrow_id=escrow_id,
+        provider_reference=result.provider_reference,
+        rail_name="simulated",
+        amount=amount,
+        currency=currency,
+        details={"outcome": result.outcome.value},
+    )
+    db.commit()
     return SimulatedCollectionAdminResult(
         escrow_reference=escrow_reference,
         provider_reference=result.provider_reference,
@@ -107,6 +127,7 @@ def progress_simulated_collection_scenario(
     db: Session,
     *,
     provider_reference: str,
+    actor_id: uuid.UUID | None = None,
 ) -> SimulatedCollectionAdminResult:
     attempt = _latest_collection_attempt_by_reference(db, provider_reference=provider_reference)
     if attempt is None:
@@ -155,6 +176,18 @@ def progress_simulated_collection_scenario(
             escrow.funded_amount = _quantize(escrow.funded_amount + attempt.amount)
             db.add(escrow)
 
+    _audit_admin_progression(
+        db,
+        action="simulated_collection_progressed",
+        actor_id=actor_id,
+        escrow_id=attempt.escrow_id,
+        attempt_id=attempt.id,
+        provider_reference=provider_reference,
+        amount=attempt.amount,
+        currency=attempt.currency,
+        outcome=status_result.outcome.value,
+        ledger_posted=created_entries == 2,
+    )
     db.commit()
 
     return SimulatedCollectionAdminResult(
@@ -171,6 +204,7 @@ def progress_simulated_payout_scenario(
     db: Session,
     *,
     provider_reference: str,
+    actor_id: uuid.UUID | None = None,
 ) -> SimulatedPayoutAdminResult:
     attempt = _latest_payout_attempt_by_reference(db, provider_reference=provider_reference)
     if attempt is None:
@@ -229,6 +263,18 @@ def progress_simulated_payout_scenario(
                 escrow.refunded_amount = _quantize(escrow.refunded_amount + attempt.amount)
             db.add(escrow)
 
+    _audit_admin_progression(
+        db,
+        action=f"simulated_payout_{payout_type}_progressed",
+        actor_id=actor_id,
+        escrow_id=attempt.escrow_id,
+        attempt_id=attempt.id,
+        provider_reference=provider_reference,
+        amount=attempt.amount,
+        currency=attempt.currency,
+        outcome=status_result.outcome.value,
+        ledger_posted=created_entries == 2,
+    )
     db.commit()
 
     return SimulatedPayoutAdminResult(
@@ -239,6 +285,37 @@ def progress_simulated_payout_scenario(
         raw_status=status_result.raw_status,
         message=status_result.message,
         idempotent_replay=no_status_change and created_entries == 0,
+    )
+
+
+def _audit_admin_progression(
+    db: Session,
+    *,
+    action: str,
+    actor_id: uuid.UUID | None,
+    escrow_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    provider_reference: str,
+    amount: Decimal,
+    currency: str,
+    outcome: str,
+    ledger_posted: bool,
+) -> None:
+    escrow = db.get(Escrow, escrow_id)
+    record_money_audit_event(
+        db,
+        action=action,
+        actor_type=ACTOR_ADMIN,
+        actor_id=actor_id,
+        reason="Admin progressed simulated provider scenario.",
+        transaction_id=escrow.transaction_id if escrow else None,
+        escrow_id=escrow_id,
+        attempt_id=attempt_id,
+        provider_reference=provider_reference,
+        rail_name="simulated",
+        amount=amount,
+        currency=currency,
+        details={"outcome": outcome, "ledger_posted": ledger_posted},
     )
 
 

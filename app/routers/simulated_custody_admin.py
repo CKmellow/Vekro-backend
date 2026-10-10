@@ -74,6 +74,7 @@ def admin_force_complete_collection(
             phone_number=payload.phone_number,
             account_reference=payload.account_reference,
             currency=payload.currency,
+            actor_id=current_user.id,
         )
     except SimulatedEscrowReferenceError as exc:
         raise HTTPException(
@@ -117,7 +118,11 @@ def admin_progress_collection_scenario(
     _ensure_simulation_admin_controls_enabled()
 
     try:
-        result = progress_simulated_collection_scenario(db, provider_reference=provider_reference)
+        result = progress_simulated_collection_scenario(
+            db,
+            provider_reference=provider_reference,
+            actor_id=current_user.id,
+        )
     except (SimulatedAdminAttemptNotFoundError, SimulatedAdminEscrowNotFoundError) as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -158,7 +163,11 @@ def admin_progress_payout_scenario(
     _ensure_simulation_admin_controls_enabled()
 
     try:
-        result = progress_simulated_payout_scenario(db, provider_reference=provider_reference)
+        result = progress_simulated_payout_scenario(
+            db,
+            provider_reference=provider_reference,
+            actor_id=current_user.id,
+        )
     except (SimulatedAdminAttemptNotFoundError, SimulatedAdminEscrowNotFoundError) as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

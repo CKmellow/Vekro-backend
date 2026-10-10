@@ -31,6 +31,7 @@ def test_core_endpoints_have_summary_and_description() -> None:
         ("/admin/disputes/{dispute_id}/timeline", "get"),
         ("/admin/disputes/{dispute_id}/force-resolve", "post"),
         ("/admin/rails/health", "get"),
+        ("/admin/audit/money-events", "get"),
         ("/admin/simulated-custody/collections/force-complete", "post"),
         ("/admin/simulated-custody/collections/{provider_reference}/progress", "post"),
         ("/admin/simulated-custody/payouts/{provider_reference}/progress", "post"),

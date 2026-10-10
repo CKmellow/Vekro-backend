@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.dispute import AdminDecision, Dispute, DisputeStatus, DisputeType
 from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import Transaction, TransactionStatus
+from app.services.audit import ACTOR_ADMIN, record_money_audit_event
 from app.services.escrow_service import EscrowService, SplitPayoutUnsupportedError
 
 
@@ -213,6 +214,7 @@ def force_resolve_dispute_case(
     *,
     decision: AdminDecision,
     reason: str,
+    actor_id: uuid.UUID | None = None,
 ) -> AdminForceResolveResult:
     normalized_reason = reason.strip()
     if not normalized_reason:
@@ -239,7 +241,12 @@ def force_resolve_dispute_case(
     now = datetime.now(UTC)
     prior_transaction_status = transaction.status
     prior_dispute_status = dispute.status
-    escrow_service = EscrowService(db)
+    escrow_service = EscrowService(
+        db,
+        actor_type=ACTOR_ADMIN,
+        actor_id=actor_id,
+        audit_reason=normalized_reason,
+    )
 
     transaction.released_at = None
     transaction.refunded_at = None
@@ -282,6 +289,21 @@ def force_resolve_dispute_case(
     dispute.admin_decision = decision
     dispute.admin_reason = normalized_reason
     dispute.resolved_at = now
+
+    record_money_audit_event(
+        db,
+        action=f"admin_force_resolve_{decision.value}",
+        actor_type=ACTOR_ADMIN,
+        actor_id=actor_id,
+        reason=normalized_reason,
+        transaction_id=transaction.id,
+        amount=transaction.amount,
+        details={
+            "dispute_id": str(dispute.id),
+            "split_ratio": str(dispute.split_ratio) if dispute.split_ratio else None,
+        },
+        occurred_at=now,
+    )
 
     _create_admin_decision_notifications(
         db,

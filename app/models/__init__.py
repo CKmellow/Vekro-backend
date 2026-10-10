@@ -9,6 +9,7 @@ from app.models.dispute import (
 from app.models.escrow import Escrow
 from app.models.ledger_entry import LedgerEntry, LedgerEntrySide
 from app.models.listing import Listing
+from app.models.money_audit_event import MoneyAuditEvent
 from app.models.notification import Notification, NotificationChannel, NotificationEventType
 from app.models.payout_attempt import PayoutAttempt
 from app.models.provider_event import ProviderEvent
@@ -33,6 +34,7 @@ __all__ = [
     "Escrow",
     "LedgerEntry",
     "LedgerEntrySide",
+    "MoneyAuditEvent",
     "Dispute",
     "DisputeType",
     "DisputeStatus",

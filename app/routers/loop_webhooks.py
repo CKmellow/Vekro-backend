@@ -21,10 +21,13 @@ router = APIRouter(prefix="/webhooks/loop", tags=["Webhooks"])
     status_code=status.HTTP_200_OK,
     summary="Handle LOOP collection callback",
     description=(
-        "Accept LOOP collection callbacks, verify signature, dedupe by provider reference, "
-        "and confirm funding through inquiry before trusting callback data."
+        "Accept LOOP collection callbacks, verify signature and timestamp freshness, dedupe by "
+        "provider reference, and confirm funding through inquiry before trusting callback data."
     ),
     responses={
+        status.HTTP_401_UNAUTHORIZED: {
+            "description": "Callback signature is missing, invalid, or outside the replay window."
+        },
         status.HTTP_503_SERVICE_UNAVAILABLE: {
             "description": "LOOP collection rail is unavailable."
         },
@@ -67,6 +70,12 @@ async def loop_collection_callback(
         signing_secret=settings.loop_passkey,
         inquiry_status_fn=loop_rail.get_funding_status,
     )
+
+    if not result.accepted:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=result.detail,
+        )
 
     return LoopCollectionWebhookResponse(
         accepted=result.accepted,

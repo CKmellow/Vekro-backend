@@ -15,6 +15,7 @@ from app.models.provider_event import ProviderEvent
 from app.services.custody.dto import CollectionResult
 from app.services.custody.enums import CollectionOutcome
 from app.services.custody.pesapal_auth import PesapalAuthError
+from app.services.custody.redaction import safe_error_message
 
 PESAPAL_PROVIDER_NAME = "pesapal"
 PESAPAL_RAIL_NAME = "pesapal"
@@ -81,6 +82,11 @@ def process_pesapal_collection_webhook(
         .first()
     )
     if existing is not None:
+        audit_logger.info(
+            "pesapal_collection_callback_replay_ignored dedupe_key=%s provider_reference=%s",
+            dedupe_key,
+            provider_reference,
+        )
         return PesapalWebhookProcessResult(
             accepted=True,
             duplicate=True,
@@ -126,7 +132,7 @@ def process_pesapal_collection_webhook(
     except (PesapalAuthError, RuntimeError, ValueError, TypeError, LookupError) as exc:
         event.response_snapshot = {
             "state": "inquiry_failed",
-            "message": str(exc),
+            "message": safe_error_message(exc),
         }
         event.processed_at = now
         db.commit()

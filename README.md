@@ -149,6 +149,25 @@ High-level dispute and admin workflow:
 - Buyer reconfirmation can resolve, retry once, then escalate to `escalated_admin_review`
 - Admin force-resolve applies terminal outcomes: `resolved_refund`, `resolved_release`, or `resolved_split`
 
+## Custody Model and Limitations
+
+Read this before describing Vekro as "escrow" to anyone.
+
+- **Simulated custody is application-enforced and not regulated.** In the default configuration (`CUSTODY_MODE=tier_2`, simulated rails) no regulated custodian holds buyer funds. "Held in escrow" means the backend's ledger and state machine refuse to release money until the workflow allows it. It is not a trust account, a licensed escrow service, or a safeguarded e-money balance.
+- `holds_funds_structurally` is reported by `GET /admin/rails/health`. It is `false` for every Tier 2 setup and must be disclosed in user-facing copy whenever it is false.
+- Tier 2 with live rails (LOOP collections and payouts, Pesapal collections) moves real money directly between parties. Custody guarantees are still only as strong as this application, its database, and its operators.
+- Tier 1 (`CUSTODY_MODE=tier_1` with `ECONFIRM_ENABLED=true`) is designed for a structural custodian, but the eConfirm adapter is a mocked HTTP contract. It has not been certified against a live eConfirm environment and is disabled by default.
+- Live payouts are blocked unless `ENVIRONMENT=production` and `ALLOW_LIVE_PAYOUTS=true`.
+- The payment callback (`POST /transactions/payment-callback`) only advances the state machine. Escrow funding is recorded from collection rails (webhooks confirmed by server-side inquiry) or, outside production, the admin simulated force-complete control.
+- The payout executor and reconciliation are not scheduled by the app; operators run them (see `docs/runbooks.md`).
+- No KYC/AML screening, licensing, chargeback handling, or consumer-protection obligations are implemented. Any production launch needs a regulated partner and legal review.
+
+Operational docs:
+
+- Incident runbooks (rail outage, UNKNOWN payout resolution, reconciliation mismatch): `docs/runbooks.md`
+- Capstone demo script (normal flow, failover, unknown outcome, duplicate funding): `docs/demo-script.md`
+- Tier switching and capability gating: `docs/custody-tiers.md`
+
 ## Local Runbook
 
 ### Start API server
@@ -431,6 +450,7 @@ Migration notes:
 ## Runbook Reference
 
 - See Local Runbook for the authoritative local run, lint/test, and migration workflow commands.
+- See `docs/runbooks.md` for custody incident procedures and `docs/demo-script.md` for the demo walkthrough.
 
 ## Repository Hygiene
 
@@ -523,3 +543,4 @@ Migration notes:
 - 2026-10-09: Milestone 18 Issue [#92] Enforce payout execution guardrails completed with fail-closed live payout gating for eConfirm/Loop rails, non-production-only simulated payout progression controls, and OpenAPI security assertions that no arbitrary user-triggered payout execution endpoint exists.
 - 2026-10-10: Milestone 18 Issue [#93] Webhook authenticity hardening completed: LOOP callbacks with missing/invalid signatures or timestamps outside a 5-minute window are rejected with 401 and audited in `provider_events` under a separate `rejected:` key space (forged callbacks cannot pre-occupy a legitimate dedupe key), replays are deduped and logged, and snapshots/logs store only a 12-char signature fingerprint plus redacted error messages. Pesapal callbacks remain unsigned by provider design; authenticity is enforced by mandatory server-side status inquiry.
 - 2026-10-10: Milestone 18 Issue [#94] Money-movement audit trail completed with a `money_audit_events` table (migration `f3a91c7d2b10`), audit records for payout queueing/execution outcomes, confirmed webhook funding, admin force-resolve decisions, and admin simulated-custody controls (who/what/when/reason plus transaction, escrow, attempt, provider reference, rail, amount), `money_audit` log lines carrying a `txn=...|ref=...|rail=...` correlation ID, and an admin-only `GET /admin/audit/money-events` query endpoint with transaction/reference/rail/action filters.
+- 2026-10-10: Milestone 18 Issue [#95] Custody honesty and runbooks completed with a README "Custody Model and Limitations" section (simulated custody is application-enforced and non-regulated; Tier 1 eConfirm is mocked and disabled by default), incident runbooks in `docs/runbooks.md` (rail outage, UNKNOWN payout resolution, reconciliation mismatch), and `docs/demo-script.md` covering normal flow, failover, unknown outcome, and duplicate funding.

@@ -240,3 +240,30 @@ def test_pesapal_webhook_endpoint_returns_503_when_rail_unavailable() -> None:
             app.state.custody_registry = original_registry
         app.dependency_overrides.pop(get_db, None)
         db.close()
+
+def test_webhook_inquiry_failure_message_is_redacted() -> None:
+    db = _build_db_session()
+    try:
+
+        def _failing_inquiry(_provider_reference: str) -> CollectionResult:
+            raise RuntimeError(
+                "auth failed Bearer abcdefghijklmnopqrstuvwxyz0123456789ABCD for +254712345678"
+            )
+
+        payload = {"OrderTrackingId": "pesapal-track-redact"}
+        result = process_pesapal_collection_webhook(
+            db,
+            payload=payload,
+            raw_payload=json.dumps(payload),
+            inquiry_status_fn=_failing_inquiry,
+        )
+
+        assert result.inquiry_outcome is None
+        event = db.execute(select(ProviderEvent)).scalar_one()
+        message = event.response_snapshot["message"]
+        assert event.response_snapshot["state"] == "inquiry_failed"
+        assert "abcdefghijklmnopqrstuvwxyz0123456789ABCD" not in message
+        assert "+254712345678" not in message
+        assert message.startswith("RuntimeError:")
+    finally:
+        db.close()

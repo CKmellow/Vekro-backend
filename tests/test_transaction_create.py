@@ -1,6 +1,8 @@
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -20,6 +22,7 @@ from app.services.auth import ActiveSessionContext
 from app.services.transaction import (
     ListingNotFoundForTransactionError,
     PaymentInitiationError,
+    TransactionValidationError,
 )
 from app.services.transaction import (
     create_transaction as create_transaction_service,
@@ -48,6 +51,9 @@ class _FakeDb:
         if self.listing is not None and listing_id == self.listing.id:
             return self.listing
         return None
+
+    def execute(self, _statement: Any):
+        return SimpleNamespace(first=lambda: None)
 
     def add(self, obj) -> None:
         self.added.append(obj)
@@ -321,7 +327,7 @@ def test_service_creates_transaction_with_participant_linkage() -> None:
 
     payload = CreateTransactionRequest(
         listing_id=listing.id,
-        amount=Decimal("2200.00"),
+        amount=Decimal("15000.00"),
     )
 
     created = create_transaction_service(
@@ -334,7 +340,7 @@ def test_service_creates_transaction_with_participant_linkage() -> None:
     assert db.committed is True
     assert db.refreshed_obj is created
     assert created.status == TransactionStatus.AWAITING_PAYMENT
-    assert created.amount == Decimal("2200.00")
+    assert created.amount == Decimal("15000.00")
     assert created.buyer_id == buyer.id
     assert created.seller_id == listing.seller_id
 
@@ -352,7 +358,7 @@ def test_service_rejects_missing_listing() -> None:
 
     payload = CreateTransactionRequest(
         listing_id=uuid.uuid4(),
-        amount=Decimal("2200.00"),
+        amount=Decimal("15000.00"),
     )
 
     with pytest.raises(ListingNotFoundForTransactionError, match="Listing not found."):
@@ -377,7 +383,7 @@ def test_service_invokes_payment_gateway_interface() -> None:
     db = _FakeDb(listing=listing)
     payload = CreateTransactionRequest(
         listing_id=listing.id,
-        amount=Decimal("2200.00"),
+        amount=Decimal("15000.00"),
     )
     gateway = _FakeGateway()
 
@@ -401,7 +407,7 @@ def test_service_raises_payment_initiation_error_when_gateway_fails() -> None:
     db = _FakeDb(listing=listing)
     payload = CreateTransactionRequest(
         listing_id=listing.id,
-        amount=Decimal("2200.00"),
+        amount=Decimal("15000.00"),
     )
 
     with pytest.raises(
@@ -435,7 +441,7 @@ def test_service_sends_normalized_phone_to_payment_gateway() -> None:
     db = _FakeDb(listing=listing)
     payload = CreateTransactionRequest(
         listing_id=listing.id,
-        amount=Decimal("2200.00"),
+        amount=Decimal("15000.00"),
     )
     gateway = _CapturingGateway()
 
@@ -478,7 +484,7 @@ def test_service_create_transaction_persists_notification_fks_with_real_session(
             buyer=buyer,
             payload=CreateTransactionRequest(
                 listing_id=listing.id,
-                amount=Decimal("2200.00"),
+                amount=Decimal("15000.00"),
             ),
             payment_gateway=gateway,
         )
@@ -496,3 +502,50 @@ def test_service_create_transaction_persists_notification_fks_with_real_session(
         assert all(item.transaction_id == created.id for item in notifications)
     finally:
         db.close()
+
+
+def test_service_rejects_amount_that_differs_from_listing_price() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing()
+    db = _FakeDb(listing=listing)
+
+    with pytest.raises(TransactionValidationError, match="Amount must match the listing price."):
+        create_transaction_service(
+            cast(Session, db),
+            buyer=buyer,
+            payload=CreateTransactionRequest(listing_id=listing.id, amount=Decimal("1.00")),
+        )
+
+    assert db.added == []
+    assert db.committed is False
+
+
+def test_service_uses_listing_price_when_amount_omitted() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing()
+    db = _FakeDb(listing=listing)
+
+    created = create_transaction_service(
+        cast(Session, db),
+        buyer=buyer,
+        payload=CreateTransactionRequest(listing_id=listing.id),
+    )
+
+    assert created.amount == listing.price
+
+
+def test_service_assigns_random_human_readable_reference() -> None:
+    buyer = _build_user(UserRole.BUYER)
+    listing = _build_listing()
+
+    references = {
+        create_transaction_service(
+            cast(Session, _FakeDb(listing=listing)),
+            buyer=buyer,
+            payload=CreateTransactionRequest(listing_id=listing.id),
+        ).reference
+        for _ in range(20)
+    }
+
+    assert len(references) == 20
+    assert all(re.fullmatch(r"VK-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}", ref) for ref in references)

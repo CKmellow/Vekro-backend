@@ -13,7 +13,11 @@ from app.core.settings import get_settings
 from app.models.dispute import Dispute, DisputeStatus, DisputeType, SellerResolutionAction
 from app.models.listing import Listing
 from app.models.notification import Notification, NotificationEventType
-from app.models.transaction import Transaction, TransactionStatus
+from app.models.transaction import (
+    Transaction,
+    TransactionStatus,
+    generate_transaction_reference,
+)
 from app.models.user import User, UserRole
 from app.schemas.transaction import (
     CreateTransactionRequest,
@@ -170,9 +174,12 @@ def create_transaction(
     if listing is None:
         raise ListingNotFoundForTransactionError("Listing not found.")
 
-    amount = Decimal(payload.amount)
+    amount = Decimal(listing.price).quantize(Decimal("0.01"))
+    if payload.amount is not None and Decimal(payload.amount).quantize(Decimal("0.01")) != amount:
+        raise TransactionValidationError("Amount must match the listing price.")
 
     transaction = Transaction(
+        reference=_unique_transaction_reference(db),
         listing_id=listing.id,
         buyer_id=buyer.id,
         seller_id=listing.seller_id,
@@ -279,22 +286,25 @@ def _create_dispatched_notifications(
 def _create_arrival_notifications(
     db: Session,
     transaction: Transaction,
-    delivery_otp_preview: str | None,
+    delivery_otp: str,
 ) -> None:
     payload = {
         "transaction_id": str(transaction.id),
         "listing_id": str(transaction.listing_id),
         "at_door_at": transaction.at_door_at.isoformat() if transaction.at_door_at else None,
-        "delivery_otp_preview": delivery_otp_preview,
     }
 
+    # The code is the buyer's release secret: buyer-only, and the message text is what SMS sends.
     buyer_notification = Notification(
         user_id=transaction.buyer_id,
         transaction_id=transaction.id,
         event_type=NotificationEventType.DELIVERY_ARRIVED,
         title="Delivery arrived",
-        message="Your transaction has reached delivery and is pending inspection.",
-        payload=payload,
+        message=(
+            f"Your delivery code is {delivery_otp}. Enter it in Vekro only after you have "
+            "inspected the item. Do not share it with the seller or courier."
+        ),
+        payload={**payload, "delivery_code": delivery_otp},
     )
     seller_notification = Notification(
         user_id=transaction.seller_id,
@@ -836,6 +846,17 @@ def _create_dispute_opened_notifications(
     db.add(seller_notification)
 
 
+def _unique_transaction_reference(db: Session, *, max_tries: int = 5) -> str:
+    for _ in range(max_tries):
+        candidate = generate_transaction_reference()
+        exists = db.execute(
+            select(Transaction.id).where(Transaction.reference == candidate)
+        ).first()
+        if exists is None:
+            return candidate
+    raise TransactionValidationError("Could not allocate a unique transaction reference.")
+
+
 def _generate_delivery_otp() -> str:
     return f"{secrets.randbelow(1_000_000):06d}"
 
@@ -1025,9 +1046,6 @@ def mark_transaction_arrived(
         )
 
     delivery_otp = _generate_delivery_otp()
-    delivery_otp_preview = (
-        delivery_otp if get_settings().environment.strip().lower() != "production" else None
-    )
 
     transaction.status = TransactionStatus.AT_DOOR_PENDING_INSPECTION
     transaction.at_door_at = datetime.now(UTC)
@@ -1036,7 +1054,7 @@ def mark_transaction_arrived(
     _create_arrival_notifications(
         db,
         transaction=transaction,
-        delivery_otp_preview=delivery_otp_preview,
+        delivery_otp=delivery_otp,
     )
     db.commit()
     db.refresh(transaction)

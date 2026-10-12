@@ -56,13 +56,13 @@ Executor and reconciliation commands are in [runbooks.md](runbooks.md#shared-too
      -d "{\"transaction_id\":\"$TXN\",\"result_code\":0}"
    ```
 
-3. Seller dispatches and marks arrival. The arrival creates a delivery OTP; outside production it appears as `delivery_otp_preview` in the buyer's notifications:
+3. Seller dispatches and marks arrival. The arrival creates a delivery code that is sent only to the buyer (notification message, SMS, and `payload.delivery_code`):
 
    ```bash
    for step in dispatch arrival; do
      curl -s -b seller.jar -X POST $API/transactions/$TXN/$step -H "X-CSRF-Token: $(csrf seller.jar)"
    done
-   OTP=$(curl -s -b buyer.jar $API/notifications | jq -r '[.[].payload.delivery_otp_preview // empty][0]')
+   OTP=$(curl -s -b buyer.jar $API/notifications | jq -r '[.[].payload.delivery_code // empty][0]')
    curl -s -b buyer.jar $API/transactions/$TXN/otp-give -H "X-CSRF-Token: $(csrf buyer.jar)" \
      -H 'Content-Type: application/json' -d "{\"otp_code\":\"$OTP\"}"
    ```

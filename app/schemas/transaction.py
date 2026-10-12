@@ -12,11 +12,15 @@ class CreateTransactionRequest(BaseModel):
     """Buyer payload for creating a new escrow transaction."""
 
     listing_id: uuid.UUID
-    amount: Decimal = Field(
+    amount: Decimal | None = Field(
+        default=None,
         gt=0,
         max_digits=12,
         decimal_places=2,
-        description="Escrow amount to lock for the transaction.",
+        description=(
+            "Optional. The escrow amount is always the listing price; if sent, it must match "
+            "the listing price exactly or the request is rejected."
+        ),
     )
 
 
@@ -26,6 +30,9 @@ class TransactionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    reference: str = Field(
+        description="Random, non-sequential human-readable reference, for example VK-7K3P9Q."
+    )
     listing_id: uuid.UUID
     buyer_id: uuid.UUID
     seller_id: uuid.UUID

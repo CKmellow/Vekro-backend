@@ -241,6 +241,7 @@ def test_pesapal_webhook_endpoint_returns_503_when_rail_unavailable() -> None:
         app.dependency_overrides.pop(get_db, None)
         db.close()
 
+
 def test_webhook_inquiry_failure_message_is_redacted() -> None:
     db = _build_db_session()
     try:

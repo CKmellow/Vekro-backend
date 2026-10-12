@@ -166,7 +166,9 @@ def test_open_breaker_transitions_half_open_after_cooldown_and_success_closes() 
             provider_name="loop",
             now=now + timedelta(seconds=32),
         )
-        closed_row = db.execute(select(RailHealth).where(RailHealth.rail_name == "loop")).scalar_one()
+        closed_row = db.execute(
+            select(RailHealth).where(RailHealth.rail_name == "loop")
+        ).scalar_one()
         assert closed_row.breaker_state == RailBreakerState.CLOSED
         assert closed_row.consecutive_failures == 0
         assert closed_row.cooldown_until is None

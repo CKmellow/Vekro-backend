@@ -35,8 +35,6 @@ class MoneyAuditEventResponse(BaseModel):
 
 
 class MoneyAuditEventListResponse(BaseModel):
-    items: list[MoneyAuditEventResponse] = Field(
-        description="Audit events ordered newest first."
-    )
+    items: list[MoneyAuditEventResponse] = Field(description="Audit events ordered newest first.")
     limit: int
     offset: int

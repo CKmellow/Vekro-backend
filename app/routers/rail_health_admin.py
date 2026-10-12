@@ -24,9 +24,7 @@ router = APIRouter(prefix="/admin/rails", tags=["Admin Rails"])
     ),
     responses={
         status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
-        status.HTTP_403_FORBIDDEN: {
-            "description": "Authenticated user does not have admin role."
-        },
+        status.HTTP_403_FORBIDDEN: {"description": "Authenticated user does not have admin role."},
         status.HTTP_503_SERVICE_UNAVAILABLE: {
             "description": "Custody registry is unavailable in app state."
         },

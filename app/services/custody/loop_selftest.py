@@ -67,7 +67,9 @@ def _run_pesapal_fixture_auth_selftest() -> None:
     if payload.get("consumer_key") != "fixture-consumer-key":
         raise RuntimeError("Pesapal fixture auth self-test failed: consumer_key payload mismatch.")
     if payload.get("consumer_secret") != "fixture-consumer-secret":
-        raise RuntimeError("Pesapal fixture auth self-test failed: consumer_secret payload mismatch.")
+        raise RuntimeError(
+            "Pesapal fixture auth self-test failed: consumer_secret payload mismatch."
+        )
 
 
 def _run_optional_pesapal_live_auth_selftest() -> None:

@@ -39,9 +39,7 @@ def build_correlation_id(
     provider_reference: str | None,
     rail_name: str | None,
 ) -> str:
-    return (
-        f"txn={transaction_id or '-'}|ref={provider_reference or '-'}|rail={rail_name or '-'}"
-    )
+    return f"txn={transaction_id or '-'}|ref={provider_reference or '-'}|rail={rail_name or '-'}"
 
 
 def record_money_audit_event(

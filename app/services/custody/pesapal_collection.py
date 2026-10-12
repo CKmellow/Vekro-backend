@@ -44,7 +44,7 @@ class PesapalCollectionRail:
         base_url: str,
         callback_url: str,
         ipn_id: str,
-        token_manager: "PesapalAccessTokenProvider",
+        token_manager: PesapalAccessTokenProvider,
         transport: PesapalHttpTransport | None = None,
         timeout_seconds: float = 10.0,
         now_fn: Callable[[], datetime] | None = None,
@@ -96,7 +96,9 @@ class PesapalCollectionRail:
             endpoint="/api/Transactions/SubmitOrderRequest",
             payload=payload,
         )
-        return self._parse_submit_response(response=response, fallback_reference=request.escrow_reference)
+        return self._parse_submit_response(
+            response=response, fallback_reference=request.escrow_reference
+        )
 
     def get_funding_status(self, provider_reference: str) -> CollectionResult:
         response = self._send(
@@ -223,12 +225,15 @@ class PesapalCollectionRail:
         provider_reference = str(
             body.get("order_tracking_id") or body.get("orderTrackingId") or fallback_reference
         ).strip()
-        message = str(
-            body.get("description")
-            or body.get("status_description")
-            or body.get("message")
-            or ""
-        ).strip() or None
+        message = (
+            str(
+                body.get("description")
+                or body.get("status_description")
+                or body.get("message")
+                or ""
+            ).strip()
+            or None
+        )
 
         if not status_value:
             self._log_malformed(context="status_inquiry", body=body, response=response)

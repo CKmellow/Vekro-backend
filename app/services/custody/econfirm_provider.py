@@ -343,18 +343,21 @@ class EconfirmCustodyProvider:
         body = response.body if isinstance(response.body, dict) else {}
         status_value = _normalized_status(body)
         message = _extract_message(body)
-        provider_reference = _extract_first_text(
-            body,
-            (
-                "provider_reference",
-                "providerReference",
-                "funding_reference",
-                "fundingReference",
-                "transaction_reference",
-                "transactionReference",
-                "id",
-            ),
-        ) or fallback_reference
+        provider_reference = (
+            _extract_first_text(
+                body,
+                (
+                    "provider_reference",
+                    "providerReference",
+                    "funding_reference",
+                    "fundingReference",
+                    "transaction_reference",
+                    "transactionReference",
+                    "id",
+                ),
+            )
+            or fallback_reference
+        )
 
         if status_value in _SUCCESS_STATUSES:
             return CollectionResult(
@@ -408,18 +411,21 @@ class EconfirmCustodyProvider:
         body = response.body if isinstance(response.body, dict) else {}
         status_value = _normalized_status(body)
         message = _extract_message(body)
-        provider_reference = _extract_first_text(
-            body,
-            (
-                "provider_reference",
-                "providerReference",
-                "payout_reference",
-                "payoutReference",
-                "transaction_reference",
-                "transactionReference",
-                "id",
-            ),
-        ) or fallback_reference
+        provider_reference = (
+            _extract_first_text(
+                body,
+                (
+                    "provider_reference",
+                    "providerReference",
+                    "payout_reference",
+                    "payoutReference",
+                    "transaction_reference",
+                    "transactionReference",
+                    "id",
+                ),
+            )
+            or fallback_reference
+        )
 
         if status_value in _SUCCESS_STATUSES:
             return PayoutResult(

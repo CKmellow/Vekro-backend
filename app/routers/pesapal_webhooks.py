@@ -68,7 +68,9 @@ async def _handle_pesapal_collection_callback(
 ) -> PesapalCollectionWebhookResponse:
     registry = getattr(request.app.state, "custody_registry", None)
     collection_rails = getattr(registry, "collection_rails", None)
-    pesapal_rail = collection_rails.get("pesapal") if isinstance(collection_rails, Mapping) else None
+    pesapal_rail = (
+        collection_rails.get("pesapal") if isinstance(collection_rails, Mapping) else None
+    )
     if pesapal_rail is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

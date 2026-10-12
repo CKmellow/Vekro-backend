@@ -49,8 +49,7 @@ def register_pesapal_ipn(
 
     if response.status_code < 200 or response.status_code >= 300:
         raise PesapalIpnRegistrationError(
-            "Pesapal IPN registration failed. "
-            f"HTTP {response.status_code} {response.text[:180]}"
+            "Pesapal IPN registration failed. " f"HTTP {response.status_code} {response.text[:180]}"
         )
 
     ipn_id = _extract_ipn_id(response.body)

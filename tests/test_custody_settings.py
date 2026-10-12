@@ -219,9 +219,7 @@ def test_collection_fallback_order_is_deterministic() -> None:
 
     assert registry.ordered_collection_rail_names() == ("loop", "pesapal", "simulated")
     assert registry.ordered_collection_rail_names(exclude={"loop"}) == ("pesapal", "simulated")
-    assert registry.ordered_collection_rail_names(exclude={"loop", "pesapal"}) == (
-        "simulated",
-    )
+    assert registry.ordered_collection_rail_names(exclude={"loop", "pesapal"}) == ("simulated",)
     assert registry.select_collection_rail(exclude={"loop"})[0] == "pesapal"
 
 

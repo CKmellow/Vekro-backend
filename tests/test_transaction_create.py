@@ -549,3 +549,18 @@ def test_service_assigns_random_human_readable_reference() -> None:
 
     assert len(references) == 20
     assert all(re.fullmatch(r"VK-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}", ref) for ref in references)
+
+
+def test_service_rejects_non_buyer_creating_transaction() -> None:
+    seller = _build_user(UserRole.SELLER)
+    listing = _build_listing()
+    db = _FakeDb(listing=listing)
+
+    with pytest.raises(TransactionValidationError, match="Only buyers can create transactions."):
+        create_transaction_service(
+            cast(Session, db),
+            buyer=seller,
+            payload=CreateTransactionRequest(listing_id=listing.id),
+        )
+
+    assert db.added == []

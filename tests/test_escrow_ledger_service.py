@@ -11,6 +11,7 @@ from app.services.ledger import (
     ESCROW_HELD_ACCOUNT,
     EscrowLedger,
     EscrowLedgerIdempotencyConflictError,
+    EscrowLedgerUnbalancedError,
     LedgerMovement,
 )
 from sqlalchemy import create_engine, select
@@ -335,3 +336,30 @@ def test_duplicate_post_attempts_preserve_totals_and_row_counts(db_session: Sess
     assert after_debits == before_debits
     assert after_credits == before_credits
     assert after_balance == before_balance
+
+
+def test_replay_of_corrupted_unbalanced_entries_is_rejected(db_session: Session) -> None:
+    escrow_id = uuid.uuid4()
+    db_session.add(
+        LedgerEntry(
+            escrow_id=escrow_id,
+            entry_group_id=uuid.uuid4(),
+            idempotency_key="half-written",
+            account_code=ESCROW_HELD_ACCOUNT,
+            side=LedgerEntrySide.DEBIT,
+            amount=Decimal("500.00"),
+            currency="KES",
+        )
+    )
+    db_session.commit()
+
+    with pytest.raises(EscrowLedgerUnbalancedError):
+        EscrowLedger(db_session).post_movement(
+            LedgerMovement(
+                escrow_id=escrow_id,
+                idempotency_key="half-written",
+                amount=Decimal("500.00"),
+                debit_account_code=ESCROW_HELD_ACCOUNT,
+                credit_account_code="BUYER_CLEARING",
+            )
+        )

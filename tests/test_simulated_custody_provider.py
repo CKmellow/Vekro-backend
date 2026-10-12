@@ -284,3 +284,40 @@ def test_duplicate_success_payout_reuses_attempt_and_preserves_single_ledger_pos
         assert status.released_amount == Decimal("150.00")
     finally:
         db.close()
+
+
+def test_duplicate_funding_request_is_counted_once() -> None:
+    db = _build_db_session()
+    try:
+        provider = SimulatedCustodyProvider(db)
+        escrow_record = provider.open_escrow(
+            OpenEscrowRequest(
+                transaction_id=str(uuid.uuid4()),
+                buyer_id=str(uuid.uuid4()),
+                seller_id=str(uuid.uuid4()),
+                amount=Decimal("700.00"),
+            )
+        )
+        request = FundingRequest(
+            escrow_reference=escrow_record.escrow_reference,
+            amount=Decimal("700.00"),
+            phone_number="+254712345678",
+            account_reference="order-dup-funding",
+        )
+
+        first = provider.request_funding(request)
+        second = provider.request_funding(request)
+
+        funding_entries = list(
+            db.execute(select(LedgerEntry).where(LedgerEntry.idempotency_key.like("sim-funding:%")))
+            .scalars()
+            .all()
+        )
+        status = provider.get_status(escrow_record.escrow_reference)
+
+        assert first.outcome == CollectionOutcome.SUCCEEDED
+        assert second.outcome == CollectionOutcome.SUCCEEDED
+        assert len(funding_entries) == 2
+        assert status.funded_amount == Decimal("700.00")
+    finally:
+        db.close()

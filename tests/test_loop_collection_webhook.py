@@ -475,7 +475,7 @@ def test_loop_webhook_endpoint_processes_signed_callback(monkeypatch: pytest.Mon
         client = TestClient(app)
         response = client.post(
             "/webhooks/loop/collection",
-            data=raw_payload,
+            content=raw_payload,
             headers=headers,
         )
 
@@ -521,7 +521,7 @@ def test_loop_webhook_endpoint_returns_503_when_loop_rail_is_unavailable(
         client = TestClient(app)
         response = client.post(
             "/webhooks/loop/collection",
-            data='{"eventType":"collection.callback"}',
+            content='{"eventType":"collection.callback"}',
             headers={"Content-Type": "application/json"},
         )
 
@@ -569,7 +569,7 @@ def test_loop_webhook_endpoint_accepts_malformed_json_payload_as_unknown_callbac
         client = TestClient(app)
         response = client.post(
             "/webhooks/loop/collection",
-            data=malformed_payload,
+            content=malformed_payload,
             headers=headers,
         )
 

@@ -198,3 +198,34 @@ def test_service_list_user_notifications_filters_and_orders_desc() -> None:
     query_text = str(db.last_query)
     assert "notifications.user_id" in query_text
     assert "ORDER BY notifications.created_at DESC" in query_text
+
+
+def test_service_pagination_is_scoped_to_owner_before_limit() -> None:
+    from tests.test_notification_sms_delivery import _notification, _session_factory, _user
+
+    factory = _session_factory(lambda: None)
+    with factory() as db:
+        owner = _user(db)
+        other = User(
+            id=uuid.uuid4(),
+            name="Other User",
+            phone="+254700999888",
+            role=UserRole.BUYER,
+            password_hash="unused",
+            session_version=1,
+            is_active=True,
+            failed_login_attempts=0,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        db.add(other)
+        own = _notification(owner.id)
+        own.created_at = datetime.now(UTC) - timedelta(minutes=5)
+        newer_foreign = _notification(other.id)
+        newer_foreign.created_at = datetime.now(UTC)
+        db.add_all([own, newer_foreign])
+        db.commit()
+
+        page = list_user_notifications(db, user_id=owner.id, limit=1, offset=0)
+
+    assert [item.id for item in page] == [own.id]

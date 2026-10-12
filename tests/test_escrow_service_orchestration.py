@@ -636,3 +636,31 @@ def test_reconciliation_flags_terminal_status_mismatch_for_admin() -> None:
         assert notifications[0].payload["alert_key"].startswith("payout-mismatch:")
     finally:
         db.close()
+
+
+def test_executor_does_not_settle_payout_without_recorded_funding() -> None:
+    db = _build_db_session()
+    try:
+        transaction = _seed_transaction(db, status=TransactionStatus.RELEASED)
+        EscrowService(db).queue_release_full(transaction, purpose=f"tx-release:{transaction.id}")
+        db.commit()
+
+        run_result = run_payout_executor_once(db)
+        attempt = db.execute(select(PayoutAttempt)).scalar_one()
+        escrow = db.execute(select(Escrow)).scalar_one()
+        settlement_entries = list(
+            db.execute(
+                select(LedgerEntry).where(LedgerEntry.idempotency_key == f"outbox:{attempt.id}")
+            )
+            .scalars()
+            .all()
+        )
+
+        assert run_result.succeeded == 0
+        assert run_result.unknown == 1
+        assert attempt.outcome == AttemptOutcome.UNKNOWN
+        assert attempt.failure_code == "insufficient_funded_balance"
+        assert settlement_entries == []
+        assert escrow.released_amount == Decimal("0.00")
+    finally:
+        db.close()

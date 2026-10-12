@@ -1,13 +1,34 @@
+import secrets
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Integer, Numeric, String, text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    event,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+
+# Excludes 0/O and 1/I/L so references can be read aloud or typed without ambiguity.
+REFERENCE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+REFERENCE_PREFIX = "VK-"
+REFERENCE_LENGTH = 6
+
+
+def generate_transaction_reference() -> str:
+    suffix = "".join(secrets.choice(REFERENCE_ALPHABET) for _ in range(REFERENCE_LENGTH))
+    return f"{REFERENCE_PREFIX}{suffix}"
 
 
 class TransactionStatus(StrEnum):
@@ -51,6 +72,13 @@ class Transaction(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    reference: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        unique=True,
+        index=True,
+        default=generate_transaction_reference,
+    )
     listing_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("listings.id", ondelete="RESTRICT"),
@@ -121,3 +149,9 @@ class Transaction(Base):
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
     )
+
+
+@event.listens_for(Transaction, "init")
+def _assign_reference_on_init(target: Transaction, _args, kwargs) -> None:
+    if kwargs.get("reference") is None:
+        kwargs["reference"] = generate_transaction_reference()

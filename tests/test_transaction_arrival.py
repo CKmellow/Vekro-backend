@@ -18,6 +18,7 @@ from app.services.transaction import (
     TransactionArrivalForbiddenError,
     TransactionArrivalInvalidStateError,
     TransactionNotFoundForArrivalError,
+    _verify_delivery_otp,
 )
 from app.services.transaction import mark_transaction_arrived as mark_transaction_arrived_service
 from fastapi.testclient import TestClient
@@ -302,3 +303,29 @@ def test_service_arrival_rejects_missing_transaction() -> None:
         )
 
     assert db.committed is False
+
+
+def test_service_arrival_sends_delivery_code_to_buyer_only() -> None:
+    seller = _build_user(UserRole.SELLER)
+    transaction = _build_transaction(seller.id, status=TransactionStatus.OUT_FOR_DELIVERY)
+    db = _FakeDb(transaction=transaction)
+
+    mark_transaction_arrived_service(
+        cast(Session, db),
+        transaction_id=transaction.id,
+        seller=seller,
+    )
+
+    notifications = {item.user_id: item for item in db.added if isinstance(item, Notification)}
+    buyer_note = notifications[transaction.buyer_id]
+    seller_note = notifications[transaction.seller_id]
+
+    code = buyer_note.payload["delivery_code"]
+    assert code.isdigit()
+    assert code in buyer_note.message
+    assert _verify_delivery_otp(code, transaction.delivery_otp_hash)
+
+    assert code not in seller_note.message
+    assert code not in str(seller_note.payload)
+    assert "delivery_code" not in seller_note.payload
+    assert "delivery_otp_preview" not in seller_note.payload

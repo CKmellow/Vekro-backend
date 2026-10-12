@@ -304,6 +304,8 @@ Migration notes:
    - Requires authenticated buyer session and CSRF header for the request.
    - Initializes workflow status to awaiting_payment.
    - Persists listing linkage, buyer/seller linkage, and transaction amount.
+   - The amount is always the listing price; an `amount` in the request that differs from the listing price is rejected with 422.
+   - Assigns a random, non-sequential `reference` (for example `VK-7K3P9Q`) returned with the transaction.
    - Writes transaction_created notification records for buyer and seller to initialize event timeline/audit context.
    - Expected response: 201 Created with transaction data.
 - POST /transactions/payment-callback
@@ -333,7 +335,7 @@ Migration notes:
    - Requires authenticated seller session and CSRF header for the request.
    - Only the seller attached to the transaction can mark arrival.
    - Enforces state transition out_for_delivery -> at_door_pending_inspection and records at_door_at timestamp.
-   - Generates a delivery OTP for buyer confirmation; OTP preview is included in notification payload in non-production environments.
+   - Generates a delivery code for buyer confirmation and sends it only to the buyer, in every environment: in the buyer's notification message (also delivered by SMS) and as `payload.delivery_code`. The seller's notification never contains it.
    - Invalid prior states are rejected with deterministic validation detail.
    - Expected response: 200 on successful arrival update, 403 for non-owner/non-seller access, 422 for invalid prior state, 404 when transaction is missing.
 - POST /transactions/{transaction_id}/otp-give
@@ -546,3 +548,4 @@ Migration notes:
 - 2026-10-10: Milestone 18 Issue [#95] Custody honesty and runbooks completed with a README "Custody Model and Limitations" section (simulated custody is application-enforced and non-regulated; Tier 1 eConfirm is mocked and disabled by default), incident runbooks in `docs/runbooks.md` (rail outage, UNKNOWN payout resolution, reconciliation mismatch), and `docs/demo-script.md` covering normal flow, failover, unknown outcome, and duplicate funding.
 - 2026-10-11: Milestone 19 Issue [#117] `AfricasTalkingSmsSender` completed in `app/services/sms/africastalking.py`: config-driven from `AFRICASTALKING_USERNAME` / `AFRICASTALKING_API_KEY` / optional `AFRICASTALKING_SENDER_ID` (sandbox endpoint when username is `sandbox`), recipients normalized with the shared phone utility, per-recipient outcomes (`sent`, `failed_definite`, `failed_transient`) from Africa's Talking `statusCode` so HTTP 2xx alone is never treated as success, and bounded retry (3 attempts, 0.5s/1.0s backoff) that resends only transient recipients after 5xx/429/transport errors or provider status 500-502.
 - 2026-10-12: Milestone 19 Issue [#118] SMS delivery wired into the notification lifecycle: additive migration `a7c4e2d91f35` adds `notifications.delivery_status` (`not_attempted`, `sent`, `failed`), session hooks on the app session factory send each committed notification by SMS via `AfricasTalkingSmsSender` to the recipient's phone after commit (on a separate session, so row persistence is never blocked and delivery errors never propagate), `delivered_at` is set on success, status stays `not_attempted` when `AFRICASTALKING_API_KEY` is blank, and `GET /notifications` now returns `delivery_status`.
+- 2026-10-12: Issue [#139] Frontend integration fixes: `POST /transactions` now always charges the listing price and rejects a mismatched client `amount` with 422 (`amount` is optional); the delivery code is sent only to the buyer in every environment (notification message, SMS, `payload.delivery_code`) and never to the seller; transactions get a random non-sequential `reference` such as `VK-7K3P9Q` (migration `b8d15e3f7a42`, unique, backfilled for existing rows) returned in `TransactionResponse`.

@@ -30,13 +30,17 @@ def _get_session_factory():
         echo=settings.database_echo,
         pool_pre_ping=True,
     )
-    return sessionmaker(
+    factory = sessionmaker(
         bind=engine,
         autoflush=False,
         autocommit=False,
         expire_on_commit=False,
         class_=Session,
     )
+    from app.services.notification_delivery import install_notification_sms_hooks
+
+    install_notification_sms_hooks(factory)
+    return factory
 
 
 def get_db() -> Generator[Session, None, None]:

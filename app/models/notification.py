@@ -27,6 +27,12 @@ class NotificationChannel(StrEnum):
     SMS = "sms"
 
 
+class NotificationDeliveryStatus(StrEnum):
+    NOT_ATTEMPTED = "not_attempted"
+    SENT = "sent"
+    FAILED = "failed"
+
+
 class Notification(Base):
     __tablename__ = "notifications"
     __table_args__ = (
@@ -90,6 +96,17 @@ class Notification(Base):
     )
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivery_status: Mapped[NotificationDeliveryStatus] = mapped_column(
+        Enum(
+            NotificationDeliveryStatus,
+            name="notification_delivery_status",
+            native_enum=True,
+            values_callable=lambda enum_cls: [item.value for item in enum_cls],
+        ),
+        nullable=False,
+        default=NotificationDeliveryStatus.NOT_ATTEMPTED,
+        server_default=text("'not_attempted'"),
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

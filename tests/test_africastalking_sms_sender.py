@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -11,6 +13,12 @@ from app.services.sms import (
     AfricasTalkingSmsSender,
     SmsOutcome,
 )
+
+_FIXTURES_DIR = Path(__file__).parent / "fixtures" / "africastalking"
+
+
+def _fixture(name: str) -> dict[str, Any]:
+    return json.loads((_FIXTURES_DIR / name).read_text(encoding="utf-8"))
 
 
 def _recipient(number: str, status_code: int, status: str) -> dict[str, Any]:
@@ -28,6 +36,15 @@ def _ok(recipients: list[dict[str, Any]], status_code: int = 201) -> AfricasTalk
         status_code=status_code,
         body={"SMSMessageData": {"Message": "Sent", "Recipients": recipients}},
         text="",
+    )
+
+
+def _fixture_response(name: str, status_code: int = 201) -> AfricasTalkingHttpResponse:
+    body = _fixture(name)
+    return AfricasTalkingHttpResponse(
+        status_code=status_code,
+        body=body,
+        text=json.dumps(body),
     )
 
 
@@ -59,7 +76,7 @@ def _sender(transport: _FakeTransport, sleeps: list[float], **overrides) -> Afri
 
 
 def test_request_shaping_normalizes_and_dedupes_recipients() -> None:
-    transport = _FakeTransport([_ok([_recipient("+254712345678", 101, "Success")])])
+    transport = _FakeTransport([_fixture_response("send_success.json")])
     sender = _sender(transport, [])
 
     result = sender.send("Your code is 1234", ["0712345678", "+254712345678", "254712345678"])
@@ -78,7 +95,7 @@ def test_request_shaping_normalizes_and_dedupes_recipients() -> None:
     }
     sent = result.for_phone("+254712345678")
     assert sent is not None
-    assert sent.message_id == "ATXid_5678"
+    assert sent.message_id == "ATXid_fixture_success_5678"
     assert sent.attempts == 1
 
 
@@ -93,17 +110,7 @@ def test_live_username_uses_live_endpoint_and_omits_blank_sender_id() -> None:
 
 
 def test_http_success_is_not_universal_success_per_recipient_status_wins() -> None:
-    transport = _FakeTransport(
-        [
-            _ok(
-                [
-                    _recipient("+254712345678", 101, "Success"),
-                    _recipient("+254722000111", 403, "InvalidPhoneNumber"),
-                    _recipient("+254733000222", 406, "UserInBlacklist"),
-                ]
-            )
-        ]
-    )
+    transport = _FakeTransport([_fixture_response("send_mixed_recipients.json")])
     sleeps: list[float] = []
     sender = _sender(transport, sleeps)
 
@@ -118,6 +125,19 @@ def test_http_success_is_not_universal_success_per_recipient_status_wins() -> No
     }
     assert len(transport.calls) == 1
     assert sleeps == []
+
+
+def test_contract_fixture_transient_status_code_is_retryable() -> None:
+    transport = _FakeTransport([_fixture_response("send_transient_recipient.json")])
+    sender = _sender(transport, [], max_attempts=1)
+
+    result = sender.send("hello", ["+254712345678"])
+
+    assert result.all_sent is False
+    assert result.attempts == 1
+    assert result.recipients[0].outcome == SmsOutcome.FAILED_TRANSIENT
+    assert result.recipients[0].status_code == 500
+    assert result.recipients[0].status == "InternalServerError"
 
 
 def test_transient_recipient_is_retried_alone_with_backoff() -> None:
@@ -245,3 +265,17 @@ def test_from_settings_requires_credentials() -> None:
     settings.africastalking_api_key = "key"
     sender = AfricasTalkingSmsSender.from_settings(settings, transport=_FakeTransport([]))
     assert isinstance(sender, AfricasTalkingSmsSender)
+
+
+def test_env_example_documents_africastalking_settings() -> None:
+    env_example = (Path(__file__).parents[1] / ".env.example").read_text(encoding="utf-8")
+
+    for key in (
+        "AFRICASTALKING_USERNAME=",
+        "AFRICASTALKING_API_KEY=",
+        "AFRICASTALKING_SENDER_ID=",
+    ):
+        assert key in env_example
+
+    assert "RUN_AFRICASTALKING_LIVE_TESTS" in env_example
+    assert "AFRICASTALKING_LIVE_DESTINATION_PHONE" in env_example

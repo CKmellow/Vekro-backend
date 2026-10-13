@@ -1,0 +1,15 @@
+{
+  "SMSMessageData": {
+    "Message": "Sent to 0/1 Total Cost: KES 0.0000",
+    "Recipients": [
+      {
+        "statusCode": 500,
+        "number": "+254712345678",
+        "cost": "KES 0.0000",
+        "status": "InternalServerError",
+        "messageId": "ATXid_fixture_transient_5678",
+        "messageParts": 1
+      }
+    ]
+  }
+}

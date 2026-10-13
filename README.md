@@ -54,6 +54,20 @@ Session/CSRF auth cookie settings used by login/logout:
 - CSRF_HEADER_NAME: header name clients must send for CSRF checks (default X-CSRF-Token)
 - CORS_ALLOW_CREDENTIALS: must be true for browser credentialed requests
 
+SMS delivery settings:
+
+- AFRICASTALKING_USERNAME: defaults to `sandbox` and uses the Africa's Talking sandbox endpoint.
+- AFRICASTALKING_API_KEY: blank disables SMS delivery; notifications remain persisted with `delivery_status=not_attempted`.
+- AFRICASTALKING_SENDER_ID: optional registered sender ID/shortcode.
+- RUN_AFRICASTALKING_LIVE_TESTS and AFRICASTALKING_LIVE_DESTINATION_PHONE: opt-in pytest smoke controls only.
+
+SMS delivery behavior:
+
+- Notification SMS is attempted after the database commit, using a separate session so persistence is not blocked by provider errors.
+- Africa's Talking per-recipient `statusCode` drives delivery classification; HTTP 2xx alone is not treated as success.
+- Transient provider/HTTP/transport errors are retried with bounded backoff; invalid numbers and auth/sender errors are definite failures.
+- Sandbox credentials are for contract and smoke checks. They do not guarantee real handset delivery without Africa's Talking-approved sender/recipient setup or a configured sandbox/test number; live credentials may send real billable SMS.
+
 Login abuse protection settings:
 
 - LOGIN_RATE_LIMIT_MAX_ATTEMPTS: max login attempts per client+phone within window
@@ -218,6 +232,19 @@ PESAPAL_CONSUMER_SECRET=<sandbox-secret> \
 PESAPAL_CALLBACK_URL=https://<your-ngrok-subdomain>.ngrok-free.app/api/webhooks/pesapal/callback \
 .venv/bin/pytest -m live -k pesapal -q
 ```
+
+Opt-in Africa's Talking SMS smoke tests:
+
+```bash
+RUN_AFRICASTALKING_LIVE_TESTS=1 \
+AFRICASTALKING_USERNAME=sandbox \
+AFRICASTALKING_API_KEY=<sandbox-key> \
+AFRICASTALKING_LIVE_DESTINATION_PHONE=+2547XXXXXXXX \
+.venv/bin/pytest -m live -k africastalking -q
+```
+
+Use an Africa's Talking-approved sandbox/test number for sandbox credentials. If you replace
+`AFRICASTALKING_USERNAME=sandbox` with a live username, the smoke test may send a real SMS.
 
 ### Migration workflow
 
@@ -548,4 +575,5 @@ Migration notes:
 - 2026-10-10: Milestone 18 Issue [#95] Custody honesty and runbooks completed with a README "Custody Model and Limitations" section (simulated custody is application-enforced and non-regulated; Tier 1 eConfirm is mocked and disabled by default), incident runbooks in `docs/runbooks.md` (rail outage, UNKNOWN payout resolution, reconciliation mismatch), and `docs/demo-script.md` covering normal flow, failover, unknown outcome, and duplicate funding.
 - 2026-10-11: Milestone 19 Issue [#117] `AfricasTalkingSmsSender` completed in `app/services/sms/africastalking.py`: config-driven from `AFRICASTALKING_USERNAME` / `AFRICASTALKING_API_KEY` / optional `AFRICASTALKING_SENDER_ID` (sandbox endpoint when username is `sandbox`), recipients normalized with the shared phone utility, per-recipient outcomes (`sent`, `failed_definite`, `failed_transient`) from Africa's Talking `statusCode` so HTTP 2xx alone is never treated as success, and bounded retry (3 attempts, 0.5s/1.0s backoff) that resends only transient recipients after 5xx/429/transport errors or provider status 500-502.
 - 2026-10-12: Milestone 19 Issue [#118] SMS delivery wired into the notification lifecycle: additive migration `a7c4e2d91f35` adds `notifications.delivery_status` (`not_attempted`, `sent`, `failed`), session hooks on the app session factory send each committed notification by SMS via `AfricasTalkingSmsSender` to the recipient's phone after commit (on a separate session, so row persistence is never blocked and delivery errors never propagate), `delivered_at` is set on success, status stays `not_attempted` when `AFRICASTALKING_API_KEY` is blank, and `GET /notifications` now returns `delivery_status`.
+- 2026-10-13: Milestone 19 Issue [#119] Africa's Talking SMS contract coverage completed with fixture-backed send-response tests under `tests/fixtures/africastalking`, a skipped-by-default `pytest -m live -k africastalking` smoke test gated by `RUN_AFRICASTALKING_LIVE_TESTS`, `.env.example` smoke variable notes, and README documentation for post-commit SMS delivery plus sandbox/test-number limitations.
 - 2026-10-12: Issue [#139] Frontend integration fixes: `POST /transactions` now always charges the listing price and rejects a mismatched client `amount` with 422 (`amount` is optional); the delivery code is sent only to the buyer in every environment (notification message, SMS, `payload.delivery_code`) and never to the seller; transactions get a random non-sequential `reference` such as `VK-7K3P9Q` (migration `b8d15e3f7a42`, unique, backfilled for existing rows) returned in `TransactionResponse`.

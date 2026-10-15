@@ -1,0 +1,3486 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Vekro Backend",
+    "description": "Escrow and dispute-resolution backend with state-machine driven transaction flows, session-based authentication, and admin dispute tooling.",
+    "version": "0.9.0"
+  },
+  "paths": {
+    "/auth/register": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Register buyer or seller",
+        "description": "Create a buyer or seller account with validated phone and password fields. Registration currently supports only buyer and seller roles.",
+        "operationId": "register_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterUserResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Phone number is already registered."
+          },
+          "422": {
+            "description": "Request payload failed validation."
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Login user and create session",
+        "description": "Authenticate a user, issue server-side session state, and set session + CSRF cookies. Rate limiting and account lockout protections are enforced.",
+        "operationId": "login_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid phone or password."
+          },
+          "429": {
+            "description": "Too many login attempts or account temporarily locked."
+          },
+          "422": {
+            "description": "Request payload failed validation."
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Logout user and revoke session",
+        "description": "Revoke the active server-side session when present and clear authentication cookies.",
+        "operationId": "logout_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Session revoked (or no active session)."
+          },
+          "401": {
+            "description": "Invalid or expired session."
+          },
+          "403": {
+            "description": "CSRF token missing, mismatched, or invalid."
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Get current authenticated user",
+        "description": "Return the currently authenticated user profile based on active session context.",
+        "operationId": "me_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Service health check",
+        "description": "Liveness endpoint used by operators, CI checks, and uptime monitors.",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Check Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/listings": {
+      "post": {
+        "tags": [
+          "Listings"
+        ],
+        "summary": "Create listing (seller only)",
+        "description": "Create a listing owned by the authenticated seller. Serialized listings must satisfy unique_id and dispute policy requirements.",
+        "operationId": "create_seller_listing_listings_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateListingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not a seller."
+          },
+          "422": {
+            "description": "Business-rule or payload validation failed."
+          }
+        }
+      }
+    },
+    "/listings/{listing_id}": {
+      "get": {
+        "tags": [
+          "Listings"
+        ],
+        "summary": "Get listing by id",
+        "description": "Fetch a listing by UUID with serialized/dispute policy metadata when present.",
+        "operationId": "get_listing_listings__listing_id__get",
+        "parameters": [
+          {
+            "name": "listing_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Listing Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Listing not found."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notifications": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "List notifications for current user",
+        "description": "Return notifications belonging to the authenticated user only, ordered by newest first. Supports limit/offset pagination for client polling.",
+        "operationId": "list_current_user_notifications_notifications_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NotificationResponse"
+                  },
+                  "title": "Response List Current User Notifications Notifications Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "422": {
+            "description": "Pagination query parameters are invalid."
+          }
+        }
+      }
+    },
+    "/protected/buyer": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Buyer-only protected test route",
+        "description": "Sample route demonstrating buyer role enforcement.",
+        "operationId": "buyer_only_route_protected_buyer_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Buyer Only Route Protected Buyer Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user does not have buyer role."
+          }
+        }
+      }
+    },
+    "/protected/seller": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Seller-only protected test route",
+        "description": "Sample route demonstrating seller role enforcement.",
+        "operationId": "seller_only_route_protected_seller_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Seller Only Route Protected Seller Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user does not have seller role."
+          }
+        }
+      }
+    },
+    "/protected/admin": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Admin-only protected test route",
+        "description": "Sample route demonstrating admin role enforcement.",
+        "operationId": "admin_only_route_protected_admin_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Admin Only Route Protected Admin Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user does not have admin role."
+          }
+        }
+      }
+    },
+    "/transactions": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Create transaction (buyer only)",
+        "description": "Create an escrow transaction from a listing as the authenticated buyer. New transactions start in awaiting_payment state.",
+        "operationId": "create_buyer_transaction_transactions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTransactionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Transaction created, but payment initiation transport failed. Client should continue with this transaction id."
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not a buyer."
+          },
+          "404": {
+            "description": "Listing not found."
+          },
+          "503": {
+            "description": "Payment initiation failed before a partial-success response could be returned."
+          },
+          "422": {
+            "description": "Business-rule or payload validation failed."
+          }
+        }
+      }
+    },
+    "/transactions/payment-callback": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Confirm payment callback and lock transaction",
+        "description": "Provider callback endpoint that transitions awaiting_payment transactions to locked on successful result_code and safely handles duplicate/non-success callbacks.",
+        "operationId": "payment_confirmation_callback_transactions_payment_callback_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaymentCallbackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentCallbackResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Callback acknowledged with no state transition."
+          },
+          "404": {
+            "description": "Transaction not found."
+          },
+          "422": {
+            "description": "Request payload failed validation."
+          }
+        }
+      }
+    },
+    "/transactions/{transaction_id}/dispatch": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Dispatch locked transaction (seller only)",
+        "description": "Seller-owned transition from locked to out_for_delivery. Rejects non-owner access and invalid prior states.",
+        "operationId": "dispatch_locked_transaction_transactions__transaction_id__dispatch_post",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not allowed to dispatch this transaction."
+          },
+          "404": {
+            "description": "Transaction not found."
+          },
+          "422": {
+            "description": "Transaction is not eligible for dispatch."
+          }
+        }
+      }
+    },
+    "/transactions/{transaction_id}/arrival": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Mark delivery arrival (seller only)",
+        "description": "Seller-owned transition from out_for_delivery to at_door_pending_inspection. Generates a delivery OTP for buyer confirmation.",
+        "operationId": "mark_delivery_arrival_transactions__transaction_id__arrival_post",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not allowed to mark arrival for this transaction."
+          },
+          "404": {
+            "description": "Transaction not found."
+          },
+          "422": {
+            "description": "Transaction is not eligible for arrival confirmation."
+          }
+        }
+      }
+    },
+    "/transactions/{transaction_id}/otp-give": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Confirm delivery OTP (buyer only)",
+        "description": "Buyer confirmation step for delivery handoff. Transitions to released for non-serialized listings or hold_24h for serialized listings.",
+        "operationId": "confirm_delivery_otp_transactions__transaction_id__otp_give_post",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtpGiveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not allowed to confirm OTP for this transaction."
+          },
+          "404": {
+            "description": "Transaction or listing not found."
+          },
+          "422": {
+            "description": "Invalid OTP or transaction not in OTP-confirmable state."
+          }
+        }
+      }
+    },
+    "/transactions/{transaction_id}/otp-withhold": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Withhold delivery OTP and trigger return-refund (buyer only)",
+        "description": "Buyer action that withholds OTP and applies return/refund path transitions from at_door_pending_inspection.",
+        "operationId": "withhold_delivery_otp_transactions__transaction_id__otp_withhold_post",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not allowed to withhold OTP for this transaction."
+          },
+          "404": {
+            "description": "Transaction not found."
+          },
+          "422": {
+            "description": "Transaction is not eligible for OTP-withhold flow."
+          }
+        }
+      }
+    },
+    "/transactions/{transaction_id}/report-functional-issue": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Report functional issue during hold window (buyer only)",
+        "description": "Buyer dispute-intake endpoint for serialized transactions in hold_24h state. Routes category other directly to admin escalation path.",
+        "operationId": "report_functional_issue_for_transaction_transactions__transaction_id__report_functional_issue_post",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportFunctionalIssueRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not allowed to report an issue for this transaction."
+          },
+          "404": {
+            "description": "Transaction or listing not found."
+          },
+          "422": {
+            "description": "Transaction state, listing type, or issue category is invalid."
+          }
+        }
+      }
+    },
+    "/transactions/{transaction_id}/buyer-sent-back": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Mark buyer sent-back action in dispute flow (buyer only)",
+        "description": "Buyer transition from disputed_functional to return_in_transit in functional dispute flow.",
+        "operationId": "mark_buyer_sent_back_for_transaction_transactions__transaction_id__buyer_sent_back_post",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not allowed to update sent-back state."
+          },
+          "404": {
+            "description": "Transaction not found."
+          },
+          "422": {
+            "description": "Transaction is not eligible for buyer sent-back action."
+          }
+        }
+      }
+    },
+    "/transactions/{transaction_id}/seller-received": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Mark seller received return in dispute flow (seller only)",
+        "description": "Seller transition from return_in_transit to return_received in functional dispute flow.",
+        "operationId": "mark_seller_received_for_transaction_transactions__transaction_id__seller_received_post",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not allowed to update seller-received state."
+          },
+          "404": {
+            "description": "Transaction not found."
+          },
+          "422": {
+            "description": "Transaction is not eligible for seller-received action."
+          }
+        }
+      }
+    },
+    "/transactions/{transaction_id}/seller-resolution-action": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Apply seller dispute resolution action (seller only)",
+        "description": "Seller remediation action endpoint from return_received state. Supports refund_issued, repair_shipped, and replacement_shipped (policy-gated).",
+        "operationId": "apply_seller_resolution_action_for_transaction_transactions__transaction_id__seller_resolution_action_post",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SellerResolutionActionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not allowed to apply resolution action."
+          },
+          "404": {
+            "description": "Transaction or listing not found."
+          },
+          "422": {
+            "description": "Action is invalid or transaction is not eligible for seller resolution."
+          }
+        }
+      }
+    },
+    "/transactions/{transaction_id}/buyer-reconfirmation": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Submit buyer reconfirmation response (buyer only)",
+        "description": "Buyer response to seller remediation outcome from awaiting_buyer_reconfirmation. Reject path retries once before escalated_admin_review.",
+        "operationId": "submit_buyer_reconfirmation_for_transaction_transactions__transaction_id__buyer_reconfirmation_post",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuyerReconfirmationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not allowed to submit reconfirmation."
+          },
+          "404": {
+            "description": "Transaction not found."
+          },
+          "422": {
+            "description": "Transaction is not eligible for buyer reconfirmation."
+          }
+        }
+      }
+    },
+    "/transactions/{transaction_id}/confirm-resolved-buyer": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Buyer confirmation for mutual resolution closure",
+        "description": "Buyer-side mutual confirmation update for resolved transactions. Closure requires both buyer and seller confirmations.",
+        "operationId": "confirm_resolved_buyer_for_transaction_transactions__transaction_id__confirm_resolved_buyer_post",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not allowed to confirm buyer resolution state."
+          },
+          "404": {
+            "description": "Transaction not found."
+          },
+          "422": {
+            "description": "Transaction is not in a resolved state or validation failed."
+          }
+        }
+      }
+    },
+    "/transactions/{transaction_id}/confirm-resolved-seller": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Seller confirmation for mutual resolution closure",
+        "description": "Seller-side mutual confirmation update for resolved transactions. Closure requires both buyer and seller confirmations.",
+        "operationId": "confirm_resolved_seller_for_transaction_transactions__transaction_id__confirm_resolved_seller_post",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not allowed to confirm seller resolution state."
+          },
+          "404": {
+            "description": "Transaction not found."
+          },
+          "422": {
+            "description": "Transaction is not in a resolved state or validation failed."
+          }
+        }
+      }
+    },
+    "/admin/disputes/escalation-queue": {
+      "get": {
+        "tags": [
+          "Admin Disputes"
+        ],
+        "summary": "List escalated disputes awaiting admin review",
+        "description": "Admin-only queue for disputes currently in escalated_admin_review state, including buyer/seller/listing triage context.",
+        "operationId": "list_admin_escalation_queue_admin_disputes_escalation_queue_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EscalationQueueItemResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Admin Escalation Queue Admin Disputes Escalation Queue Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not an admin."
+          }
+        }
+      }
+    },
+    "/admin/disputes/{dispute_id}/timeline": {
+      "get": {
+        "tags": [
+          "Admin Disputes"
+        ],
+        "summary": "Get admin dispute case timeline detail",
+        "description": "Admin-only case view that combines dispute metadata, transaction context, and chronologically ordered timeline events.",
+        "operationId": "get_admin_dispute_case_timeline_admin_disputes__dispute_id__timeline_get",
+        "parameters": [
+          {
+            "name": "dispute_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Dispute Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisputeCaseTimelineResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not an admin."
+          },
+          "404": {
+            "description": "Dispute case not found."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/disputes/{dispute_id}/force-resolve": {
+      "post": {
+        "tags": [
+          "Admin Disputes"
+        ],
+        "summary": "Force resolve an escalated dispute case",
+        "description": "Admin-only terminal resolution action for escalated disputes. Applies refund/release/split decision and persists reason/decision metadata.",
+        "operationId": "admin_force_resolve_dispute_case_admin_disputes__dispute_id__force_resolve_post",
+        "parameters": [
+          {
+            "name": "dispute_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Dispute Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminForceResolveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminForceResolveResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not an admin."
+          },
+          "404": {
+            "description": "Dispute case not found."
+          },
+          "409": {
+            "description": "Split payout is not supported by current custody capabilities."
+          },
+          "422": {
+            "description": "Dispute state is not eligible or reason/decision is invalid."
+          }
+        }
+      }
+    },
+    "/admin/rails/health": {
+      "get": {
+        "tags": [
+          "Admin Rails"
+        ],
+        "summary": "Inspect custody rail breaker health",
+        "description": "Returns custody mode, provider capability signals, and per-rail circuit breaker state used for routing decisions.",
+        "operationId": "admin_rail_health_admin_rails_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminRailHealthResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user does not have admin role."
+          },
+          "503": {
+            "description": "Custody registry is unavailable in app state."
+          }
+        }
+      }
+    },
+    "/admin/audit/money-events": {
+      "get": {
+        "tags": [
+          "Admin Audit"
+        ],
+        "summary": "Review money-movement audit events (admin only)",
+        "description": "Lists audit records for payouts, funding confirmations, and admin money decisions, newest first. Filter by transaction, provider reference, rail, or action.",
+        "operationId": "admin_list_money_audit_events_admin_audit_money_events_get",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Transaction Id"
+            }
+          },
+          {
+            "name": "provider_reference",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider Reference"
+            }
+          },
+          {
+            "name": "rail_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Rail Name"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Action"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MoneyAuditEventListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not an admin."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/simulated-custody/collections/force-complete": {
+      "post": {
+        "tags": [
+          "Admin Simulated Custody"
+        ],
+        "summary": "Force-complete simulated collection (admin, non-production only)",
+        "description": "Simulation-only admin control that forces deterministic successful collection in demo environments. Endpoint is disabled in production and is idempotent across retries.",
+        "operationId": "admin_force_complete_collection_admin_simulated_custody_collections_force_complete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminForceCompleteCollectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminCollectionControlResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not an admin or control is disabled in production."
+          },
+          "404": {
+            "description": "Escrow reference not found."
+          },
+          "422": {
+            "description": "Payload or escrow reference format is invalid."
+          }
+        }
+      }
+    },
+    "/admin/simulated-custody/collections/{provider_reference}/progress": {
+      "post": {
+        "tags": [
+          "Admin Simulated Custody"
+        ],
+        "summary": "Progress simulated collection scenario (admin, non-production only)",
+        "description": "Simulation-only admin control that advances deterministic collection status flows (for example out_of_order reconciliation) while preserving idempotent ledger behavior.",
+        "operationId": "admin_progress_collection_scenario_admin_simulated_custody_collections__provider_reference__progress_post",
+        "parameters": [
+          {
+            "name": "provider_reference",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Provider Reference"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminCollectionControlResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not an admin or control is disabled in production."
+          },
+          "404": {
+            "description": "Collection attempt or escrow was not found."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/simulated-custody/payouts/{provider_reference}/progress": {
+      "post": {
+        "tags": [
+          "Admin Simulated Custody"
+        ],
+        "summary": "Progress simulated payout scenario (admin, non-production only)",
+        "description": "Simulation-only admin control that advances deterministic payout status flows in demo environments. Endpoint is disabled in production and preserves idempotent replay safety.",
+        "operationId": "admin_progress_payout_scenario_admin_simulated_custody_payouts__provider_reference__progress_post",
+        "parameters": [
+          {
+            "name": "provider_reference",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Provider Reference"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPayoutControlResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not an admin or control is disabled in production."
+          },
+          "404": {
+            "description": "Payout attempt or escrow was not found."
+          },
+          "422": {
+            "description": "Payout attempt is missing release/refund metadata."
+          }
+        }
+      }
+    },
+    "/webhooks/loop/collection": {
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Handle LOOP collection callback",
+        "description": "Accept LOOP collection callbacks, verify signature and timestamp freshness, dedupe by provider reference, and confirm funding through inquiry before trusting callback data.",
+        "operationId": "loop_collection_callback_webhooks_loop_collection_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoopCollectionWebhookResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Callback signature is missing, invalid, or outside the replay window."
+          },
+          "503": {
+            "description": "LOOP collection rail is unavailable."
+          },
+          "422": {
+            "description": "Callback payload was not valid JSON object content."
+          }
+        }
+      }
+    },
+    "/api/webhooks/pesapal/callback": {
+      "get": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Handle Pesapal collection callback trigger",
+        "description": "Accept Pesapal callback notifications and always confirm funding finality through server-side transaction status inquiry. Callback payload fields are never trusted as final state by themselves.",
+        "operationId": "pesapal_collection_callback_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PesapalCollectionWebhookResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Pesapal collection rail is unavailable."
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Handle Pesapal collection callback trigger",
+        "description": "Accept Pesapal callback notifications and always confirm funding finality through server-side transaction status inquiry. Callback payload fields are never trusted as final state by themselves.",
+        "operationId": "pesapal_collection_callback_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PesapalCollectionWebhookResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Pesapal collection rail is unavailable."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AdminCollectionControlResponse": {
+        "properties": {
+          "escrow_reference": {
+            "type": "string",
+            "title": "Escrow Reference"
+          },
+          "provider_reference": {
+            "type": "string",
+            "title": "Provider Reference"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/CollectionOutcome"
+          },
+          "raw_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Status"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "idempotent_replay": {
+            "type": "boolean",
+            "title": "Idempotent Replay"
+          }
+        },
+        "type": "object",
+        "required": [
+          "escrow_reference",
+          "provider_reference",
+          "outcome",
+          "raw_status",
+          "message",
+          "idempotent_replay"
+        ],
+        "title": "AdminCollectionControlResponse",
+        "description": "Result payload for collection-focused simulated admin controls."
+      },
+      "AdminDecision": {
+        "type": "string",
+        "enum": [
+          "refund",
+          "release",
+          "split"
+        ],
+        "title": "AdminDecision"
+      },
+      "AdminForceCompleteCollectionRequest": {
+        "properties": {
+          "escrow_reference": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Escrow Reference",
+            "description": "Simulated escrow reference to fund."
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Amount",
+            "description": "Collection amount to post in demo mode."
+          },
+          "phone_number": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Phone Number",
+            "description": "Customer phone number used for simulated collection requests."
+          },
+          "account_reference": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Reference",
+            "description": "Optional operator reference. The endpoint prepends a success trigger to force deterministic successful funding."
+          },
+          "currency": {
+            "type": "string",
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Currency",
+            "description": "Three-letter currency code for the collection amount.",
+            "default": "KES"
+          }
+        },
+        "type": "object",
+        "required": [
+          "escrow_reference",
+          "amount",
+          "phone_number"
+        ],
+        "title": "AdminForceCompleteCollectionRequest",
+        "description": "Admin simulation control payload for forcing collection success."
+      },
+      "AdminForceResolveRequest": {
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/AdminDecision",
+            "description": "Terminal decision: refund, release, or split."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Reason",
+            "description": "Required rationale for the admin decision."
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision",
+          "reason"
+        ],
+        "title": "AdminForceResolveRequest",
+        "description": "Admin terminal decision payload for escalated disputes."
+      },
+      "AdminForceResolveResponse": {
+        "properties": {
+          "dispute_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Dispute Id"
+          },
+          "transaction_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Transaction Id"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/AdminDecision"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "dispute_status": {
+            "$ref": "#/components/schemas/DisputeStatus"
+          },
+          "transaction_status": {
+            "$ref": "#/components/schemas/TransactionStatus"
+          },
+          "resolved_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Resolved At"
+          },
+          "released_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Released At"
+          },
+          "refunded_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refunded At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dispute_id",
+          "transaction_id",
+          "decision",
+          "reason",
+          "dispute_status",
+          "transaction_status",
+          "resolved_at",
+          "released_at",
+          "refunded_at"
+        ],
+        "title": "AdminForceResolveResponse",
+        "description": "Result returned after an admin force-resolve decision is applied."
+      },
+      "AdminPayoutControlResponse": {
+        "properties": {
+          "escrow_reference": {
+            "type": "string",
+            "title": "Escrow Reference"
+          },
+          "provider_reference": {
+            "type": "string",
+            "title": "Provider Reference"
+          },
+          "payout_type": {
+            "type": "string",
+            "title": "Payout Type"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/PayoutOutcome"
+          },
+          "raw_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Status"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "idempotent_replay": {
+            "type": "boolean",
+            "title": "Idempotent Replay"
+          }
+        },
+        "type": "object",
+        "required": [
+          "escrow_reference",
+          "provider_reference",
+          "payout_type",
+          "outcome",
+          "raw_status",
+          "message",
+          "idempotent_replay"
+        ],
+        "title": "AdminPayoutControlResponse",
+        "description": "Result payload for payout-focused simulated admin controls."
+      },
+      "AdminRailHealthEntry": {
+        "properties": {
+          "rail_name": {
+            "type": "string",
+            "title": "Rail Name",
+            "description": "Configured rail name."
+          },
+          "provider_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Name",
+            "description": "Provider identifier associated with this rail."
+          },
+          "breaker_state": {
+            "$ref": "#/components/schemas/RailBreakerState",
+            "description": "Current breaker state for the rail."
+          },
+          "consecutive_failures": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Consecutive Failures",
+            "description": "Consecutive failure count tracked for breaker transitions."
+          },
+          "last_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Code",
+            "description": "Last observed rail error code."
+          },
+          "last_error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Message",
+            "description": "Last observed rail error message."
+          },
+          "opened_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opened At",
+            "description": "When the breaker most recently moved to OPEN."
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At",
+            "description": "Timestamp of the latest successful rail operation."
+          },
+          "last_failure_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Failure At",
+            "description": "Timestamp of the latest failed rail operation."
+          },
+          "cooldown_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cooldown Until",
+            "description": "Earliest timestamp when OPEN breaker can transition to HALF_OPEN."
+          },
+          "collection_available": {
+            "type": "boolean",
+            "title": "Collection Available",
+            "description": "Whether this rail is available for collection routes."
+          },
+          "payout_available": {
+            "type": "boolean",
+            "title": "Payout Available",
+            "description": "Whether this rail is available for payout routes."
+          },
+          "routable": {
+            "type": "boolean",
+            "title": "Routable",
+            "description": "Whether breaker state currently allows this rail to be selected."
+          }
+        },
+        "type": "object",
+        "required": [
+          "rail_name",
+          "breaker_state",
+          "consecutive_failures",
+          "collection_available",
+          "payout_available",
+          "routable"
+        ],
+        "title": "AdminRailHealthEntry"
+      },
+      "AdminRailHealthResponse": {
+        "properties": {
+          "custody_mode": {
+            "type": "string",
+            "title": "Custody Mode",
+            "description": "Active custody mode value."
+          },
+          "holds_funds_structurally": {
+            "type": "boolean",
+            "title": "Holds Funds Structurally",
+            "description": "Provider capability indicating whether funds are structurally held."
+          },
+          "collection_priority": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Collection Priority",
+            "description": "Configured collection rail priority order."
+          },
+          "payout_priority": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Payout Priority",
+            "description": "Configured payout rail priority order."
+          },
+          "rails": {
+            "items": {
+              "$ref": "#/components/schemas/AdminRailHealthEntry"
+            },
+            "type": "array",
+            "title": "Rails",
+            "description": "Per-rail breaker and routability state."
+          }
+        },
+        "type": "object",
+        "required": [
+          "custody_mode",
+          "holds_funds_structurally",
+          "collection_priority",
+          "payout_priority",
+          "rails"
+        ],
+        "title": "AdminRailHealthResponse"
+      },
+      "BuyerReconfirmationRequest": {
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "title": "Accepted"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes",
+            "description": "Optional buyer remarks supporting acceptance or rejection."
+          }
+        },
+        "type": "object",
+        "required": [
+          "accepted"
+        ],
+        "title": "BuyerReconfirmationRequest",
+        "description": "Buyer response after seller remediation action."
+      },
+      "CollectionOutcome": {
+        "type": "string",
+        "enum": [
+          "SUCCEEDED",
+          "FAILED_DEFINITE",
+          "UNKNOWN"
+        ],
+        "title": "CollectionOutcome"
+      },
+      "CreateListingRequest": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 2,
+            "title": "Title",
+            "description": "Listing title."
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)"
+              }
+            ],
+            "title": "Price",
+            "description": "Listing price amount."
+          },
+          "is_serialized": {
+            "type": "boolean",
+            "title": "Is Serialized",
+            "description": "Whether listing requires serialized dispute/hold workflow.",
+            "default": false
+          },
+          "unique_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unique Id",
+            "description": "Required unique identifier when is_serialized is true."
+          },
+          "dispute_policy": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Dispute Policy",
+            "description": "Policy metadata that constrains dispute resolution actions."
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "price"
+        ],
+        "title": "CreateListingRequest",
+        "description": "Payload used by sellers to create listings."
+      },
+      "CreateTransactionRequest": {
+        "properties": {
+          "listing_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Listing Id"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount",
+            "description": "Optional. The escrow amount is always the listing price; if sent, it must match the listing price exactly or the request is rejected."
+          }
+        },
+        "type": "object",
+        "required": [
+          "listing_id"
+        ],
+        "title": "CreateTransactionRequest",
+        "description": "Buyer payload for creating a new escrow transaction."
+      },
+      "DisputeCaseTimelineResponse": {
+        "properties": {
+          "dispute_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Dispute Id"
+          },
+          "transaction_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Transaction Id"
+          },
+          "listing_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Listing Id"
+          },
+          "buyer_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Buyer Id"
+          },
+          "seller_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Seller Id"
+          },
+          "opened_by_user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Opened By User Id"
+          },
+          "transaction_status": {
+            "$ref": "#/components/schemas/TransactionStatus"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount"
+          },
+          "dispute_type": {
+            "$ref": "#/components/schemas/DisputeType"
+          },
+          "dispute_status": {
+            "$ref": "#/components/schemas/DisputeStatus"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "opened_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Opened At"
+          },
+          "escalated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalated At"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "timeline_events": {
+            "items": {
+              "$ref": "#/components/schemas/DisputeTimelineEventResponse"
+            },
+            "type": "array",
+            "title": "Timeline Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dispute_id",
+          "transaction_id",
+          "listing_id",
+          "buyer_id",
+          "seller_id",
+          "opened_by_user_id",
+          "transaction_status",
+          "amount",
+          "dispute_type",
+          "dispute_status",
+          "reason",
+          "description",
+          "opened_at",
+          "escalated_at",
+          "resolved_at",
+          "timeline_events"
+        ],
+        "title": "DisputeCaseTimelineResponse",
+        "description": "Full dispute timeline detail for admin triage and decision-making."
+      },
+      "DisputeStatus": {
+        "type": "string",
+        "enum": [
+          "open",
+          "buyer_sent_back",
+          "return_received",
+          "awaiting_buyer_reconfirmation",
+          "escalated_admin_review",
+          "resolved_release",
+          "resolved_refund",
+          "resolved_split",
+          "canceled"
+        ],
+        "title": "DisputeStatus"
+      },
+      "DisputeTimelineEventResponse": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "event_type": {
+            "type": "string",
+            "title": "Event Type"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "event_type",
+          "at",
+          "title",
+          "message",
+          "payload"
+        ],
+        "title": "DisputeTimelineEventResponse",
+        "description": "Single timeline event shown in admin dispute timeline views."
+      },
+      "DisputeType": {
+        "type": "string",
+        "enum": [
+          "physical",
+          "functional"
+        ],
+        "title": "DisputeType"
+      },
+      "EscalationQueueItemResponse": {
+        "properties": {
+          "dispute_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Dispute Id"
+          },
+          "transaction_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Transaction Id"
+          },
+          "listing_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Listing Id"
+          },
+          "buyer_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Buyer Id"
+          },
+          "seller_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Seller Id"
+          },
+          "dispute_type": {
+            "$ref": "#/components/schemas/DisputeType"
+          },
+          "dispute_status": {
+            "$ref": "#/components/schemas/DisputeStatus"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "opened_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Opened At"
+          },
+          "escalated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalated At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dispute_id",
+          "transaction_id",
+          "listing_id",
+          "buyer_id",
+          "seller_id",
+          "dispute_type",
+          "dispute_status",
+          "reason",
+          "description",
+          "opened_at",
+          "escalated_at",
+          "created_at"
+        ],
+        "title": "EscalationQueueItemResponse",
+        "description": "Admin queue item for escalated disputes awaiting review."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "ListingResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "seller_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Seller Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Price"
+          },
+          "is_serialized": {
+            "type": "boolean",
+            "title": "Is Serialized"
+          },
+          "unique_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unique Id"
+          },
+          "dispute_policy": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Dispute Policy"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "seller_id",
+          "title",
+          "price",
+          "is_serialized",
+          "unique_id",
+          "dispute_policy",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ListingResponse",
+        "description": "Listing representation returned by create/get listing endpoints."
+      },
+      "LoginRequest": {
+        "properties": {
+          "phone": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 7,
+            "title": "Phone",
+            "description": "Account phone number used for login."
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Password",
+            "description": "Account password."
+          }
+        },
+        "type": "object",
+        "required": [
+          "phone",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "description": "Credentials payload for session-based authentication."
+      },
+      "LoginResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "mpesa_phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpesa Phone"
+          },
+          "mpesa_account_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpesa Account Name"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "session_expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Session Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "phone",
+          "role",
+          "mpesa_phone",
+          "mpesa_account_name",
+          "is_active",
+          "created_at",
+          "session_expires_at"
+        ],
+        "title": "LoginResponse",
+        "description": "Authenticated user profile plus session expiry metadata."
+      },
+      "LoopCollectionWebhookResponse": {
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "title": "Accepted",
+            "description": "Whether the callback was accepted for processing and auditing."
+          },
+          "duplicate": {
+            "type": "boolean",
+            "title": "Duplicate",
+            "description": "True when this callback was already processed for the dedupe key."
+          },
+          "signature_valid": {
+            "type": "boolean",
+            "title": "Signature Valid",
+            "description": "Whether callback signature verification passed."
+          },
+          "dedupe_key": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Dedupe Key",
+            "description": "Provider dedupe key used to make callback handling idempotent."
+          },
+          "provider_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Reference",
+            "description": "Provider transaction reference parsed from callback payload."
+          },
+          "inquiry_outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CollectionOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Outcome from LOOP inquiry confirmation when available."
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "description": "Human-readable processing summary."
+          }
+        },
+        "type": "object",
+        "required": [
+          "accepted",
+          "duplicate",
+          "signature_valid",
+          "dedupe_key",
+          "detail"
+        ],
+        "title": "LoopCollectionWebhookResponse",
+        "description": "Acknowledgement payload for LOOP collection callbacks."
+      },
+      "MoneyAuditEventListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MoneyAuditEventResponse"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Audit events ordered newest first."
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "limit",
+          "offset"
+        ],
+        "title": "MoneyAuditEventListResponse"
+      },
+      "MoneyAuditEventResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At",
+            "description": "When the money-affecting action happened."
+          },
+          "actor_type": {
+            "type": "string",
+            "title": "Actor Type",
+            "description": "Who acted: user, admin, system, or provider."
+          },
+          "actor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id",
+            "description": "Acting user id when the actor is a user or admin."
+          },
+          "action": {
+            "type": "string",
+            "title": "Action",
+            "description": "Action name, for example payout_release_succeeded."
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason",
+            "description": "Why the action happened."
+          },
+          "transaction_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transaction Id",
+            "description": "Affected transaction."
+          },
+          "escrow_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escrow Id",
+            "description": "Affected escrow."
+          },
+          "attempt_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt Id",
+            "description": "Affected collection or payout attempt."
+          },
+          "provider_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Reference",
+            "description": "Provider reference for the rail operation."
+          },
+          "rail_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rail Name",
+            "description": "Rail that handled the operation."
+          },
+          "correlation_id": {
+            "type": "string",
+            "title": "Correlation Id",
+            "description": "Correlation key combining transaction_id, provider_reference, and rail."
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount",
+            "description": "Amount moved or requested."
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency",
+            "description": "ISO currency code."
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details",
+            "description": "Extra context."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "occurred_at",
+          "actor_type",
+          "action",
+          "correlation_id"
+        ],
+        "title": "MoneyAuditEventResponse"
+      },
+      "NotificationChannel": {
+        "type": "string",
+        "enum": [
+          "in_app",
+          "sms"
+        ],
+        "title": "NotificationChannel"
+      },
+      "NotificationDeliveryStatus": {
+        "type": "string",
+        "enum": [
+          "not_attempted",
+          "sent",
+          "failed"
+        ],
+        "title": "NotificationDeliveryStatus"
+      },
+      "NotificationEventType": {
+        "type": "string",
+        "enum": [
+          "transaction_created",
+          "transaction_locked",
+          "transaction_dispatched",
+          "delivery_arrived",
+          "otp_given",
+          "otp_withheld",
+          "dispute_opened",
+          "dispute_updated",
+          "admin_decision",
+          "system_timeout"
+        ],
+        "title": "NotificationEventType"
+      },
+      "NotificationResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "transaction_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Transaction Id"
+          },
+          "event_type": {
+            "$ref": "#/components/schemas/NotificationEventType"
+          },
+          "channel": {
+            "$ref": "#/components/schemas/NotificationChannel"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          },
+          "is_read": {
+            "type": "boolean",
+            "title": "Is Read"
+          },
+          "read_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read At"
+          },
+          "delivered_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivered At"
+          },
+          "delivery_status": {
+            "$ref": "#/components/schemas/NotificationDeliveryStatus",
+            "default": "not_attempted"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "user_id",
+          "transaction_id",
+          "event_type",
+          "channel",
+          "title",
+          "message",
+          "payload",
+          "is_read",
+          "read_at",
+          "delivered_at",
+          "created_at"
+        ],
+        "title": "NotificationResponse",
+        "description": "Notification entry returned to the authenticated user feed."
+      },
+      "OtpGiveRequest": {
+        "properties": {
+          "otp_code": {
+            "type": "string",
+            "maxLength": 12,
+            "minLength": 4,
+            "pattern": "^\\d+$",
+            "title": "Otp Code",
+            "description": "Numeric OTP code shared at delivery handoff."
+          }
+        },
+        "type": "object",
+        "required": [
+          "otp_code"
+        ],
+        "title": "OtpGiveRequest",
+        "description": "Buyer OTP payload for confirming delivery handoff."
+      },
+      "PaymentCallbackRequest": {
+        "properties": {
+          "transaction_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Transaction Id"
+          },
+          "result_code": {
+            "type": "integer",
+            "title": "Result Code",
+            "description": "Provider result code (0 means successful payment)."
+          },
+          "result_desc": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Desc",
+            "description": "Provider result description."
+          },
+          "checkout_request_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkout Request Id",
+            "description": "Provider checkout request identifier."
+          },
+          "merchant_request_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Merchant Request Id",
+            "description": "Provider merchant request identifier."
+          },
+          "provider_reference": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Reference",
+            "description": "Optional provider transaction/reference id."
+          }
+        },
+        "type": "object",
+        "required": [
+          "transaction_id",
+          "result_code"
+        ],
+        "title": "PaymentCallbackRequest",
+        "description": "Payment provider callback payload used to reconcile transaction payment state."
+      },
+      "PaymentCallbackResponse": {
+        "properties": {
+          "transaction_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Transaction Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TransactionStatus"
+          },
+          "transitioned": {
+            "type": "boolean",
+            "title": "Transitioned"
+          },
+          "duplicate": {
+            "type": "boolean",
+            "title": "Duplicate"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "transaction_id",
+          "status",
+          "transitioned",
+          "duplicate",
+          "detail"
+        ],
+        "title": "PaymentCallbackResponse",
+        "description": "Outcome of callback processing and resulting transaction state."
+      },
+      "PayoutOutcome": {
+        "type": "string",
+        "enum": [
+          "SUCCEEDED",
+          "FAILED_DEFINITE",
+          "UNKNOWN"
+        ],
+        "title": "PayoutOutcome"
+      },
+      "PesapalCollectionWebhookResponse": {
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "title": "Accepted",
+            "description": "Whether the callback was accepted for processing and auditing."
+          },
+          "duplicate": {
+            "type": "boolean",
+            "title": "Duplicate",
+            "description": "True when this callback was already processed for the dedupe key."
+          },
+          "dedupe_key": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Dedupe Key",
+            "description": "Provider dedupe key used to make callback handling idempotent."
+          },
+          "provider_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Reference",
+            "description": "Order tracking id parsed from callback payload when present."
+          },
+          "inquiry_outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CollectionOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Outcome from Pesapal status inquiry confirmation when available."
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "description": "Human-readable processing summary."
+          }
+        },
+        "type": "object",
+        "required": [
+          "accepted",
+          "duplicate",
+          "dedupe_key",
+          "detail"
+        ],
+        "title": "PesapalCollectionWebhookResponse",
+        "description": "Acknowledgement payload for Pesapal collection callbacks."
+      },
+      "RailBreakerState": {
+        "type": "string",
+        "enum": [
+          "closed",
+          "open",
+          "half_open"
+        ],
+        "title": "RailBreakerState"
+      },
+      "RegisterUserRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 2,
+            "title": "Name",
+            "description": "Display name for the account."
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 7,
+            "title": "Phone",
+            "description": "Primary login phone number in digits with optional leading +."
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Password",
+            "description": "Account password."
+          },
+          "mpesa_phone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpesa Phone",
+            "description": "Optional payout/charge phone for M-Pesa flows."
+          },
+          "mpesa_account_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpesa Account Name",
+            "description": "Optional account holder name associated with M-Pesa phone."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "phone",
+          "role",
+          "password"
+        ],
+        "title": "RegisterUserRequest",
+        "description": "Payload for buyer/seller registration."
+      },
+      "RegisterUserResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "mpesa_phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpesa Phone"
+          },
+          "mpesa_account_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpesa Account Name"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "phone",
+          "role",
+          "mpesa_phone",
+          "mpesa_account_name",
+          "is_active",
+          "created_at"
+        ],
+        "title": "RegisterUserResponse",
+        "description": "Registered user profile returned after account creation."
+      },
+      "ReportFunctionalIssueRequest": {
+        "properties": {
+          "category": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 2,
+            "title": "Category",
+            "description": "Issue category (for example not_working, missing_parts, other)."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 5,
+            "title": "Description",
+            "description": "Detailed issue report supplied by the buyer."
+          },
+          "evidence": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Evidence",
+            "description": "Evidence metadata payload (links, notes, file references)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "category",
+          "description"
+        ],
+        "title": "ReportFunctionalIssueRequest",
+        "description": "Buyer dispute intake payload used during serialized hold window."
+      },
+      "SellerResolutionActionRequest": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 3,
+            "title": "Action",
+            "description": "Resolution action key, such as refund_issued or repair_shipped."
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes",
+            "description": "Optional seller notes for the selected action."
+          }
+        },
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "SellerResolutionActionRequest",
+        "description": "Seller-selected resolution action in dispute flow."
+      },
+      "TransactionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "reference": {
+            "type": "string",
+            "title": "Reference",
+            "description": "Random, non-sequential human-readable reference, for example VK-7K3P9Q."
+          },
+          "listing_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Listing Id"
+          },
+          "buyer_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Buyer Id"
+          },
+          "seller_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Seller Id"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TransactionStatus"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "reference",
+          "listing_id",
+          "buyer_id",
+          "seller_id",
+          "amount",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "TransactionResponse",
+        "description": "Current transaction state and ownership metadata."
+      },
+      "TransactionStatus": {
+        "type": "string",
+        "enum": [
+          "initiated",
+          "awaiting_payment",
+          "locked",
+          "out_for_delivery",
+          "dispatched",
+          "at_door_pending_inspection",
+          "hold_24h",
+          "disputed_functional",
+          "return_in_transit",
+          "return_received",
+          "awaiting_buyer_reconfirmation",
+          "escalated_admin_review",
+          "returned_to_seller",
+          "released",
+          "refunded_buyer",
+          "resolved_release",
+          "resolved_refund",
+          "resolved_split"
+        ],
+        "title": "TransactionStatus"
+      },
+      "UserRole": {
+        "type": "string",
+        "enum": [
+          "buyer",
+          "seller",
+          "admin"
+        ],
+        "title": "UserRole"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

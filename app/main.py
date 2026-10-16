@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from app.core.settings import get_settings
 from app.db.session import _get_session_factory
@@ -103,7 +104,8 @@ async def session_security_middleware(request: Request, call_next):
     invalid_session_cookie = False
 
     if session_token:
-        session_context = _load_session_context(session_token)
+        # Sync DB lookup: run it off the event loop so one slow query does not stall every request.
+        session_context = await run_in_threadpool(_load_session_context, session_token)
         if session_context is None:
             invalid_session_cookie = True
             audit_logger.warning(

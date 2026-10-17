@@ -78,9 +78,18 @@ class Escrow(Base):
         default="simulated",
         server_default=text("'simulated'"),
     )
+    # eConfirm's own transaction id (txn_...), used as the escrow reference for all
+    # eConfirm fund/status/release/reversal calls. Populated at open; NULL while a
+    # create is unconfirmed (needs_reconciliation) or for simulated escrows.
+    econfirm_transaction_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # eConfirm confirmation_code, Fernet-encrypted at rest (A3). Never stored or
     # logged in clear. Populated at open time in E5; nullable for simulated rows.
     econfirm_confirmation_code: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # True when an eConfirm create returned UNKNOWN: the escrow may or may not
+    # exist at eConfirm and must be reconciled by hand before any STK is sent (A3).
+    econfirm_needs_reconciliation: Mapped[bool] = mapped_column(
+        default=False, server_default=text("0"), nullable=False
+    )
     # The payer M-Pesa number used to fund an eConfirm escrow; reversal returns
     # funds there (A5). Recorded for traceability; populated at funding in E5.
     econfirm_payer_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)

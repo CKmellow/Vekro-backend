@@ -257,7 +257,9 @@ class EscrowService:
             return existing
 
         destination_phone = self._resolve_destination_phone(destination_user_id)
-        rail_name = self._default_payout_rail_name()
+        # Sticky routing (Hard Rule 1): an escrow opened on eConfirm pays out via
+        # eConfirm; it is never failed over to the simulated rail.
+        rail_name = self._payout_rail_for_escrow(escrow)
         attempt = PayoutAttempt(
             id=uuid.uuid4(),
             escrow_id=escrow.id,
@@ -368,6 +370,13 @@ class EscrowService:
             return selected
         except RuntimeError as exc:
             raise EscrowServiceError("No payout rail is currently routable.") from exc
+
+    def _payout_rail_for_escrow(self, escrow: Escrow) -> str:
+        """Route a payout to the escrow's sticky custody provider, else the default."""
+        provider = (getattr(escrow, "custody_provider", None) or "").strip().lower()
+        if provider == "econfirm":
+            return "econfirm"
+        return self._default_payout_rail_name()
 
     def _is_split_capability_supported(self) -> bool:
         capabilities = self._registry.provider.capabilities()
@@ -527,10 +536,18 @@ def run_payout_executor_once(
                     service.refresh_transaction_payout_status(transaction)
                     db.add(transaction)
                     continue
+            # eConfirm calls address the provider's own txn id, not the Vekro
+            # escrow UUID; simulated/other rails use the Vekro escrow id.
+            if (escrow.custody_provider or "").strip().lower() == "econfirm" and (
+                escrow.econfirm_transaction_id
+            ):
+                escrow_reference = escrow.econfirm_transaction_id
+            else:
+                escrow_reference = str(escrow.id)
             try:
                 result = rail.request_payout(
                     PayoutRequest(
-                        escrow_reference=str(escrow.id),
+                        escrow_reference=escrow_reference,
                         amount=attempt.amount,
                         destination_phone=destination_phone,
                         purpose=attempt.purpose,

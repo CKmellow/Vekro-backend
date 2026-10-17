@@ -68,6 +68,11 @@ class AdminRailHealthResponse(BaseModel):
     payout_priority: list[str] = Field(
         description="Configured payout rail priority order.",
     )
+    econfirm_needs_reconciliation_count: int = Field(
+        default=0,
+        ge=0,
+        description="Count of eConfirm escrows flagged for manual reconciliation (A3).",
+    )
     rails: list[AdminRailHealthEntry] = Field(
         description="Per-rail breaker and routability state.",
     )

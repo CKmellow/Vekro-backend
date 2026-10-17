@@ -28,6 +28,19 @@ class OpenEscrowRequest:
     seller_id: str
     amount: Decimal
     currency: str = "KES"
+    # eConfirm (Tier 1) needs party e-mails, the seller payout phone, and a
+    # human description/terms at creation. Vekro users register by phone, so the
+    # orchestration layer (E5) fills these from the DB (e-mail falling back to
+    # ECONFIRM_FALLBACK_EMAIL). The simulated provider ignores them.
+    buyer_email: str | None = None
+    seller_email: str | None = None
+    receiver_phone: str | None = None
+    description: str | None = None
+    terms: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.receiver_phone:
+            object.__setattr__(self, "receiver_phone", normalize_phone(self.receiver_phone))
 
     def to_payload(self) -> dict[str, str]:
         return {
@@ -45,6 +58,15 @@ class EscrowRecord:
     transaction_id: str
     amount: Decimal
     currency: str
+    # Populated by the eConfirm adapter at open time. confirmation_code is
+    # returned ONLY on create and is required for release/reversal, so the
+    # orchestration layer must persist it (encrypted, redacted) before funding
+    # (A3). status mirrors the provider's status string; max_principal_kes is the
+    # account cap reported by the provider (enforce the lower of this and
+    # ECONFIRM_MAX_AMOUNT).
+    confirmation_code: str | None = None
+    status: str | None = None
+    max_principal_kes: Decimal | None = None
 
     def to_payload(self) -> dict[str, str]:
         return {
@@ -101,6 +123,11 @@ class PayoutRequest:
     destination_phone: str
     purpose: str
     currency: str = "KES"
+    # eConfirm release/reversal require the confirmation_code captured at open
+    # (A3) and, for reversal, a non-empty notes reason (A5). The orchestration
+    # layer supplies them; the simulated rail ignores them.
+    confirmation_code: str | None = None
+    notes: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "destination_phone", normalize_phone(self.destination_phone))

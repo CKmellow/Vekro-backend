@@ -1,3 +1,4 @@
+from decimal import Decimal
 from functools import lru_cache
 from typing import Any, Literal
 
@@ -106,9 +107,20 @@ class Settings(BaseSettings):
     intasend_webhook_secret: str = ""
 
     econfirm_enabled: bool = False
-    econfirm_base_url: str = ""
+    econfirm_base_url: str = "https://api.econfirm.co.ke/api/v1"
     econfirm_api_key: str = ""
     econfirm_api_secret: str = ""
+    econfirm_timeout_seconds: float = 15.0
+    # eConfirm sits behind Cloudflare, which 403-bans stdlib client User-Agents
+    # (Error 1010). A browser UA clears that generic bot filter; keep it configurable.
+    econfirm_user_agent: str = (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    )
+    econfirm_min_amount: Decimal = Decimal("100")
+    econfirm_max_amount: Decimal = Decimal("1000")
+    econfirm_poll_interval_seconds: float = 10.0
+    econfirm_fallback_email: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

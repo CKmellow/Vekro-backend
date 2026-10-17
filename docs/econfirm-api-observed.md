@@ -184,6 +184,30 @@ a cap. **User decision needed** on the Vekro guard value.
 
 ---
 
+## 8a. Transport implementation notes (E2)
+
+The real transport (`app/services/custody/econfirm_transport.py`, built on
+`httpx2`) classifies each exchange for the circuit breaker and fallback:
+
+- **Infra failures (count against the breaker, map to UNKNOWN):** connection
+  errors, timeouts, HTTP 429, HTTP 5xx, a Cloudflare block (403 + Cloudflare
+  body/`error_code` 1010/`cloudflare_error`), and an unexpected non-JSON body on
+  a < 400 response.
+- **Healthy exchanges (do NOT open the breaker):** 2xx, and 4xx validation
+  rejections (400/401/404/409/422) — the request reached eConfirm and was
+  answered. The *business* outcome of a 4xx is still `FAILED_DEFINITE` at the
+  adapter layer (E3/E4); it simply is not an infrastructure fault.
+- Transport/connection failures return `status_code=0` with body
+  `{"status": "transport_error", ...}`, preserving the adapter's existing
+  UNKNOWN mapping.
+- The browser User-Agent is configurable via `ECONFIRM_USER_AGENT`
+  (default a Chrome UA). A Cloudflare 403 sets `cloudflare_blocked=True` on the
+  response so E5 can open the breaker for new escrows while treating an existing
+  eConfirm escrow as UNKNOWN (A8).
+- Every request carries an `X-Request-Id`; an inbound `X-Correlation-Id` header
+  is logged. Logs redact the API key (`ek_`), bearer tokens, phone numbers and
+  confirmation codes.
+
 ## 9. NOT yet observed (deferred past E1)
 
 Real response bodies for `POST /payments/stk-push`, `POST …/release`, and

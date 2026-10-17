@@ -15,6 +15,7 @@ from app.services.custody.dto import (
     PayoutResult,
 )
 from app.services.custody.econfirm_provider import EconfirmCustodyProvider
+from app.services.custody.econfirm_transport import build_econfirm_transport
 from app.services.custody.enums import CollectionOutcome, CustodyMode, PayoutOutcome
 from app.services.custody.loop_auth import LoopTokenManager
 from app.services.custody.loop_collection import LoopCollectionRail
@@ -92,6 +93,12 @@ class CustodyRuntimeSettings(Protocol):
 
     @property
     def econfirm_api_secret(self) -> str: ...
+
+    @property
+    def econfirm_user_agent(self) -> str: ...
+
+    @property
+    def econfirm_timeout_seconds(self) -> float: ...
 
     @property
     def live_payouts_enabled(self) -> bool: ...
@@ -332,6 +339,8 @@ def build_custody_registry(settings: CustodyRuntimeSettings) -> CustodyRegistry:
         base_url=settings.econfirm_base_url,
         api_key=settings.econfirm_api_key,
         api_secret=settings.econfirm_api_secret,
+        transport=build_econfirm_transport(settings),
+        timeout_seconds=settings.econfirm_timeout_seconds,
     )
 
     if settings.pesapal_enabled and not settings.pesapal_ipn_id.strip():

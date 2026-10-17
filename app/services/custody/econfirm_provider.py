@@ -83,6 +83,14 @@ class EconfirmHttpResponse:
     status_code: int
     body: dict[str, Any]
     text: str
+    # Set by the real httpx transport (E2). non_json: the response body was not a
+    # JSON object (e.g. a Cloudflare HTML page) -> treat as UNKNOWN, never
+    # FAILED_DEFINITE. cloudflare_blocked: a Cloudflare WAF rejection (e.g. the
+    # Error 1010 User-Agent ban) -> opens the breaker and triggers fallback for new
+    # escrows, but is UNKNOWN for an existing eConfirm escrow. Defaults keep older
+    # constructions (and the M17 mocked transport) valid.
+    non_json: bool = False
+    cloudflare_blocked: bool = False
 
 
 EconfirmHttpTransport = Callable[

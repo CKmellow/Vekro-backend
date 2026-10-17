@@ -59,6 +59,43 @@ def test_existing_simulated_escrow_survives_upgrade():
     assert row[3] is None
 
 
+def _load_by_path(name: str):
+    path = MIGRATION.parent / name
+    spec = importlib.util.spec_from_file_location(name.replace(".py", ""), path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_e5_reference_migration_adds_columns_and_preserves_rows():
+    first = _load_migration()  # c9f2... (E4)
+    second = _load_by_path("d1a73be5c820_m20_econfirm_escrow_reference.py")  # E5
+    assert second.down_revision == first.revision
+
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE escrows (id TEXT PRIMARY KEY, amount_total NUMERIC)"))
+        conn.execute(text("INSERT INTO escrows (id, amount_total) VALUES ('legacy-9', 300)"))
+
+    with engine.connect() as conn:
+        ctx = MigrationContext.configure(conn)
+        with Operations.context(ctx):
+            first.upgrade()
+            second.upgrade()
+        conn.commit()
+        row = conn.execute(
+            text(
+                "SELECT amount_total, custody_provider, econfirm_transaction_id, "
+                "econfirm_needs_reconciliation FROM escrows WHERE id = 'legacy-9'"
+            )
+        ).fetchone()
+
+    assert row[0] == 300
+    assert row[1] == "simulated"
+    assert row[2] is None
+    assert row[3] in (0, False)  # defaulted, not flagged
+
+
 def test_downgrade_removes_the_columns():
     module = _load_migration()
     engine = create_engine("sqlite://")

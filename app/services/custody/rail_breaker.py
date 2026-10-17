@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -188,6 +188,7 @@ def build_admin_rail_health_payload(
         "holds_funds_structurally": capabilities.holds_funds_structurally,
         "collection_priority": list(registry.collection_priority),
         "payout_priority": list(registry.payout_priority),
+        "econfirm_needs_reconciliation_count": _econfirm_needs_reconciliation_count(db),
         "rails": [
             {
                 "rail_name": snapshot.rail_name,
@@ -207,6 +208,21 @@ def build_admin_rail_health_payload(
             for snapshot in snapshots
         ],
     }
+
+
+def _econfirm_needs_reconciliation_count(db: Session) -> int:
+    """Count eConfirm escrows flagged for manual reconciliation (A3). 0 if unavailable."""
+    from app.models.escrow import Escrow
+
+    try:
+        value = db.execute(
+            select(func.count())
+            .select_from(Escrow)
+            .where(Escrow.econfirm_needs_reconciliation.is_(True))
+        ).scalar_one()
+        return int(value or 0)
+    except (SQLAlchemyError, AttributeError, TypeError):
+        return 0
 
 
 def _record_rail_failure_impl(

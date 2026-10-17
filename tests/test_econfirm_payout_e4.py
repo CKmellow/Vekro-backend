@@ -118,6 +118,7 @@ def _seed_funded_econfirm_escrow(db: Session, *, code_token: str | None) -> Escr
         refunded_amount=Decimal("0.00"),
         currency="KES",
         custody_provider="econfirm",
+        econfirm_transaction_id="txn_STICKY",
         econfirm_confirmation_code=code_token,
         econfirm_payer_phone="+254712345678",
     )
@@ -174,6 +175,7 @@ def test_executor_decrypts_and_threads_code_then_posts_ledger(monkeypatch):
         sent = rail.calls[0]
         assert sent.confirmation_code == "AB12CD34"  # decrypted and threaded
         assert sent.notes  # non-empty (A5)
+        assert sent.escrow_reference == "txn_STICKY"  # eConfirm txn id, not the Vekro UUID
 
         db.refresh(escrow)
         assert escrow.released_amount == Decimal("500.00")  # ledger posted after success

@@ -101,6 +101,9 @@ class CustodyRuntimeSettings(Protocol):
     def econfirm_timeout_seconds(self) -> float: ...
 
     @property
+    def econfirm_fallback_email(self) -> str: ...
+
+    @property
     def live_payouts_enabled(self) -> bool: ...
 
     @property
@@ -341,6 +344,7 @@ def build_custody_registry(settings: CustodyRuntimeSettings) -> CustodyRegistry:
         api_secret=settings.econfirm_api_secret,
         transport=build_econfirm_transport(settings),
         timeout_seconds=settings.econfirm_timeout_seconds,
+        fallback_email=settings.econfirm_fallback_email,
     )
 
     if settings.pesapal_enabled and not settings.pesapal_ipn_id.strip():

@@ -93,71 +93,40 @@ def _build_db_session() -> Session:
     return session_factory()
 
 
-class _EconfirmScenarioTransport:
+def _econfirm_envelope(data: dict, *, status_code: int = 200) -> EconfirmHttpResponse:
+    return EconfirmHttpResponse(
+        status_code=status_code,
+        body={"success": True, "message": "ok", "data": data},
+        text="{}",
+    )
+
+
+class _EconfirmRealProtocolTransport:
+    """Mocks the real v1 endpoints for the eConfirm protocol-shape check.
+
+    The shared vector-driven ``run_provider_conformance`` differentiates funding
+    outcomes via ``account_reference``, which the real ``/payments/stk-push`` does
+    not carry, so full shared-contract conformance for eConfirm is completed in
+    E6 (where the harness is made transport-agnostic). Here we assert the adapter
+    satisfies the CustodyProvider protocol on the real endpoints.
+    """
+
     def __call__(self, method, url, headers, payload, timeout_seconds):
-        _ = headers
-        _ = timeout_seconds
-        if method == "POST" and url.endswith("/v1/escrows/open"):
-            return EconfirmHttpResponse(
-                status_code=200,
-                body={
-                    "status": "accepted",
-                    "escrow_reference": "ecf-escrow-conformance",
-                },
-                text="ok",
+        _ = headers, timeout_seconds, payload
+        if method == "POST" and url.endswith("/transactions"):
+            return _econfirm_envelope(
+                {"id": "txn_conf", "status": "pending", "confirmation_code": "AB12CD34"},
+                status_code=201,
             )
-
-        if method == "POST" and url.endswith("/fund"):
-            account_reference = str((payload or {}).get("account_reference") or "")
-            normalized_reference = account_reference.replace(" ", "-").lower()
-            if "failed" in normalized_reference:
-                status = "failed"
-            elif "timeout" in normalized_reference:
-                status = "pending"
-            else:
-                status = "succeeded"
-            return EconfirmHttpResponse(
-                status_code=200,
-                body={
-                    "status": status,
-                    "provider_reference": f"ecf-fund-{normalized_reference}",
-                    "message": "funding response",
-                },
-                text="ok",
-            )
-
-        if method == "POST" and (url.endswith("/releases") or url.endswith("/reversals")):
-            purpose = str((payload or {}).get("purpose") or "")
-            normalized_purpose = purpose.replace(" ", "-").lower()
-            if "failed" in normalized_purpose:
-                status = "failed"
-            elif "timeout" in normalized_purpose:
-                status = "pending"
-            else:
-                status = "succeeded"
-            return EconfirmHttpResponse(
-                status_code=200,
-                body={
-                    "status": status,
-                    "provider_reference": f"ecf-pay-{normalized_purpose}",
-                    "message": "payout response",
-                },
-                text="ok",
-            )
-
-        if method == "GET" and "/v1/escrows/" in url:
-            return EconfirmHttpResponse(
-                status_code=200,
-                body={
-                    "status": "succeeded",
-                    "funded_amount": str(Decimal("500.00")),
-                    "released_amount": str(Decimal("115.00")),
-                    "refunded_amount": str(Decimal("0.00")),
-                },
-                text="ok",
-            )
-
-        return EconfirmHttpResponse(status_code=200, body={"status": "pending"}, text="ok")
+        if method == "POST" and url.endswith("/payments/stk-push"):
+            return _econfirm_envelope({"id": "txn_conf", "status": "stk_initiated"})
+        if method == "POST" and url.endswith("/release"):
+            return _econfirm_envelope({"id": "txn_conf", "status": "Completed"})
+        if method == "POST" and url.endswith("/reversal"):
+            return _econfirm_envelope({"id": "txn_conf", "status": "Completed"})
+        if method == "GET" and "/transactions/" in url:
+            return _econfirm_envelope({"id": "txn_conf", "status": "Escrow Funded", "amount": 500})
+        return _econfirm_envelope({"id": "txn_conf", "status": "pending"})
 
 
 def test_simulated_provider_conforms_to_shared_contract() -> None:
@@ -184,23 +153,66 @@ def test_simulated_provider_conforms_to_shared_contract() -> None:
         db.close()
 
 
-def test_econfirm_provider_conforms_to_shared_contract() -> None:
-    provider = EconfirmCustodyProvider(
-        base_url="https://sandbox.econfirm.example",
-        api_key="test-api-key",
-        api_secret="test-api-secret",
-        transport=_EconfirmScenarioTransport(),
-    )
+def test_econfirm_provider_satisfies_custody_protocol_on_real_endpoints() -> None:
 
-    run_provider_conformance(
-        provider,
-        vector=ProviderConformanceVector(
-            success_funding_reference="conformance-fund-success",
-            unknown_funding_reference="conformance-fund-timeout",
-            failed_funding_reference="conformance-fund-failed",
-            success_release_purpose="conformance-release-success",
-            idempotent_release_purpose="conformance-release-idempotent",
-            unknown_release_purpose="conformance-release-timeout",
-            failed_refund_purpose="conformance-refund-failed",
-        ),
+    from app.services.custody.dto import FundingRequest, OpenEscrowRequest, PayoutRequest
+    from app.services.custody.enums import CollectionOutcome, PayoutOutcome
+    from app.services.custody.ports import CustodyProvider
+
+    provider = EconfirmCustodyProvider(
+        base_url="https://api.econfirm.co.ke/api/v1",
+        api_key="ek_test",
+        transport=_EconfirmRealProtocolTransport(),
+        fallback_email="ops@vekro.example",
     )
+    assert isinstance(provider, CustodyProvider)
+
+    record = provider.open_escrow(
+        OpenEscrowRequest(
+            transaction_id="VK-CONF",
+            buyer_id="buyer",
+            seller_id="seller",
+            amount=Decimal("500.00"),
+            currency="KES",
+            receiver_phone="+254700111333",
+        )
+    )
+    assert record.escrow_reference == "txn_conf"
+    assert record.confirmation_code == "AB12CD34"
+
+    # STK push = prompt sent, not funded -> UNKNOWN; GET shows funded -> SUCCEEDED.
+    funding = provider.request_funding(
+        FundingRequest(
+            escrow_reference=record.escrow_reference,
+            amount=Decimal("500.00"),
+            phone_number="+254700111222",
+            account_reference="VK-CONF",
+        )
+    )
+    assert funding.outcome == CollectionOutcome.UNKNOWN
+    funding_status = provider.get_funding_status(record.escrow_reference)
+    assert funding_status.outcome == CollectionOutcome.SUCCEEDED
+
+    status = provider.get_status(record.escrow_reference)
+    assert status.funded_amount == Decimal("500.00")
+
+    release = provider.release(
+        PayoutRequest(
+            escrow_reference=record.escrow_reference,
+            amount=Decimal("500.00"),
+            destination_phone="+254700111333",
+            purpose="release",
+            confirmation_code="AB12CD34",
+        )
+    )
+    refund = provider.refund(
+        PayoutRequest(
+            escrow_reference=record.escrow_reference,
+            amount=Decimal("500.00"),
+            destination_phone="+254700111222",
+            purpose="buyer-refund",
+            confirmation_code="AB12CD34",
+        )
+    )
+    assert release.outcome == PayoutOutcome.SUCCEEDED
+    assert refund.outcome == PayoutOutcome.SUCCEEDED

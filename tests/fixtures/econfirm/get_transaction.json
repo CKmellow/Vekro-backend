@@ -1,0 +1,36 @@
+{
+  "probe": "get_transaction",
+  "request": {
+    "method": "GET",
+    "url": "https://api.econfirm.co.ke/api/v1/transactions/txn_SAMPLE0001"
+  },
+  "response": {
+    "status_code": 200,
+    "json": {
+      "success": true,
+      "data": {
+        "id": "txn_SAMPLE0001",
+        "status": "pending",
+        "amount": 100,
+        "currency": "KES",
+        "description": "VK-PROBE-E1 eConfirm discovery probe; no funding performed",
+        "terms": "Discovery probe only. This escrow will not be funded or released.",
+        "created_at": "2026-10-17T06:53:37+03:00",
+        "updated_at": "2026-10-17T06:53:37+03:00",
+        "buyer": {
+          "email": "sanitised@example.com",
+          "verified": false
+        },
+        "seller": {
+          "email": "sanitised@example.com",
+          "verified": false
+        },
+        "integration": {
+          "api_account_email_verified": true,
+          "max_principal_kes": 500000
+        }
+      }
+    },
+    "unparseable": false
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "probe": "ping",
+  "request": {
+    "method": "GET",
+    "url": "https://api.econfirm.co.ke/api/ping"
+  },
+  "response": {
+    "status_code": 200,
+    "json": {
+      "message": "API is working!"
+    },
+    "unparseable": false
+  }
+}

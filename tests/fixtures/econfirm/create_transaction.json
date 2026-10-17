@@ -1,0 +1,30 @@
+{
+  "probe": "create_transaction",
+  "request": {
+    "method": "POST",
+    "url": "https://api.econfirm.co.ke/api/v1/transactions"
+  },
+  "response": {
+    "status_code": 201,
+    "json": {
+      "success": true,
+      "message": "Escrow transaction created successfully",
+      "data": {
+        "id": "txn_SAMPLE0001",
+        "status": "pending",
+        "amount": 100,
+        "currency": "KES",
+        "buyer_email": "sanitised@example.com",
+        "seller_email": "sanitised@example.com",
+        "description": "VK-PROBE-E1 eConfirm discovery probe; no funding performed",
+        "confirmation_code": "REDACTED_CODE",
+        "created_at": "2026-10-17T06:53:37+03:00",
+        "integration": {
+          "api_account_email_verified": true,
+          "max_principal_kes": 500000
+        }
+      }
+    },
+    "unparseable": false
+  }
+}

@@ -4,6 +4,7 @@ from app.services.custody.econfirm_provider import EconfirmCustodyProvider
 from app.services.custody.enums import CustodyMode
 from app.services.custody.loop_payout import LoopPayoutRail
 from app.services.custody.registry import build_custody_registry
+from cryptography.fernet import Fernet
 from pydantic import ValidationError
 
 
@@ -38,6 +39,8 @@ def _settings(**overrides) -> Settings:
         "econfirm_base_url": "",
         "econfirm_api_key": "",
         "econfirm_api_secret": "",
+        # Valid by default so eConfirm-enabled cases pass the key fail-fast check.
+        "econfirm_code_encryption_key": Fernet.generate_key().decode(),
     }
     base.update(overrides)
     return Settings.model_validate(base)

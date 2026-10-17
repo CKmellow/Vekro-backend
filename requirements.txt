@@ -10,3 +10,4 @@ ruff
 black
 pytest
 httpx2
+cryptography>=43,<46

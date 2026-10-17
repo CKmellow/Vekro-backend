@@ -29,10 +29,10 @@ ENABLED_CREDENTIAL_FIELDS: dict[str, tuple[str, ...]] = {
         "intasend_secret_key",
         "intasend_webhook_secret",
     ),
+    # eConfirm v1 authenticates with a single Bearer API key; it has no secret.
     "econfirm": (
         "econfirm_base_url",
         "econfirm_api_key",
-        "econfirm_api_secret",
     ),
 }
 
@@ -121,6 +121,10 @@ class Settings(BaseSettings):
     econfirm_max_amount: Decimal = Decimal("1000")
     econfirm_poll_interval_seconds: float = 10.0
     econfirm_fallback_email: str = ""
+    # Dedicated, rotatable Fernet key(s) for encrypting the eConfirm
+    # confirmation_code at rest (comma-separated; first is primary). NOT the app
+    # SECRET_KEY. Required when ECONFIRM_ENABLED=true.
+    econfirm_code_encryption_key: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -270,6 +274,15 @@ class Settings(BaseSettings):
             enabled=self.econfirm_enabled,
             violations=violations,
         )
+
+        if self.econfirm_enabled:
+            from app.services.custody.econfirm_crypto import is_valid_key_config
+
+            if not is_valid_key_config(self.econfirm_code_encryption_key):
+                violations.append(
+                    "ECONFIRM_CODE_ENCRYPTION_KEY must hold at least one valid Fernet key "
+                    "when ECONFIRM_ENABLED=true"
+                )
 
         if self.allow_live_payouts and environment != "production":
             violations.append("ALLOW_LIVE_PAYOUTS=true requires ENVIRONMENT=production")

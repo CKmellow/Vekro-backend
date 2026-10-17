@@ -108,3 +108,25 @@ Non-production only: provider-created simulated attempts (`sim-release:` / `sim-
 
    Use `queue_refund_full` with the matching refund purpose for refund states. For `resolved_split`, use the dispute's `admin-split-release:<dispute_id>` and `admin-split-refund:<dispute_id>` purposes via `queue_split_payout`.
 4. Run the executor, then confirm `payout_status` and the audit trail.
+
+## eConfirm confirmation-code encryption key (M20)
+
+eConfirm returns each escrow's `confirmation_code` only once, at create, and it
+is required to call release/reversal. Vekro stores it **Fernet-encrypted** in
+`escrows.econfirm_confirmation_code` using `ECONFIRM_CODE_ENCRYPTION_KEY` (a
+dedicated key, not `SECRET_KEY`).
+
+- **Generate a key:** `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+- **Rotate:** put the NEW key first in the comma-separated list, keep old keys
+  after it (`ECONFIRM_CODE_ENCRYPTION_KEY=<new>,<old>`). New writes use the new
+  key; old ciphertexts still decrypt (MultiFernet). Drop an old key only once no
+  stored escrow still needs it.
+- **Startup guard:** if `ECONFIRM_ENABLED=true` and the key is missing or
+  invalid, the app refuses to start.
+- **⚠ Key loss is unrecoverable:** losing every key in the list makes all stored
+  eConfirm escrows impossible to release or reverse through the API (funds would
+  then have to be handled from the eConfirm dashboard). **Back this key up
+  separately from the database** — a DB backup alone cannot restore access.
+- The plaintext code is decrypted only for the moment of a release/reversal
+  call; it is never logged, returned in an API response, cached, or written to
+  the DB in clear, and it is redacted in audit events.

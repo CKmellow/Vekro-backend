@@ -404,6 +404,19 @@ class EscrowService:
         return ratio
 
 
+def _decrypt_econfirm_code(token: str) -> str:
+    """Decrypt an eConfirm confirmation code for transient use in a payout call.
+
+    Reads the dedicated rotatable key from settings. Raises on an invalid/rotated
+    -out key so the caller leaves the attempt UNKNOWN rather than sending a
+    payout with a missing or garbage code.
+    """
+    from app.core.settings import get_settings
+    from app.services.custody.econfirm_crypto import build_cipher
+
+    return build_cipher(get_settings().econfirm_code_encryption_key).decrypt(token)
+
+
 def run_payout_executor_once(
     db: Session,
     *,
@@ -491,6 +504,29 @@ def run_payout_executor_once(
                 attempt=attempt,
             )
         else:
+            # eConfirm release/reversal need the confirmation_code captured at
+            # open (decrypted transiently, never logged/cached) plus a non-empty
+            # notes reason (A3/A5). Simulated rows have no code and ignore both.
+            confirmation_code: str | None = None
+            if escrow.econfirm_confirmation_code:
+                try:
+                    confirmation_code = _decrypt_econfirm_code(escrow.econfirm_confirmation_code)
+                except Exception:
+                    attempt.outcome = AttemptOutcome.UNKNOWN
+                    attempt.failure_code = "confirmation_code_decrypt_failed"
+                    attempt.failure_reason = (
+                        "Could not decrypt the eConfirm confirmation code; "
+                        "check ECONFIRM_CODE_ENCRYPTION_KEY."
+                    )
+                    attempt.attempted_at = current_time
+                    db.add(attempt)
+                    unknown += 1
+                    _audit_payout_attempt(
+                        db, attempt=attempt, transaction=transaction, kind=payout_kind
+                    )
+                    service.refresh_transaction_payout_status(transaction)
+                    db.add(transaction)
+                    continue
             try:
                 result = rail.request_payout(
                     PayoutRequest(
@@ -499,6 +535,8 @@ def run_payout_executor_once(
                         destination_phone=destination_phone,
                         purpose=attempt.purpose,
                         currency=attempt.currency,
+                        confirmation_code=confirmation_code,
+                        notes=attempt.purpose or "Vekro-authorised payout",
                     )
                 )
             except (RuntimeError, ValueError, TypeError, LookupError) as exc:

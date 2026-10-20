@@ -1,6 +1,8 @@
 # Demo Script
 
-Covers the four capstone scenarios: normal flow, failover, unknown outcome, and duplicate funding. All of them run on simulated custody (Tier 2, application-enforced) in a non-production environment.
+Covers the four capstone scenarios (normal flow, failover, unknown outcome, duplicate funding), which run on simulated custody (Tier 2, application-enforced) in a non-production environment. Scenario 5 covers eConfirm custody.
+
+What to say about custody: simulated custody is enforced by this application and is not regulated. eConfirm is a third-party escrow service. Do not describe Vekro or eConfirm as licensed, regulated, or insured. Point to the `custody_provider` field instead: it says who holds the money.
 
 ## Setup
 
@@ -48,6 +50,8 @@ Executor and reconciliation commands are in [runbooks.md](runbooks.md#shared-too
    TXN=$(curl -s -b buyer.jar $API/transactions -H "X-CSRF-Token: $(csrf buyer.jar)" \
      -H 'Content-Type: application/json' -d "{\"listing_id\":\"$LISTING\",\"amount\":\"2000.00\"}" | jq -r .id)
    ```
+
+   The response has `"custody_provider": "simulated"`.
 
 2. Payment confirmation locks the transaction:
 
@@ -135,3 +139,29 @@ Variant: `SIMULATED_PAYOUT_DEFAULT_SCENARIO=out_of_order` reports UNKNOWN first 
    ```
 
    A signed callback replay is deduped through `provider_events`; a forged or stale callback is rejected with 401 and cannot occupy the legitimate dedupe key.
+
+---
+
+## Scenario 5: eConfirm custody (Tier 1)
+
+Offline, with no money and no network, show the routing and safety rules:
+
+```bash
+.venv/bin/pytest tests/test_econfirm_funding_flow.py tests/test_econfirm_failure_matrix.py -q
+```
+
+Talking points:
+
+- With `ECONFIRM_ENABLED=false` (the default), nothing changes: the transaction is `simulated` and uses the existing payment path.
+- When enabled, an eligible transaction (KES 100–1,000 by default) is opened on eConfirm. The buyer gets eConfirm's M-Pesa prompt, and the response says `"custody_provider": "econfirm"`.
+- Only the poller marks it funded and `locked`. Replaying the Scenario 1 payment callback against an eConfirm transaction does nothing.
+- If eConfirm rejects the open, the transaction falls back to simulated and says so. After a successful open, it never falls back. An unclear create is flagged for reconciliation ([RB-4](runbooks.md#rb-4-econfirm-funding-poller-and-unconfirmed-escrows-m20)) and no prompt is sent.
+- Every HTTP failure is classified as definite or unknown, and as breaker-relevant or not (the failure matrix).
+
+Live, which moves real money and needs explicit sign-off first: set `ECONFIRM_ENABLED=true` with the API key, `ECONFIRM_FALLBACK_EMAIL`, and `ECONFIRM_CODE_ENCRYPTION_KEY`, create a KES 100 listing, buy it, approve the prompt, and run the RB-4 poller until the transaction is `locked`. Or run the scripted round trip, which funds KES 100 and reverses it to the payer:
+
+```bash
+RUN_ECONFIRM_LIVE_TESTS=1 ECONFIRM_LIVE_MONEY_CONFIRM=KES100 \
+ECONFIRM_LIVE_PAYER_PHONE=+2547XXXXXXXX ECONFIRM_LIVE_RECEIVER_PHONE=+2547XXXXXXXX \
+.venv/bin/pytest -m live -k econfirm -s
+```

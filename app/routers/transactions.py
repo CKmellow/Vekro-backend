@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.auth_context import CurrentUser, require_buyer_user, require_seller_user
 from app.db.session import get_db
 from app.models.user import User
+from app.schemas.payment_prompt import PaymentInstructionResponse, TransactionCreatedResponse
 from app.schemas.transaction import (
     BuyerReconfirmationRequest,
     CreateTransactionRequest,
@@ -18,6 +19,15 @@ from app.schemas.transaction import (
     TransactionResponse,
 )
 from app.schemas.transaction_detail import TransactionDetailResponse
+from app.services.payment_prompts import (
+    PaymentResendInitiationError,
+    PaymentResendInvalidStateError,
+    PaymentResendNotFoundError,
+    PaymentResendTooSoonError,
+    latest_payment_prompt,
+    prompt_state,
+    resend_payment_prompt,
+)
 from app.services.transaction import (
     InvalidTransactionOtpError,
     ListingNotFoundForTransactionError,
@@ -55,18 +65,20 @@ router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
 @router.post(
     "",
-    response_model=TransactionResponse,
+    response_model=TransactionCreatedResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create transaction (buyer only)",
     description=(
         "Create an escrow transaction from a listing as the authenticated buyer. "
-        "New transactions start in awaiting_payment state."
+        "New transactions start in awaiting_payment state. The response carries the payment "
+        "instruction: an STK prompt sent to the buyer's phone, or a checkout URL to redirect to."
     ),
     responses={
         status.HTTP_202_ACCEPTED: {
             "description": (
-                "Transaction created, but payment initiation transport failed. "
-                "Client should continue with this transaction id."
+                "Transaction created, but payment initiation transport failed "
+                "(payment.status is failed_to_initiate). Continue with this transaction id "
+                "and offer a resend."
             )
         },
         status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
@@ -87,7 +99,7 @@ def create_buyer_transaction(
     current_user: Annotated[User, Depends(require_buyer_user)],
     db: Annotated[Session, Depends(get_db)],
     response: Response,
-) -> TransactionResponse:
+) -> TransactionCreatedResponse:
     try:
         transaction = create_transaction(db, buyer=current_user, payload=payload)
     except ListingNotFoundForTransactionError as exc:
@@ -103,14 +115,32 @@ def create_buyer_transaction(
             ) from exc
         response.status_code = status.HTTP_202_ACCEPTED
         response.headers["X-Payment-Initiation-Status"] = "failed"
-        return TransactionResponse.model_validate(exc.transaction)
+        return _created_response(db, exc.transaction)
     except TransactionValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
 
-    return TransactionResponse.model_validate(transaction)
+    return _created_response(db, transaction)
+
+
+def _payment_instruction(db: Session, transaction_id: uuid.UUID):
+    prompt = latest_payment_prompt(db, transaction_id)
+    return PaymentInstructionResponse.from_state(prompt_state(prompt)) if prompt else None
+
+
+def _created_response(db: Session, transaction) -> TransactionCreatedResponse:
+    payment = _payment_instruction(db, transaction.id)
+    if payment is None:  # pragma: no cover - create_transaction always records a prompt
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Payment prompt was not recorded.",
+        )
+    return TransactionCreatedResponse(
+        **TransactionResponse.model_validate(transaction).model_dump(),
+        payment=payment,
+    )
 
 
 @router.get(
@@ -143,7 +173,66 @@ def get_transaction(
             detail="Transaction not found.",
         ) from exc
 
-    return TransactionDetailResponse.from_view(view)
+    return TransactionDetailResponse.from_view(
+        view, payment=_payment_instruction(db, view.transaction.id)
+    )
+
+
+@router.post(
+    "/{transaction_id}/payment/resend",
+    response_model=PaymentInstructionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Resend the payment prompt (buyer only)",
+    description=(
+        "Send a new STK prompt for an unpaid transaction, for example after the buyer cancelled "
+        "or missed it. At most one prompt per cooldown (see resend_available_at)."
+    ),
+    responses={
+        status.HTTP_202_ACCEPTED: {
+            "description": "A prompt was recorded but sending it failed (failed_to_initiate)."
+        },
+        status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
+        status.HTTP_403_FORBIDDEN: {"description": "Authenticated user is not a buyer."},
+        status.HTTP_404_NOT_FOUND: {
+            "description": "Transaction not found, or the caller is not its buyer."
+        },
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
+            "description": "Transaction is not awaiting payment."
+        },
+        status.HTTP_429_TOO_MANY_REQUESTS: {
+            "description": "Too soon after the last prompt; see the Retry-After header."
+        },
+    },
+)
+def resend_transaction_payment_prompt(
+    transaction_id: uuid.UUID,
+    current_user: Annotated[User, Depends(require_buyer_user)],
+    db: Annotated[Session, Depends(get_db)],
+    response: Response,
+) -> PaymentInstructionResponse:
+    try:
+        prompt = resend_payment_prompt(db, transaction_id=transaction_id, buyer=current_user)
+    except PaymentResendNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found.",
+        ) from exc
+    except PaymentResendInvalidStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    except PaymentResendTooSoonError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(exc),
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
+    except PaymentResendInitiationError as exc:
+        response.status_code = status.HTTP_202_ACCEPTED
+        return PaymentInstructionResponse.from_state(prompt_state(exc.prompt))
+
+    return PaymentInstructionResponse.from_state(prompt_state(prompt))
 
 
 @router.post(

@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
-from app.core.auth_context import require_buyer_user, require_seller_user
+from app.core.auth_context import CurrentUser, require_buyer_user, require_seller_user
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.transaction import (
@@ -17,6 +17,7 @@ from app.schemas.transaction import (
     SellerResolutionActionRequest,
     TransactionResponse,
 )
+from app.schemas.transaction_detail import TransactionDetailResponse
 from app.services.transaction import (
     InvalidTransactionOtpError,
     ListingNotFoundForTransactionError,
@@ -47,6 +48,7 @@ from app.services.transaction import (
     submit_seller_resolution_confirmation,
     withhold_buyer_delivery_otp,
 )
+from app.services.transaction_read import TransactionNotVisibleError, get_transaction_for_viewer
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
@@ -109,6 +111,39 @@ def create_buyer_transaction(
         ) from exc
 
     return TransactionResponse.model_validate(transaction)
+
+
+@router.get(
+    "/{transaction_id}",
+    response_model=TransactionDetailResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get one transaction (buyer, seller or admin)",
+    description=(
+        "Read a transaction as its buyer, its seller or an admin: state, listing summary, "
+        "masked parties and the server deadline for the current state. Clients poll this to "
+        "learn state changes; anyone else gets 404 so existence is not leaked."
+    ),
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
+        status.HTTP_404_NOT_FOUND: {
+            "description": "Transaction not found, or the caller is not a party to it."
+        },
+    },
+)
+def get_transaction(
+    transaction_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> TransactionDetailResponse:
+    try:
+        view = get_transaction_for_viewer(db, transaction_id=transaction_id, viewer=current_user)
+    except TransactionNotVisibleError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found.",
+        ) from exc
+
+    return TransactionDetailResponse.from_view(view)
 
 
 @router.post(

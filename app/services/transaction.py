@@ -4,6 +4,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.security import hash_session_token, verify_hashed_token
 from app.core.settings import get_settings
 from app.models.dispute import Dispute, DisputeStatus, DisputeType, SellerResolutionAction
+from app.models.escrow import Escrow
 from app.models.listing import Listing
 from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import (
@@ -22,6 +24,19 @@ from app.models.user import User, UserRole
 from app.schemas.transaction import (
     CreateTransactionRequest,
     PaymentCallbackRequest,
+)
+from app.services.custody.econfirm_orchestration import (
+    open_econfirm_escrow,
+    request_econfirm_funding,
+)
+from app.services.custody.enums import CollectionOutcome
+from app.services.custody.rail_breaker import blocked_rails_for_routing
+from app.services.custody.registry import build_econfirm_provider
+from app.services.custody.selection import (
+    PROVIDER_ECONFIRM,
+    PROVIDER_SIMULATED,
+    CustodySelection,
+    select_custody_provider,
 )
 from app.services.escrow_service import EscrowService
 from app.services.payment import PaymentGateway, PaymentRequest, get_payment_gateway
@@ -161,11 +176,100 @@ def _create_transaction_created_notifications(
     db.add(seller_notification)
 
 
+def _select_custody_for_new_transaction(
+    db: Session, *, settings, amount: Decimal
+) -> CustodySelection:
+    if not settings.econfirm_enabled:
+        # Default deployments never touch rail health or eConfirm settings.
+        return CustodySelection(PROVIDER_SIMULATED, "econfirm_disabled")
+    breaker_open = PROVIDER_ECONFIRM in blocked_rails_for_routing(
+        db, rail_names=(PROVIDER_ECONFIRM,)
+    )
+    return select_custody_provider(
+        settings=settings, amount=amount, econfirm_breaker_open=breaker_open
+    )
+
+
+def _fund_via_econfirm(
+    db: Session,
+    *,
+    transaction: Transaction,
+    escrow: Escrow,
+    buyer: User,
+    settings,
+    econfirm_provider,
+) -> str:
+    """Open the escrow on eConfirm and send its STK prompt.
+
+    Returns the provider the transaction ended up on. 'simulated' only when
+    eConfirm definitely rejected the open, before any provider call succeeded
+    (Hard Rule 1); after a successful open the transaction never leaves eConfirm.
+    Funding is confirmed later by the poller only (Hard Rule 4).
+    """
+    seller = db.get(User, transaction.seller_id)
+    receiver_phone = ((seller.mpesa_phone or seller.phone) if seller else "") or ""
+    provider = econfirm_provider or build_econfirm_provider(settings)
+
+    landed = open_econfirm_escrow(
+        db,
+        escrow,
+        provider=provider,
+        settings=settings,
+        buyer_email=None,
+        seller_email=None,
+        receiver_phone=receiver_phone,
+    )
+    if landed == PROVIDER_SIMULATED:
+        transaction.custody_provider = PROVIDER_SIMULATED
+        db.add(transaction)
+        db.commit()
+        db.refresh(transaction)
+        audit_logger.warning(
+            "custody_fallback_simulated transaction_id=%s reason=econfirm_open_rejected",
+            transaction.id,
+        )
+        return PROVIDER_SIMULATED
+
+    # Persist the open result (provider id + encrypted code) before money can move.
+    db.commit()
+    if escrow.econfirm_needs_reconciliation:
+        db.refresh(transaction)
+        raise PaymentInitiationError(
+            "eConfirm escrow creation is unconfirmed; payment prompt withheld "
+            "pending reconciliation.",
+            transaction=transaction,
+        )
+
+    result = request_econfirm_funding(
+        db,
+        escrow,
+        provider=provider,
+        payer_phone=buyer.mpesa_phone or buyer.phone,
+        account_reference=transaction.reference,
+    )
+    db.commit()
+    db.refresh(transaction)
+    audit_logger.info(
+        "econfirm_stk_requested transaction_id=%s outcome=%s",
+        transaction.id,
+        result.outcome.value,
+    )
+    if result.outcome == CollectionOutcome.FAILED_DEFINITE:
+        raise PaymentInitiationError(
+            "eConfirm rejected the payment prompt.",
+            transaction=transaction,
+        )
+    return PROVIDER_ECONFIRM
+
+
 def create_transaction(
     db: Session,
     buyer: User,
     payload: CreateTransactionRequest,
     payment_gateway: PaymentGateway | None = None,
+    *,
+    settings=None,
+    econfirm_provider=None,
 ) -> Transaction:
     if buyer.role != UserRole.BUYER:
         raise TransactionValidationError("Only buyers can create transactions.")
@@ -178,6 +282,9 @@ def create_transaction(
     if payload.amount is not None and Decimal(payload.amount).quantize(Decimal("0.01")) != amount:
         raise TransactionValidationError("Amount must match the listing price.")
 
+    runtime_settings = settings or get_settings()
+    selection = _select_custody_for_new_transaction(db, settings=runtime_settings, amount=amount)
+
     transaction = Transaction(
         reference=_unique_transaction_reference(db),
         listing_id=listing.id,
@@ -185,13 +292,47 @@ def create_transaction(
         seller_id=listing.seller_id,
         amount=amount,
         status=TransactionStatus.AWAITING_PAYMENT,
+        custody_provider=selection.provider,
     )
     db.add(transaction)
     # Flush first so defaults/PKs are materialized before dependent notifications are built.
     db.flush()
     _create_transaction_created_notifications(db, transaction=transaction)
+
+    escrow: Escrow | None = None
+    if selection.is_econfirm:
+        # Crash-safe marker: until the open call returns, the escrow may or may not
+        # exist at eConfirm, so it starts flagged for reconciliation (A3).
+        escrow = Escrow(
+            transaction_id=transaction.id,
+            buyer_id=transaction.buyer_id,
+            seller_id=transaction.seller_id,
+            amount_total=amount,
+            currency="KES",
+            custody_provider=PROVIDER_ECONFIRM,
+            econfirm_needs_reconciliation=True,
+        )
+        db.add(escrow)
     db.commit()
     db.refresh(transaction)
+    audit_logger.info(
+        "custody_provider_selected transaction_id=%s provider=%s reason=%s",
+        transaction.id,
+        selection.provider,
+        selection.reason,
+    )
+
+    if escrow is not None:
+        landed = _fund_via_econfirm(
+            db,
+            transaction=transaction,
+            escrow=escrow,
+            buyer=buyer,
+            settings=runtime_settings,
+            econfirm_provider=econfirm_provider,
+        )
+        if landed == PROVIDER_ECONFIRM:
+            return transaction
 
     gateway = payment_gateway or get_payment_gateway()
     try:
@@ -216,16 +357,12 @@ def create_transaction(
 def _create_locked_notifications(
     db: Session,
     transaction: Transaction,
-    callback: PaymentCallbackRequest,
+    details: dict[str, Any],
 ) -> None:
     payload = {
         "transaction_id": str(transaction.id),
         "listing_id": str(transaction.listing_id),
-        "result_code": callback.result_code,
-        "result_desc": callback.result_desc,
-        "checkout_request_id": callback.checkout_request_id,
-        "merchant_request_id": callback.merchant_request_id,
-        "provider_reference": callback.provider_reference,
+        **details,
         "locked_at": transaction.locked_at.isoformat() if transaction.locked_at else None,
     }
 
@@ -919,6 +1056,21 @@ def confirm_payment_callback(
     if transaction is None:
         raise TransactionNotFoundForCallbackError("Transaction not found.")
 
+    if (transaction.custody_provider or "").strip().lower() == PROVIDER_ECONFIRM:
+        # eConfirm funding is confirmed only by polling eConfirm (Hard Rule 4);
+        # a Daraja-style callback can never lock an eConfirm transaction.
+        audit_logger.warning(
+            "payment_callback_ignored_econfirm_custody transaction_id=%s status=%s",
+            transaction.id,
+            transaction.status.value,
+        )
+        return PaymentCallbackResult(
+            transaction=transaction,
+            transitioned=False,
+            duplicate=False,
+            detail="Callback ignored; eConfirm funding is confirmed by eConfirm only.",
+        )
+
     if payload.result_code != 0:
         audit_logger.warning(
             "payment_callback_not_successful transaction_id=%s status=%s "
@@ -964,7 +1116,17 @@ def confirm_payment_callback(
 
     transaction.status = TransactionStatus.LOCKED
     transaction.locked_at = datetime.now(UTC)
-    _create_locked_notifications(db, transaction=transaction, callback=payload)
+    _create_locked_notifications(
+        db,
+        transaction=transaction,
+        details={
+            "result_code": payload.result_code,
+            "result_desc": payload.result_desc,
+            "checkout_request_id": payload.checkout_request_id,
+            "merchant_request_id": payload.merchant_request_id,
+            "provider_reference": payload.provider_reference,
+        },
+    )
     db.commit()
     db.refresh(transaction)
 
@@ -983,6 +1145,41 @@ def confirm_payment_callback(
         duplicate=False,
         detail="Transaction moved to locked.",
     )
+
+
+def lock_transaction_after_custody_funding(
+    db: Session,
+    transaction_id: uuid.UUID,
+    *,
+    provider_reference: str | None,
+    rail_name: str,
+) -> bool:
+    """Move a transaction to locked once its custody provider confirmed funding.
+
+    Called by the eConfirm poller after a GET reported the escrow funded. Does
+    not commit (the poller commits once per run). Returns True on transition;
+    a transaction that is missing or no longer awaiting payment is left as is.
+    """
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None or transaction.status != TransactionStatus.AWAITING_PAYMENT:
+        return False
+
+    transaction.status = TransactionStatus.LOCKED
+    transaction.locked_at = datetime.now(UTC)
+    db.add(transaction)
+    _create_locked_notifications(
+        db,
+        transaction=transaction,
+        details={"provider_reference": provider_reference, "rail_name": rail_name},
+    )
+    audit_logger.info(
+        "transaction_transition transaction_id=%s "
+        "from_status=awaiting_payment to_status=locked rail=%s provider_reference=%s",
+        transaction.id,
+        rail_name,
+        provider_reference or "",
+    )
+    return True
 
 
 def dispatch_transaction(

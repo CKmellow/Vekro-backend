@@ -1,13 +1,15 @@
 """E5 orchestration: open-on-eConfirm, stickiness persistence, and the poller.
 
-This is the custody machinery, tested in isolation. It does NOT wire eConfirm
-into the live Daraja funding flow — that is E7. It provides:
+This is the custody machinery; E7 calls it from transaction creation
+(``app.services.transaction.create_transaction``). It provides:
 
 * ``open_econfirm_escrow`` - open a new escrow on eConfirm, persist the sticky
   provider, the provider txn id, the encrypted confirmation code and the account
   cap; handle UNKNOWN (needs_reconciliation, no STK) and definite rejection
   (honest fallback to simulated, allowed only because no provider call has
   succeeded yet, Hard Rule 1).
+* ``request_econfirm_funding`` - send the eConfirm STK prompt for an opened
+  escrow and record the payer phone. A sent prompt is never "funded".
 * ``run_econfirm_funding_reconciliation`` - ONE shared, budgeted, timeout-bounded
   poller that confirms funding only via GET (Hard Rule 4 / A2). User-facing reads
   must use the DB, never this.
@@ -18,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import random
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -27,7 +30,7 @@ from sqlalchemy.orm import Session
 
 from app.models.escrow import Escrow
 from app.services.audit import ACTOR_SYSTEM, record_money_audit_event
-from app.services.custody.dto import OpenEscrowRequest
+from app.services.custody.dto import CollectionResult, FundingRequest, OpenEscrowRequest
 from app.services.custody.econfirm_crypto import build_cipher
 from app.services.custody.econfirm_provider import (
     EconfirmDefiniteError,
@@ -151,6 +154,66 @@ def open_econfirm_escrow(
     return PROVIDER_ECONFIRM
 
 
+def request_econfirm_funding(
+    db: Session,
+    escrow: Escrow,
+    *,
+    provider,
+    payer_phone: str,
+    account_reference: str,
+) -> CollectionResult:
+    """Send the eConfirm STK prompt for an escrow that opened cleanly.
+
+    Records the payer phone (reversal returns funds there, A5). The result is
+    only "prompt sent" or a definite rejection: funding is confirmed solely by
+    the poller (Hard Rule 4), so this never touches ``funded_amount``.
+    """
+    if (
+        escrow.custody_provider != PROVIDER_ECONFIRM
+        or not escrow.econfirm_transaction_id
+        or escrow.econfirm_needs_reconciliation
+    ):
+        raise ValueError("Escrow is not ready for eConfirm funding.")
+
+    request = FundingRequest(
+        escrow_reference=escrow.econfirm_transaction_id,
+        amount=escrow.amount_total,
+        phone_number=payer_phone,
+        account_reference=account_reference,
+        currency=escrow.currency,
+    )
+    escrow.econfirm_payer_phone = request.phone_number
+    db.add(escrow)
+
+    result = provider.request_funding(request)
+    record_money_audit_event(
+        db,
+        action="econfirm_stk_requested",
+        actor_type=ACTOR_SYSTEM,
+        transaction_id=escrow.transaction_id,
+        escrow_id=escrow.id,
+        provider_reference=escrow.econfirm_transaction_id,
+        rail_name=PROVIDER_ECONFIRM,
+        amount=escrow.amount_total,
+        currency=escrow.currency,
+        reason=result.outcome.value,
+        details={"raw_status": result.raw_status},
+    )
+    return result
+
+
+def _lock_funded_transaction(db: Session, escrow: Escrow) -> None:
+    # Imported lazily: the transaction service imports this module.
+    from app.services.transaction import lock_transaction_after_custody_funding
+
+    lock_transaction_after_custody_funding(
+        db,
+        escrow.transaction_id,
+        provider_reference=escrow.econfirm_transaction_id,
+        rail_name=PROVIDER_ECONFIRM,
+    )
+
+
 def run_econfirm_funding_reconciliation(
     db: Session,
     *,
@@ -158,6 +221,7 @@ def run_econfirm_funding_reconciliation(
     now: datetime | None = None,
     max_requests: int = _POLLABLE_FUNDING_BUDGET,
     payment_timeout_minutes: int = 15,
+    on_funded: Callable[[Session, Escrow], None] | None = None,
 ) -> EconfirmPollResult:
     """Confirm eConfirm funding via GET for escrows awaiting payment.
 
@@ -165,7 +229,11 @@ def run_econfirm_funding_reconciliation(
     for reconciliation, and are not yet funded. Bounded by ``max_requests`` and a
     payment timeout (older escrows stop being polled). Funding is confirmed only
     when the provider reports it (Hard Rule 4); no STK is ever sent here.
+
+    Each newly funded escrow is handed to ``on_funded`` (default: move its
+    transaction from awaiting_payment to locked, in the same commit).
     """
+    funded_hook = on_funded or _lock_funded_transaction
     current = now or datetime.now(UTC)
     cutoff = current - timedelta(minutes=payment_timeout_minutes)
 
@@ -215,6 +283,7 @@ def run_econfirm_funding_reconciliation(
                 currency=escrow.currency,
                 reason="poller_confirmed_funding",
             )
+            funded_hook(db, escrow)
 
     db.commit()
     return EconfirmPollResult(

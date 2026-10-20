@@ -294,6 +294,18 @@ def _rail_enabled(rail_name: str, settings: CustodyRuntimeSettings) -> bool:
     return False
 
 
+def build_econfirm_provider(settings: CustodyRuntimeSettings) -> EconfirmCustodyProvider:
+    """Construct the eConfirm adapter with the real transport from settings."""
+    return EconfirmCustodyProvider(
+        base_url=settings.econfirm_base_url,
+        api_key=settings.econfirm_api_key,
+        api_secret=settings.econfirm_api_secret,
+        transport=build_econfirm_transport(settings),
+        timeout_seconds=settings.econfirm_timeout_seconds,
+        fallback_email=settings.econfirm_fallback_email,
+    )
+
+
 def build_custody_registry(settings: CustodyRuntimeSettings) -> CustodyRegistry:
     collection_priority = tuple(settings.custody_collection_rail_priority_list)
     payout_priority = tuple(settings.custody_payout_rail_priority_list)
@@ -338,14 +350,7 @@ def build_custody_registry(settings: CustodyRuntimeSettings) -> CustodyRegistry:
         ipn_id=settings.pesapal_ipn_id,
         token_manager=pesapal_token_manager,
     )
-    econfirm_provider = EconfirmCustodyProvider(
-        base_url=settings.econfirm_base_url,
-        api_key=settings.econfirm_api_key,
-        api_secret=settings.econfirm_api_secret,
-        transport=build_econfirm_transport(settings),
-        timeout_seconds=settings.econfirm_timeout_seconds,
-        fallback_email=settings.econfirm_fallback_email,
-    )
+    econfirm_provider = build_econfirm_provider(settings)
 
     if settings.pesapal_enabled and not settings.pesapal_ipn_id.strip():
         registry_logger.warning(

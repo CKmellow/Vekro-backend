@@ -1992,6 +1992,13 @@
             "title": "Payout Priority",
             "description": "Configured payout rail priority order."
           },
+          "econfirm_needs_reconciliation_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Econfirm Needs Reconciliation Count",
+            "description": "Count of eConfirm escrows flagged for manual reconciliation (A3).",
+            "default": 0
+          },
           "rails": {
             "items": {
               "$ref": "#/components/schemas/AdminRailHealthEntry"
@@ -3381,6 +3388,16 @@
           },
           "status": {
             "$ref": "#/components/schemas/TransactionStatus"
+          },
+          "custody_provider": {
+            "type": "string",
+            "enum": [
+              "econfirm",
+              "simulated"
+            ],
+            "title": "Custody Provider",
+            "description": "Who holds the money. 'econfirm' is real Tier-1 custody; 'simulated' is the Vekro-side simulated ledger and must never be presented as real money.",
+            "default": "simulated"
           },
           "created_at": {
             "type": "string",

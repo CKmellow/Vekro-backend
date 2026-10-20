@@ -1,9 +1,9 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.transaction import TransactionStatus
 
@@ -38,8 +38,21 @@ class TransactionResponse(BaseModel):
     seller_id: uuid.UUID
     amount: Decimal
     status: TransactionStatus
+    custody_provider: Literal["econfirm", "simulated"] = Field(
+        default="simulated",
+        description=(
+            "Who holds the money. 'econfirm' is real Tier-1 custody; 'simulated' is the "
+            "Vekro-side simulated ledger and must never be presented as real money."
+        ),
+    )
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("custody_provider", mode="before")
+    @classmethod
+    def _default_custody_provider(cls, value: Any) -> str:
+        normalized = str(value or "").strip().lower()
+        return "econfirm" if normalized == "econfirm" else "simulated"
 
 
 class PaymentCallbackRequest(BaseModel):

@@ -138,6 +138,16 @@ class Transaction(Base):
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     refunded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # M20/E7: which custody provider holds this transaction's money ('econfirm' for
+    # real Tier-1 custody, 'simulated' otherwise). Mirrors the sticky
+    # escrows.custody_provider so the API can tell the UI without a join (Hard Rule 2).
+    custody_provider: Mapped[str] = mapped_column(
+        String(40),
+        nullable=False,
+        default="simulated",
+        server_default=text("'simulated'"),
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

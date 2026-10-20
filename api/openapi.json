@@ -636,6 +636,60 @@
         }
       }
     },
+    "/transactions/{transaction_id}/timeline": {
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Get an order's timeline (buyer, seller or admin)",
+        "description": "The order's history, oldest first, in plain words for the caller's role. Built from the caller's own notifications; message bodies and payloads (which can hold the delivery code) are never returned.",
+        "operationId": "get_timeline_transactions__transaction_id__timeline_get",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TimelineEventResponse"
+                  },
+                  "title": "Response Get Timeline Transactions  Transaction Id  Timeline Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "404": {
+            "description": "Transaction not found, or the caller is not a party to it."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/transactions/{transaction_id}/payment/resend": {
       "post": {
         "tags": [
@@ -3830,6 +3884,37 @@
         ],
         "title": "SellerResolutionActionRequest",
         "description": "Seller-selected resolution action in dispute flow."
+      },
+      "TimelineEventResponse": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind",
+            "description": "transaction_created or a notification event type, e.g. transaction_locked."
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "at",
+          "title",
+          "description"
+        ],
+        "title": "TimelineEventResponse",
+        "description": "One step in an order's history, in plain words."
       },
       "TransactionCreatedResponse": {
         "properties": {

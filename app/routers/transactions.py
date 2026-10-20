@@ -21,7 +21,7 @@ from app.schemas.transaction import (
     SellerResolutionActionRequest,
     TransactionResponse,
 )
-from app.schemas.transaction_detail import TransactionDetailResponse
+from app.schemas.transaction_detail import TimelineEventResponse, TransactionDetailResponse
 from app.services.payment_prompts import (
     PaymentResendInitiationError,
     PaymentResendInvalidStateError,
@@ -62,6 +62,7 @@ from app.services.transaction import (
     withhold_buyer_delivery_otp,
 )
 from app.services.transaction_read import TransactionNotVisibleError, get_transaction_for_viewer
+from app.services.transaction_timeline import get_transaction_timeline
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 audit_logger = logging.getLogger("app.transactions.audit")
@@ -216,6 +217,41 @@ def get_transaction(
     return TransactionDetailResponse.from_view(
         view, payment=_payment_instruction(db, view.transaction.id)
     )
+
+
+@router.get(
+    "/{transaction_id}/timeline",
+    response_model=list[TimelineEventResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Get an order's timeline (buyer, seller or admin)",
+    description=(
+        "The order's history, oldest first, in plain words for the caller's role. Built from the "
+        "caller's own notifications; message bodies and payloads (which can hold the "
+        "delivery code) are never returned."
+    ),
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
+        status.HTTP_404_NOT_FOUND: {
+            "description": "Transaction not found, or the caller is not a party to it."
+        },
+    },
+)
+def get_timeline(
+    transaction_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> list[TimelineEventResponse]:
+    try:
+        events = get_transaction_timeline(db, transaction_id=transaction_id, viewer=current_user)
+    except TransactionNotVisibleError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found.",
+        ) from exc
+    return [
+        TimelineEventResponse(kind=e.kind, at=e.at, title=e.title, description=e.description)
+        for e in events
+    ]
 
 
 @router.post(

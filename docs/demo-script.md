@@ -56,6 +56,7 @@ Executor and reconciliation commands are in [runbooks.md](runbooks.md#shared-too
 2. Payment confirmation locks the transaction:
 
    ```bash
+   # Add -H "X-Payment-Callback-Secret: $PAYMENT_CALLBACK_SECRET" if the secret is set.
    curl -s $API/transactions/payment-callback -H 'Content-Type: application/json' \
      -d "{\"transaction_id\":\"$TXN\",\"result_code\":0}"
    ```

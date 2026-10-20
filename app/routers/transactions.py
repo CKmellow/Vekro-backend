@@ -1,10 +1,13 @@
+import hmac
+import logging
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.auth_context import CurrentUser, require_buyer_user, require_seller_user
+from app.core.settings import get_settings
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.payment_prompt import PaymentInstructionResponse, TransactionCreatedResponse
@@ -61,6 +64,43 @@ from app.services.transaction import (
 from app.services.transaction_read import TransactionNotVisibleError, get_transaction_for_viewer
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
+audit_logger = logging.getLogger("app.transactions.audit")
+
+PAYMENT_CALLBACK_SECRET_HEADER = "X-Payment-Callback-Secret"
+
+
+def require_payment_callback_auth(
+    x_payment_callback_secret: Annotated[
+        str | None,
+        Header(
+            alias=PAYMENT_CALLBACK_SECRET_HEADER,
+            description="Shared secret; required when PAYMENT_CALLBACK_SECRET is set.",
+        ),
+    ] = None,
+) -> None:
+    """Authenticate the payment callback (issue #164).
+
+    With PAYMENT_CALLBACK_SECRET set, the header must match it (constant-time).
+    Without it, the callback is refused in production and allowed elsewhere so the
+    local simulated rail and end-to-end tests keep working.
+    """
+    settings = get_settings()
+    expected = settings.payment_callback_secret.strip()
+    if expected:
+        provided = (x_payment_callback_secret or "").strip()
+        if provided and hmac.compare_digest(provided.encode(), expected.encode()):
+            return
+        audit_logger.warning("payment_callback_rejected reason=bad_or_missing_secret")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Payment callback authentication failed.",
+        )
+    if settings.environment.strip().lower() == "production":
+        audit_logger.warning("payment_callback_rejected reason=secret_not_configured")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Payment callback authentication failed.",
+        )
 
 
 @router.post(
@@ -242,11 +282,17 @@ def resend_transaction_payment_prompt(
     summary="Confirm payment callback and lock transaction",
     description=(
         "Provider callback endpoint that transitions awaiting_payment transactions to locked "
-        "on successful result_code and safely handles duplicate/non-success callbacks."
+        "on successful result_code and safely handles duplicate/non-success callbacks. "
+        "Requires the X-Payment-Callback-Secret header when PAYMENT_CALLBACK_SECRET is set; "
+        "without a configured secret it is refused in production. eConfirm transactions are "
+        "never locked here (their funding is confirmed by polling eConfirm)."
     ),
     responses={
         status.HTTP_202_ACCEPTED: {
             "description": "Callback acknowledged with no state transition."
+        },
+        status.HTTP_401_UNAUTHORIZED: {
+            "description": "Wrong or missing callback secret, or none configured in production."
         },
         status.HTTP_404_NOT_FOUND: {"description": "Transaction not found."},
         status.HTTP_422_UNPROCESSABLE_CONTENT: {
@@ -258,6 +304,7 @@ def payment_confirmation_callback(
     payload: PaymentCallbackRequest,
     response: Response,
     db: Annotated[Session, Depends(get_db)],
+    _auth: Annotated[None, Depends(require_payment_callback_auth)],
 ) -> PaymentCallbackResponse:
     try:
         callback_result: PaymentCallbackResult = confirm_payment_callback(db, payload=payload)

@@ -10,6 +10,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "c4f1a9b92e16"
@@ -18,19 +19,23 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-transaction_payout_status_enum = sa.Enum(
+# create_type=False: each type is created once, explicitly and idempotently, in upgrade().
+# A plain sa.Enum would also be created by create_table, which fails on a fresh database.
+transaction_payout_status_enum = postgresql.ENUM(
     "not_required",
     "pending",
     "succeeded",
     "failed_definite",
     "unknown",
     name="transaction_payout_status",
+    create_type=False,
 )
 
-ledger_entry_side_enum = sa.Enum(
+ledger_entry_side_enum = postgresql.ENUM(
     "debit",
     "credit",
     name="ledger_entry_side",
+    create_type=False,
 )
 
 

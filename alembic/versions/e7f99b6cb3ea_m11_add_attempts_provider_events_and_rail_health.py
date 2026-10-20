@@ -19,18 +19,22 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-attempt_outcome_enum = sa.Enum(
+# create_type=False: each type is created once, explicitly and idempotently, in upgrade().
+# A plain sa.Enum would also be created by create_table, which fails on a fresh database.
+attempt_outcome_enum = postgresql.ENUM(
     "succeeded",
     "failed_definite",
     "unknown",
     name="attempt_outcome",
+    create_type=False,
 )
 
-rail_breaker_state_enum = sa.Enum(
+rail_breaker_state_enum = postgresql.ENUM(
     "closed",
     "open",
     "half_open",
     name="rail_breaker_state",
+    create_type=False,
 )
 
 

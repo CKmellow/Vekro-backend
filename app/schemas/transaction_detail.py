@@ -103,3 +103,14 @@ class TransactionDetailResponse(TransactionResponse):
 
 def _party(user: User) -> TransactionParty:
     return TransactionParty(name=user.name, phone_masked=mask_phone(user.phone))
+
+
+class TimelineEventResponse(BaseModel):
+    """One step in an order's history, in plain words."""
+
+    kind: str = Field(
+        description="transaction_created or a notification event type, e.g. transaction_locked."
+    )
+    at: datetime
+    title: str
+    description: str

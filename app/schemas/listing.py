@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -10,6 +10,13 @@ class CreateListingRequest(BaseModel):
     """Payload used by sellers to create listings."""
 
     title: str = Field(min_length=2, max_length=255, description="Listing title.")
+    description: str = Field(default="", max_length=2000, description="What the buyer gets.")
+    category: str | None = Field(default=None, max_length=64, description="Shop category.")
+    buyer_name: str | None = Field(
+        default=None,
+        max_length=120,
+        description="Optional: the one buyer this link is meant for.",
+    )
     price: Decimal = Field(
         ge=0,
         max_digits=12,
@@ -38,6 +45,19 @@ class CreateListingRequest(BaseModel):
             raise ValueError("title must not be empty.")
         return normalized
 
+    @field_validator("description", mode="before")
+    @classmethod
+    def normalize_description(cls, value: str | None) -> str:
+        return (value or "").strip()
+
+    @field_validator("category", "buyer_name", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
     @field_validator("unique_id", mode="before")
     @classmethod
     def normalize_unique_id(cls, value: str | None) -> str | None:
@@ -45,6 +65,24 @@ class CreateListingRequest(BaseModel):
             return None
         normalized = value.strip()
         return normalized or None
+
+
+ListingStatus = Literal["active", "awaiting_payment", "sold"]
+
+
+class ListingPhotoResponse(BaseModel):
+    """A listing photo. `url` is relative to the API root."""
+
+    id: uuid.UUID
+    url: str
+
+
+class ListingSellerSummary(BaseModel):
+    """What a buyer may see about the seller before paying."""
+
+    name: str
+    member_since: datetime
+    completed_sales: int = Field(description="Transactions released to this seller.")
 
 
 class ListingResponse(BaseModel):
@@ -55,9 +93,18 @@ class ListingResponse(BaseModel):
     id: uuid.UUID
     seller_id: uuid.UUID
     title: str
+    description: str
+    category: str | None
+    buyer_name: str | None
     price: Decimal
     is_serialized: bool
     unique_id: str | None
     dispute_policy: dict[str, Any]
+    status: ListingStatus = Field(
+        description="active: open for payment. awaiting_payment: a buyer started paying. "
+        "sold: paid and not refunded; new transactions are refused."
+    )
+    photos: list[ListingPhotoResponse] = Field(description="Ordered; the first is the cover.")
+    seller: ListingSellerSummary
     created_at: datetime
     updated_at: datetime

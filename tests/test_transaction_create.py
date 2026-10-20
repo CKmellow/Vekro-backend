@@ -55,8 +55,10 @@ class _FakeDb:
         return None
 
     def execute(self, _statement: Any):
+        # No payment prompts and no earlier transactions on the listing.
         return SimpleNamespace(
-            first=lambda: None, scalars=lambda: SimpleNamespace(first=lambda: None)
+            first=lambda: None,
+            scalars=lambda: SimpleNamespace(first=lambda: None, all=lambda: []),
         )
 
     def add(self, obj) -> None:

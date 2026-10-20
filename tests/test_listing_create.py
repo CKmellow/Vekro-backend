@@ -16,8 +16,27 @@ from app.schemas.listing import CreateListingRequest
 from app.services.auth import ActiveSessionContext
 from app.services.listing import ListingValidationError
 from app.services.listing import create_listing as create_listing_service
+from app.services.listing_content import ListingContent
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+
+
+@pytest.fixture(autouse=True)
+def _describe_without_db(monkeypatch) -> None:
+    """Route tests fake the listing lookup, so fake its status, photos and seller too."""
+
+    def fake_describe_listing(_db, listing):
+        seller = User(
+            id=listing.seller_id,
+            name="Amina Gadgets",
+            phone="+254722118904",
+            role=UserRole.SELLER,
+            password_hash="x",
+            created_at=datetime(2026, 1, 5, tzinfo=UTC),
+        )
+        return ListingContent(status="active", photo_ids=[], seller=seller, completed_sales=0)
+
+    monkeypatch.setattr(listings_router, "describe_listing", fake_describe_listing)
 
 
 class _FakeDb:

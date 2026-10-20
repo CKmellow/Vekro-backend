@@ -9,6 +9,7 @@ from app.models.dispute import (
 from app.models.escrow import Escrow
 from app.models.ledger_entry import LedgerEntry, LedgerEntrySide
 from app.models.listing import Listing
+from app.models.listing_photo import ListingPhoto
 from app.models.money_audit_event import MoneyAuditEvent
 from app.models.notification import Notification, NotificationChannel, NotificationEventType
 from app.models.payment_prompt import (
@@ -28,6 +29,7 @@ __all__ = [
     "User",
     "UserRole",
     "Listing",
+    "ListingPhoto",
     "Transaction",
     "TransactionPayoutStatus",
     "TransactionStatus",

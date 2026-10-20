@@ -41,6 +41,9 @@ def create_listing(db: Session, seller: User, payload: CreateListingRequest) -> 
     listing = Listing(
         seller_id=seller.id,
         title=payload.title,
+        description=payload.description,
+        category=payload.category,
+        buyer_name=payload.buyer_name,
         price=payload.price,
         is_serialized=payload.is_serialized,
         unique_id=payload.unique_id,

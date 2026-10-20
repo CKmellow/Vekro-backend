@@ -960,7 +960,7 @@
           "Transactions"
         ],
         "summary": "Withhold delivery OTP and trigger return-refund (buyer only)",
-        "description": "Buyer action that withholds OTP and applies return/refund path transitions from at_door_pending_inspection.",
+        "description": "Buyer action that withholds OTP and applies return/refund path transitions from at_door_pending_inspection. An optional body gives the reason and a note for the seller.",
         "operationId": "withhold_delivery_otp_transactions__transaction_id__otp_withhold_post",
         "parameters": [
           {
@@ -974,6 +974,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/OtpWithholdRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2684,6 +2701,39 @@
         ],
         "title": "DisputeType"
       },
+      "DoorRejection": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "note"
+        ],
+        "title": "DoorRejection",
+        "description": "Why the buyer rejected the item at the door."
+      },
       "EscalationQueueItemResponse": {
         "properties": {
           "dispute_id": {
@@ -3432,6 +3482,39 @@
         "title": "OtpGiveRequest",
         "description": "Buyer OTP payload for confirming delivery handoff."
       },
+      "OtpWithholdRequest": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason",
+            "description": "One of the listing's dispute_policy.door_reject_reasons, or other. Without declared reasons: damaged, wrong_item, not_as_described, missing_parts or other."
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "Optional words for the seller."
+          }
+        },
+        "type": "object",
+        "title": "OtpWithholdRequest",
+        "description": "Optional reason when the buyer rejects the item at the door."
+      },
       "PaymentCallbackRequest": {
         "properties": {
           "transaction_id": {
@@ -4139,6 +4222,17 @@
             "format": "date-time",
             "title": "Server Time",
             "description": "Server clock when the response was built; offset countdowns with it."
+          },
+          "door_rejection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DoorRejection"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the buyer rejected the item at the door with a reason."
           },
           "payment": {
             "anyOf": [

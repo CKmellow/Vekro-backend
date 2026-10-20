@@ -543,13 +543,26 @@ def _create_otp_withheld_notifications(
         message="OTP was withheld and the transaction moved to buyer refund resolution.",
         payload=payload,
     )
+    said = DOOR_REJECT_REASON_LABELS.get(transaction.door_rejection_reason or "")
     seller_notification = Notification(
         user_id=transaction.seller_id,
         transaction_id=transaction.id,
         event_type=NotificationEventType.OTP_WITHHELD,
         title="Buyer withheld OTP",
-        message="Buyer withheld OTP and the transaction moved to refund flow.",
-        payload=payload,
+        message=(
+            "Buyer withheld OTP and the transaction moved to refund flow."
+            + (f" Reason: {said}." if said else "")
+            + (
+                f" Note: {transaction.door_rejection_note}"
+                if transaction.door_rejection_note
+                else ""
+            )
+        ),
+        payload={
+            **payload,
+            "door_rejection_reason": transaction.door_rejection_reason,
+            "door_rejection_note": transaction.door_rejection_note,
+        },
     )
 
     db.add(buyer_notification)
@@ -1368,10 +1381,37 @@ def confirm_buyer_delivery_otp(
     return transaction
 
 
+DOOR_REJECT_REASON_LABELS = {
+    "damaged": "Damaged",
+    "wrong_item": "Wrong item",
+    "not_as_described": "Not as described",
+    "missing_parts": "Missing parts",
+    "other": "Something else",
+}
+
+
+def _validated_door_reason(listing: Listing | None, reason: str | None) -> str | None:
+    if reason is None:
+        return None
+    declared = (listing.dispute_policy or {}).get("door_reject_reasons") if listing else None
+    allowed = (
+        set(declared) | {"other"}
+        if isinstance(declared, list) and declared
+        else set(DOOR_REJECT_REASON_LABELS)
+    )
+    if reason not in allowed:
+        raise TransactionValidationError(
+            "reason must be one of the seller's door rejection reasons, or other."
+        )
+    return reason
+
+
 def withhold_buyer_delivery_otp(
     db: Session,
     transaction_id: uuid.UUID,
     buyer: User,
+    reason: str | None = None,
+    note: str | None = None,
 ) -> Transaction:
     if buyer.role != UserRole.BUYER:
         raise TransactionValidationError("Only buyers can withhold delivery OTP.")
@@ -1389,6 +1429,10 @@ def withhold_buyer_delivery_otp(
         raise TransactionBuyerActionInvalidStateError(
             "Transaction must be in at_door_pending_inspection state for OTP withhold action."
         )
+
+    door_reason = _validated_door_reason(db.get(Listing, transaction.listing_id), reason)
+    transaction.door_rejection_reason = door_reason
+    transaction.door_rejection_note = (note or "").strip() or None
 
     now = datetime.now(UTC)
     transition_history = _apply_withheld_return_refund_flow(

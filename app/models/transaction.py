@@ -135,6 +135,9 @@ class Transaction(Base):
         server_default=text("0"),
     )
     hold_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Why the buyer rejected the item at the door (otp-withhold), when they said.
+    door_rejection_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    door_rejection_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     refunded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

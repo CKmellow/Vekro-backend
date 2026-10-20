@@ -694,17 +694,37 @@
           "Transactions"
         ],
         "summary": "Confirm payment callback and lock transaction",
-        "description": "Provider callback endpoint that transitions awaiting_payment transactions to locked on successful result_code and safely handles duplicate/non-success callbacks.",
+        "description": "Provider callback endpoint that transitions awaiting_payment transactions to locked on successful result_code and safely handles duplicate/non-success callbacks. Requires the X-Payment-Callback-Secret header when PAYMENT_CALLBACK_SECRET is set; without a configured secret it is refused in production. eConfirm transactions are never locked here (their funding is confirmed by polling eConfirm).",
         "operationId": "payment_confirmation_callback_transactions_payment_callback_post",
+        "parameters": [
+          {
+            "name": "X-Payment-Callback-Secret",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Shared secret; required when PAYMENT_CALLBACK_SECRET is set.",
+              "title": "X-Payment-Callback-Secret"
+            },
+            "description": "Shared secret; required when PAYMENT_CALLBACK_SECRET is set."
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/PaymentCallbackRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -719,6 +739,9 @@
           },
           "202": {
             "description": "Callback acknowledged with no state transition."
+          },
+          "401": {
+            "description": "Wrong or missing callback secret, or none configured in production."
           },
           "404": {
             "description": "Transaction not found."

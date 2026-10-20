@@ -83,6 +83,7 @@ Custody and rail settings:
 - Routing examples referenced in project planning docs: `COLLECTION_RAIL_PRIORITY=loop,pesapal,daraja,simulated` and `PAYOUT_RAIL_PRIORITY=loop,simulated`.
 - Runtime variable names in this backend are `CUSTODY_COLLECTION_RAIL_PRIORITY` and `CUSTODY_PAYOUT_RAIL_PRIORITY`.
 - ALLOW_LIVE_PAYOUTS: live payout guard flag (requires production)
+- PAYMENT_CALLBACK_SECRET: shared secret for `POST /transactions/payment-callback` (header `X-Payment-Callback-Secret`); without it the callback is refused in production
 - LOOP_ENABLED / PESAPAL_ENABLED / INTASEND_ENABLED / ECONFIRM_ENABLED: enable provider/rail blocks
 - LOOP_*, PESAPAL_*, INTASEND_*, ECONFIRM_*: required credentials when their enabled flag is true
 - Pesapal routing rule: include `pesapal` in collection priority only; payout priority remains `loop,simulated`.
@@ -347,11 +348,13 @@ Migration notes:
    - Expected response: 201 Created with transaction data.
 - POST /transactions/payment-callback
    - Purpose: provider callback endpoint to confirm payment and lock a transaction.
+   - Authentication (#164): when `PAYMENT_CALLBACK_SECRET` is set, the `X-Payment-Callback-Secret` header must match it (constant-time compare), else 401. With no secret configured the callback is refused (401) in production and open outside production, for the local simulated rail and end-to-end tests.
+   - eConfirm transactions are never locked here; their funding is confirmed by polling eConfirm.
    - Valid callback result_code=0 moves status awaiting_payment -> locked and sets locked_at.
    - Duplicate callback for already-locked transactions is idempotent and returns 200 safely.
    - Unsuccessful callback result codes are acknowledged safely with 202 and no transition.
    - Successful lock transition writes transaction_locked notification events for buyer and seller for timeline/audit use.
-   - Expected response: 200 on transition or duplicate, 202 when callback is non-successful or state-ineligible, 404 when transaction is missing.
+   - Expected response: 200 on transition or duplicate, 202 when callback is non-successful or state-ineligible, 401 when authentication fails, 404 when transaction is missing.
 - GET /api/webhooks/pesapal/callback
    - Purpose: Pesapal callback trigger endpoint for collection confirmation.
    - Callback fields are treated as trigger-only and never trusted as final funding status.
@@ -593,3 +596,4 @@ Migration notes:
 - 2026-10-19: Milestone 20 E5 (#150): honest custody selection (enabled, keys, breaker, amount band), sticky `escrows.custody_provider`, open-on-eConfirm with UNKNOWN → reconciliation and definite rejection → simulated fallback, and the budgeted funding poller.
 - 2026-10-20: Milestone 20 E7 (#156): custody selection wired into `POST /transactions` behind `ECONFIRM_ENABLED`. eConfirm transactions get an eConfirm escrow and STK prompt and lock only when the poller confirms funding; the Daraja callback ignores them. `transactions.custody_provider` (migration `e2b7c4d91f08`, chained after the payment-prompt migration `b5e8f1c2a904`) is returned in `TransactionResponse` and `TransactionDetailResponse`. eConfirm transactions record payment prompts like the gateway path, and resend re-prompts through eConfirm.
 - 2026-10-20: Milestone 20 E6 (#151): fixture contract tests, shared conformance over the real transport, the eConfirm failure matrix, the opt-in live smoke (`pytest -m live -k econfirm`, KES 100 round trip behind an extra confirmation variable), and custody-honesty updates to this README, the demo script, the custody-tier doc, and the runbooks.
+- 2026-10-20: Issue [#164] `POST /transactions/payment-callback` is authenticated: with `PAYMENT_CALLBACK_SECRET` set, the `X-Payment-Callback-Secret` header must match (constant-time) or the request is rejected with 401 before the transaction is read; with no secret it is refused in production and stays open outside production for the simulated rail and frontend end-to-end tests.

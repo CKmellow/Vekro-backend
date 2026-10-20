@@ -274,3 +274,78 @@ def test_service_confirm_payment_callback_raises_for_missing_transaction() -> No
             cast(Session, db),
             payload=PaymentCallbackRequest(**_payload(uuid.uuid4())),
         )
+
+
+# -- callback authentication (issue #164) -------------------------------------------
+def _callback_auth_client(monkeypatch, *, secret: str, environment: str) -> tuple[TestClient, list]:
+    from types import SimpleNamespace
+
+    calls: list = []
+    transaction = _build_transaction(status=TransactionStatus.LOCKED, locked_at=datetime.now(UTC))
+
+    def fake_confirm_payment_callback(_db, payload):
+        calls.append(payload)
+        return PaymentCallbackResult(
+            transaction=transaction, transitioned=True, duplicate=False, detail="locked"
+        )
+
+    monkeypatch.setattr(
+        transactions_router, "confirm_payment_callback", fake_confirm_payment_callback
+    )
+    monkeypatch.setattr(
+        transactions_router,
+        "get_settings",
+        lambda: SimpleNamespace(payment_callback_secret=secret, environment=environment),
+    )
+    return TestClient(app), calls
+
+
+@pytest.mark.parametrize("environment", ["development", "production"])
+@pytest.mark.parametrize("header", [None, "", "wrong-secret", "s3cret-extra"])
+def test_payment_callback_rejects_missing_or_wrong_secret(monkeypatch, environment, header):
+    client, calls = _callback_auth_client(monkeypatch, secret="s3cret", environment=environment)
+    headers = {} if header is None else {"X-Payment-Callback-Secret": header}
+
+    response = client.post(
+        "/transactions/payment-callback", json=_payload(uuid.uuid4()), headers=headers
+    )
+
+    assert response.status_code == 401
+    assert calls == []  # the transaction is never touched
+
+
+@pytest.mark.parametrize("environment", ["development", "production"])
+def test_payment_callback_accepts_matching_secret(monkeypatch, environment):
+    client, calls = _callback_auth_client(monkeypatch, secret="s3cret", environment=environment)
+
+    response = client.post(
+        "/transactions/payment-callback",
+        json=_payload(uuid.uuid4()),
+        headers={"X-Payment-Callback-Secret": "s3cret"},
+    )
+
+    assert response.status_code == 200
+    assert len(calls) == 1
+
+
+def test_payment_callback_is_refused_in_production_without_configured_secret(monkeypatch):
+    client, calls = _callback_auth_client(monkeypatch, secret="", environment="production")
+
+    response = client.post(
+        "/transactions/payment-callback",
+        json=_payload(uuid.uuid4()),
+        headers={"X-Payment-Callback-Secret": "anything"},
+    )
+
+    assert response.status_code == 401
+    assert calls == []
+
+
+def test_payment_callback_stays_open_outside_production_without_secret(monkeypatch):
+    # Keeps the local simulated rail and frontend end-to-end tests working.
+    client, calls = _callback_auth_client(monkeypatch, secret="", environment="development")
+
+    response = client.post("/transactions/payment-callback", json=_payload(uuid.uuid4()))
+
+    assert response.status_code == 200
+    assert len(calls) == 1

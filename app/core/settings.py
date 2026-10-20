@@ -82,6 +82,10 @@ class Settings(BaseSettings):
     custody_collection_rail_priority: str = "simulated"
     custody_payout_rail_priority: str = "simulated"
     allow_live_payouts: bool = False
+    # Shared secret for POST /transactions/payment-callback, sent as the
+    # X-Payment-Callback-Secret header. Blank: the callback is refused in
+    # production and open elsewhere (local simulated rail / e2e tests).
+    payment_callback_secret: str = ""
     simulated_collection_default_scenario: str = "success"
     simulated_payout_default_scenario: str = "success"
     simulated_trigger_prefix: str = "sim:"

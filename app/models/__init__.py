@@ -11,6 +11,12 @@ from app.models.ledger_entry import LedgerEntry, LedgerEntrySide
 from app.models.listing import Listing
 from app.models.money_audit_event import MoneyAuditEvent
 from app.models.notification import Notification, NotificationChannel, NotificationEventType
+from app.models.payment_prompt import (
+    PaymentFailureReason,
+    PaymentPrompt,
+    PaymentPromptKind,
+    PaymentPromptStatus,
+)
 from app.models.payout_attempt import PayoutAttempt
 from app.models.provider_event import ProviderEvent
 from app.models.rail_health import RailBreakerState, RailHealth
@@ -27,6 +33,10 @@ __all__ = [
     "TransactionStatus",
     "AttemptOutcome",
     "CollectionAttempt",
+    "PaymentFailureReason",
+    "PaymentPrompt",
+    "PaymentPromptKind",
+    "PaymentPromptStatus",
     "PayoutAttempt",
     "ProviderEvent",
     "RailHealth",

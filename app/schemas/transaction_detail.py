@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.core.phone import mask_phone
 from app.models.user import User, UserRole
+from app.schemas.payment_prompt import PaymentInstructionResponse
 from app.schemas.transaction import TransactionResponse
 from app.services.deadlines import deadlines_for
 from app.services.transaction_read import TransactionView
@@ -63,9 +64,17 @@ class TransactionDetailResponse(TransactionResponse):
     server_time: datetime = Field(
         description="Server clock when the response was built; offset countdowns with it."
     )
+    payment: PaymentInstructionResponse | None = Field(
+        default=None,
+        description="The latest payment prompt. Shown to the buyer and admins only.",
+    )
 
     @classmethod
-    def from_view(cls, view: TransactionView) -> "TransactionDetailResponse":
+    def from_view(
+        cls,
+        view: TransactionView,
+        payment: PaymentInstructionResponse | None = None,
+    ) -> "TransactionDetailResponse":
         deadlines = deadlines_for(view.transaction)
         base = TransactionResponse.model_validate(view.transaction)
         return cls(
@@ -88,6 +97,7 @@ class TransactionDetailResponse(TransactionResponse):
                 return_confirm_by=deadlines.return_confirm_by,
             ),
             server_time=datetime.now(UTC),
+            payment=payment if view.viewer_role != UserRole.SELLER else None,
         )
 
 

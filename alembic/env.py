@@ -13,6 +13,7 @@ from app.models import (
     LedgerEntry,
     Listing,
     Notification,
+    PaymentPrompt,
     PayoutAttempt,
     ProviderEvent,
     RailHealth,
@@ -35,6 +36,7 @@ _ = (
     RailHealth,
     Dispute,
     Notification,
+    PaymentPrompt,
     UserSession,
 )
 

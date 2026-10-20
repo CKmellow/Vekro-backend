@@ -13,12 +13,14 @@ from app.db.base import Base
 from app.main import app
 from app.models.listing import Listing
 from app.models.notification import Notification, NotificationEventType
+from app.models.payment_prompt import PaymentPrompt
 from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User, UserRole
 from app.models.user_session import UserSession
 from app.routers import transactions as transactions_router
 from app.schemas.transaction import CreateTransactionRequest
 from app.services.auth import ActiveSessionContext
+from app.services.payment import PaymentResponse
 from app.services.transaction import (
     ListingNotFoundForTransactionError,
     PaymentInitiationError,
@@ -53,7 +55,9 @@ class _FakeDb:
         return None
 
     def execute(self, _statement: Any):
-        return SimpleNamespace(first=lambda: None)
+        return SimpleNamespace(
+            first=lambda: None, scalars=lambda: SimpleNamespace(first=lambda: None)
+        )
 
     def add(self, obj) -> None:
         self.added.append(obj)
@@ -76,6 +80,35 @@ class _FakeDb:
 
     def refresh(self, obj) -> None:
         self.refreshed_obj = obj
+
+
+@pytest.fixture(autouse=True)
+def _route_reads_a_recorded_prompt(monkeypatch) -> None:
+    """Route tests fake create_transaction, so fake the prompt it would have recorded."""
+
+    def fake_latest_payment_prompt(_db, transaction_id):
+        now = datetime.now(UTC)
+        return PaymentPrompt(
+            id=uuid.uuid4(),
+            transaction_id=transaction_id,
+            kind="stk_prompt",
+            status="pending",
+            sent_at=now,
+            expires_at=now + timedelta(seconds=90),
+        )
+
+    monkeypatch.setattr(transactions_router, "latest_payment_prompt", fake_latest_payment_prompt)
+
+
+def _stub_payment_response() -> PaymentResponse:
+    return PaymentResponse(
+        provider="fake",
+        status="queued",
+        provider_request_id="req-1",
+        merchant_request_id="merchant-1",
+        checkout_request_id="checkout-1",
+        customer_message="queued",
+    )
 
 
 def _build_user(role: UserRole) -> User:
@@ -125,6 +158,7 @@ def _build_real_db_session() -> Session:
         cast(Table, User.__table__),
         cast(Table, Listing.__table__),
         cast(Table, Transaction.__table__),
+        cast(Table, PaymentPrompt.__table__),
         cast(Table, Notification.__table__),
     ]
 
@@ -376,7 +410,7 @@ def test_service_invokes_payment_gateway_interface() -> None:
 
         def initiate_stk_push(self, request):
             self.called = True
-            return request
+            return _stub_payment_response()
 
     buyer = _build_user(UserRole.BUYER)
     listing = _build_listing()
@@ -433,7 +467,7 @@ def test_service_sends_normalized_phone_to_payment_gateway() -> None:
 
         def initiate_stk_push(self, request):
             self.phone_number = request.phone_number
-            return request
+            return _stub_payment_response()
 
     buyer = _build_user(UserRole.BUYER)
     buyer.mpesa_phone = "0712345678"
@@ -462,7 +496,7 @@ def test_service_create_transaction_persists_notification_fks_with_real_session(
 
         def initiate_stk_push(self, request):
             self.request = request
-            return request
+            return _stub_payment_response()
 
     db = _build_real_db_session()
     try:

@@ -12,6 +12,7 @@ from app.models import (
     Escrow,
     LedgerEntry,
     Listing,
+    ListingPhoto,
     Notification,
     PaymentPrompt,
     PayoutAttempt,
@@ -27,6 +28,7 @@ from sqlalchemy import engine_from_config, pool
 _ = (
     User,
     Listing,
+    ListingPhoto,
     Transaction,
     Escrow,
     LedgerEntry,

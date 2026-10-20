@@ -46,6 +46,7 @@ from app.services.deadlines import (
     RETURN_SEND_WINDOW,
 )
 from app.services.escrow_service import EscrowService
+from app.services.listing_content import listing_is_sold
 from app.services.payment import PaymentGateway, PaymentRequest, get_payment_gateway
 from app.services.payment_prompts import (
     econfirm_payment_response,
@@ -294,6 +295,9 @@ def create_transaction(
     listing = db.get(Listing, payload.listing_id)
     if listing is None:
         raise ListingNotFoundForTransactionError("Listing not found.")
+
+    if listing_is_sold(db, listing.id):
+        raise TransactionValidationError("This item has already been paid for.")
 
     amount = Decimal(listing.price).quantize(Decimal("0.01"))
     if payload.amount is not None and Decimal(payload.amount).quantize(Decimal("0.01")) != amount:

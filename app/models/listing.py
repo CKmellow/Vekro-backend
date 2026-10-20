@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Numeric, String, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Numeric, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,6 +28,12 @@ class Listing(Base):
     )
 
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(
+        Text, nullable=False, default="", server_default=text("''")
+    )
+    category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # For a link meant for one buyer ("Reserved for Wanjiku").
+    buyer_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     is_serialized: Mapped[bool] = mapped_column(
         Boolean,

@@ -68,6 +68,11 @@ runs and the existing payment path is unchanged.
    (`ENVIRONMENT=production`, `ALLOW_LIVE_PAYOUTS=true`); otherwise the attempt
    stays UNKNOWN (`rail_unavailable`) until they are.
 
-The frontend contract is unchanged: there is no redirect URL, so the client
-shows the M-Pesa prompt screen. `custody_provider` on `TransactionResponse`
+The frontend contract is unchanged. The create response's `payment` instruction
+is an `stk_prompt` whose `checkout_request_id` is eConfirm's transaction id. A
+failed open or a rejected STK reads `failed_to_initiate`, and the poller marks
+the prompt `succeeded` when it locks the transaction.
+`POST /transactions/{id}/payment/resend` re-prompts through eConfirm, never the
+Daraja gateway. It is refused (422) while the escrow awaits reconciliation.
+`custody_provider` on `TransactionResponse` and `TransactionDetailResponse`
 tells the UI whether the money is held by eConfirm or simulated.

@@ -53,6 +53,13 @@ class TransactionDeadlinesResponse(BaseModel):
     )
 
 
+class DoorRejection(BaseModel):
+    """Why the buyer rejected the item at the door."""
+
+    reason: str | None
+    note: str | None
+
+
 class TransactionDetailResponse(TransactionResponse):
     """One transaction as its buyer, its seller or an admin sees it."""
 
@@ -63,6 +70,9 @@ class TransactionDetailResponse(TransactionResponse):
     deadlines: TransactionDeadlinesResponse
     server_time: datetime = Field(
         description="Server clock when the response was built; offset countdowns with it."
+    )
+    door_rejection: DoorRejection | None = Field(
+        default=None, description="Set when the buyer rejected the item at the door with a reason."
     )
     payment: PaymentInstructionResponse | None = Field(
         default=None,
@@ -98,6 +108,14 @@ class TransactionDetailResponse(TransactionResponse):
             ),
             server_time=datetime.now(UTC),
             payment=payment if view.viewer_role != UserRole.SELLER else None,
+            door_rejection=(
+                DoorRejection(
+                    reason=view.transaction.door_rejection_reason,
+                    note=view.transaction.door_rejection_note,
+                )
+                if view.transaction.door_rejection_reason or view.transaction.door_rejection_note
+                else None
+            ),
         )
 
 

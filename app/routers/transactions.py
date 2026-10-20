@@ -15,6 +15,7 @@ from app.schemas.transaction import (
     BuyerReconfirmationRequest,
     CreateTransactionRequest,
     OtpGiveRequest,
+    OtpWithholdRequest,
     PaymentCallbackRequest,
     PaymentCallbackResponse,
     ReportFunctionalIssueRequest,
@@ -546,7 +547,8 @@ def confirm_delivery_otp(
     summary="Withhold delivery OTP and trigger return-refund (buyer only)",
     description=(
         "Buyer action that withholds OTP and applies return/refund path transitions "
-        "from at_door_pending_inspection."
+        "from at_door_pending_inspection. An optional body gives the reason and a note "
+        "for the seller."
     ),
     responses={
         status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
@@ -563,12 +565,15 @@ def withhold_delivery_otp(
     transaction_id: uuid.UUID,
     current_user: Annotated[User, Depends(require_buyer_user)],
     db: Annotated[Session, Depends(get_db)],
+    payload: OtpWithholdRequest | None = None,
 ) -> TransactionResponse:
     try:
         transaction = withhold_buyer_delivery_otp(
             db,
             transaction_id=transaction_id,
             buyer=current_user,
+            reason=payload.reason if payload else None,
+            note=payload.note if payload else None,
         )
     except TransactionNotFoundForBuyerActionError as exc:
         raise HTTPException(

@@ -759,7 +759,7 @@ def test_otp_withhold_endpoint_returns_200(monkeypatch) -> None:
         status=TransactionStatus.REFUNDED_BUYER,
     )
 
-    def fake_withhold_buyer_delivery_otp(_db, transaction_id, buyer):
+    def fake_withhold_buyer_delivery_otp(_db, transaction_id, buyer, reason=None, note=None):
         return transaction
 
     monkeypatch.setattr(

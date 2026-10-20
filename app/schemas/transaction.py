@@ -103,6 +103,22 @@ class OtpGiveRequest(BaseModel):
     )
 
 
+class OtpWithholdRequest(BaseModel):
+    """Optional reason when the buyer rejects the item at the door."""
+
+    reason: str | None = Field(
+        default=None,
+        max_length=32,
+        description=(
+            "One of the listing's dispute_policy.door_reject_reasons, or other. Without declared "
+            "reasons: damaged, wrong_item, not_as_described, missing_parts or other."
+        ),
+    )
+    note: str | None = Field(
+        default=None, max_length=500, description="Optional words for the seller."
+    )
+
+
 class ReportFunctionalIssueRequest(BaseModel):
     """Buyer dispute intake payload used during serialized hold window."""
 

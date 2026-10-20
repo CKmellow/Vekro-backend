@@ -39,3 +39,14 @@ def normalize_phone(value: str | None, *, allow_none: bool = False) -> str | Non
         raise ValueError(PHONE_VALIDATION_ERROR)
 
     return normalized_value
+
+
+def mask_phone(value: str | None) -> str | None:
+    """Masks a phone for display to the other party, e.g. +254712345678 -> +254 712 *** 678."""
+    if not value:
+        return None
+    if value.startswith("+254") and len(value) == 13:
+        return f"{value[:4]} {value[4:7]} *** {value[-3:]}"
+    if len(value) <= 4:
+        return "***"
+    return f"{value[:3]} *** {value[-3:]}"

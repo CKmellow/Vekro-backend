@@ -448,6 +448,56 @@
         }
       }
     },
+    "/transactions/{transaction_id}": {
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Get one transaction (buyer, seller or admin)",
+        "description": "Read a transaction as its buyer, its seller or an admin: state, listing summary, masked parties and the server deadline for the current state. Clients poll this to learn state changes; anyone else gets 404 so existence is not leaked.",
+        "operationId": "get_transaction_transactions__transaction_id__get",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "404": {
+            "description": "Transaction not found, or the caller is not a party to it."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/transactions/payment-callback": {
       "post": {
         "tags": [
@@ -3353,6 +3403,241 @@
         ],
         "title": "SellerResolutionActionRequest",
         "description": "Seller-selected resolution action in dispute flow."
+      },
+      "TransactionDeadlinesResponse": {
+        "properties": {
+          "dispatch_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispatch By",
+            "description": "locked: the seller must dispatch by then or the buyer is refunded."
+          },
+          "inspect_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inspect By",
+            "description": "at_door_pending_inspection: no decision by then withholds the code."
+          },
+          "hold_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Until",
+            "description": "hold_24h: payment is released to the seller at this time."
+          },
+          "return_send_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Send By",
+            "description": "disputed_functional: the buyer must send the item back by then."
+          },
+          "return_confirm_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Confirm By",
+            "description": "return_in_transit: the seller must confirm receipt by then."
+          }
+        },
+        "type": "object",
+        "title": "TransactionDeadlinesResponse",
+        "description": "When the current state times out (UTC). Only the field for the current state is set."
+      },
+      "TransactionDetailResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "reference": {
+            "type": "string",
+            "title": "Reference",
+            "description": "Random, non-sequential human-readable reference, for example VK-7K3P9Q."
+          },
+          "listing_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Listing Id"
+          },
+          "buyer_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Buyer Id"
+          },
+          "seller_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Seller Id"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TransactionStatus"
+          },
+          "custody_provider": {
+            "type": "string",
+            "enum": [
+              "econfirm",
+              "simulated"
+            ],
+            "title": "Custody Provider",
+            "description": "Who holds the money. 'econfirm' is real Tier-1 custody; 'simulated' is the Vekro-side simulated ledger and must never be presented as real money.",
+            "default": "simulated"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "viewer_role": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "How the caller relates to this transaction."
+          },
+          "listing": {
+            "$ref": "#/components/schemas/TransactionListingSummary"
+          },
+          "buyer": {
+            "$ref": "#/components/schemas/TransactionParty"
+          },
+          "seller": {
+            "$ref": "#/components/schemas/TransactionParty"
+          },
+          "deadlines": {
+            "$ref": "#/components/schemas/TransactionDeadlinesResponse"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Server Time",
+            "description": "Server clock when the response was built; offset countdowns with it."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "reference",
+          "listing_id",
+          "buyer_id",
+          "seller_id",
+          "amount",
+          "status",
+          "created_at",
+          "updated_at",
+          "viewer_role",
+          "listing",
+          "buyer",
+          "seller",
+          "deadlines",
+          "server_time"
+        ],
+        "title": "TransactionDetailResponse",
+        "description": "One transaction as its buyer, its seller or an admin sees it."
+      },
+      "TransactionListingSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Price"
+          },
+          "is_serialized": {
+            "type": "boolean",
+            "title": "Is Serialized"
+          },
+          "dispute_policy": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Dispute Policy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "price",
+          "is_serialized",
+          "dispute_policy"
+        ],
+        "title": "TransactionListingSummary",
+        "description": "The listing the transaction was created from."
+      },
+      "TransactionParty": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "phone_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone Masked",
+            "description": "Masked phone, for example +254 712 *** 678."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "phone_masked"
+        ],
+        "title": "TransactionParty",
+        "description": "A party to the transaction, safe to show to the other party."
       },
       "TransactionResponse": {
         "properties": {

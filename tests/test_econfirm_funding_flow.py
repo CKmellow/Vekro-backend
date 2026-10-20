@@ -461,3 +461,26 @@ def test_transaction_custody_migration_is_additive():
         conn.commit()
         value = conn.execute(text("SELECT custody_provider FROM transactions")).scalar_one()
     assert value == "simulated"
+
+
+def test_transaction_detail_response_carries_custody_provider():
+    from app.schemas.transaction_detail import TransactionDetailResponse
+    from app.services.transaction_read import TransactionView
+
+    db = _session()
+    buyer, seller, listing = _seed(db)
+    transaction = _create(
+        db, buyer, listing, settings=_settings(), provider=_Provider(), gateway=_Gateway()
+    )
+
+    detail = TransactionDetailResponse.from_view(
+        TransactionView(
+            transaction=transaction,
+            listing=listing,
+            buyer=buyer,
+            seller=seller,
+            viewer_role=UserRole.BUYER,
+        )
+    )
+
+    assert detail.custody_provider == "econfirm"

@@ -3573,6 +3573,16 @@
           "status": {
             "$ref": "#/components/schemas/TransactionStatus"
           },
+          "custody_provider": {
+            "type": "string",
+            "enum": [
+              "econfirm",
+              "simulated"
+            ],
+            "title": "Custody Provider",
+            "description": "Who holds the money. 'econfirm' is real Tier-1 custody; 'simulated' is the Vekro-side simulated ledger and must never be presented as real money.",
+            "default": "simulated"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -3709,6 +3719,16 @@
           },
           "status": {
             "$ref": "#/components/schemas/TransactionStatus"
+          },
+          "custody_provider": {
+            "type": "string",
+            "enum": [
+              "econfirm",
+              "simulated"
+            ],
+            "title": "Custody Provider",
+            "description": "Who holds the money. 'econfirm' is real Tier-1 custody; 'simulated' is the Vekro-side simulated ledger and must never be presented as real money.",
+            "default": "simulated"
           },
           "created_at": {
             "type": "string",
@@ -3873,6 +3893,16 @@
           },
           "status": {
             "$ref": "#/components/schemas/TransactionStatus"
+          },
+          "custody_provider": {
+            "type": "string",
+            "enum": [
+              "econfirm",
+              "simulated"
+            ],
+            "title": "Custody Provider",
+            "description": "Who holds the money. 'econfirm' is real Tier-1 custody; 'simulated' is the Vekro-side simulated ledger and must never be presented as real money.",
+            "default": "simulated"
           },
           "created_at": {
             "type": "string",

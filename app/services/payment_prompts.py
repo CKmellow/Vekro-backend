@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.escrow import Escrow
 from app.models.listing import Listing
 from app.models.payment_prompt import (
     PaymentFailureReason,
@@ -17,6 +18,11 @@ from app.models.payment_prompt import (
 )
 from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User
+from app.services.custody.dto import CollectionResult
+from app.services.custody.econfirm_orchestration import request_econfirm_funding
+from app.services.custody.enums import CollectionOutcome
+from app.services.custody.registry import build_econfirm_provider
+from app.services.custody.selection import PROVIDER_ECONFIRM
 from app.services.payment import (
     PaymentGateway,
     PaymentRequest,
@@ -110,6 +116,19 @@ def record_payment_prompt(
     return prompt
 
 
+def econfirm_payment_response(escrow: Escrow, result: CollectionResult) -> PaymentResponse:
+    """Describe an eConfirm STK request as a prompt; eConfirm's txn id is the checkout id."""
+    reference = escrow.econfirm_transaction_id or result.provider_reference
+    return PaymentResponse(
+        provider=PROVIDER_ECONFIRM,
+        status=result.raw_status,
+        provider_request_id=reference,
+        merchant_request_id=reference,
+        checkout_request_id=reference,
+        customer_message=result.message or "",
+    )
+
+
 def latest_payment_prompt(db: Session, transaction_id: uuid.UUID) -> PaymentPrompt | None:
     return (
         db.execute(
@@ -162,6 +181,52 @@ def resolve_open_prompt(
     return prompt
 
 
+def _resend_via_econfirm(
+    db: Session,
+    transaction: Transaction,
+    *,
+    buyer: User,
+    econfirm_provider,
+    settings,
+    now: datetime,
+) -> PaymentPrompt:
+    """Re-sends eConfirm's own STK prompt; never the Daraja gateway (sticky custody)."""
+    escrow = db.execute(
+        select(Escrow).where(Escrow.transaction_id == transaction.id)
+    ).scalar_one_or_none()
+    if (
+        escrow is None
+        or escrow.custody_provider != PROVIDER_ECONFIRM
+        or not escrow.econfirm_transaction_id
+        or escrow.econfirm_needs_reconciliation
+    ):
+        # The escrow may or may not exist at eConfirm; no prompt until reconciled (RB-4).
+        raise PaymentResendInvalidStateError(
+            "Payment is on hold while the eConfirm escrow is reconciled."
+        )
+
+    if settings is None:
+        from app.core.settings import get_settings
+
+        settings = get_settings()
+    provider = econfirm_provider or build_econfirm_provider(settings)
+    result = request_econfirm_funding(
+        db,
+        escrow,
+        provider=provider,
+        payer_phone=buyer.mpesa_phone or buyer.phone,
+        account_reference=transaction.reference,
+    )
+    if result.outcome == CollectionOutcome.FAILED_DEFINITE:
+        prompt = record_payment_prompt(db, transaction, payment_response=None, now=now)
+        raise PaymentResendInitiationError(prompt)
+
+    audit_logger.info("payment_prompt_resent transaction_id=%s rail=econfirm", transaction.id)
+    return record_payment_prompt(
+        db, transaction, payment_response=econfirm_payment_response(escrow, result), now=now
+    )
+
+
 def resend_payment_prompt(
     db: Session,
     *,
@@ -169,8 +234,14 @@ def resend_payment_prompt(
     buyer: User,
     payment_gateway: PaymentGateway | None = None,
     now: datetime | None = None,
+    econfirm_provider=None,
+    settings=None,
 ) -> PaymentPrompt:
-    """Sends a new STK prompt for an unpaid transaction, at most once per cooldown."""
+    """Sends a new STK prompt for an unpaid transaction, at most once per cooldown.
+
+    eConfirm transactions are re-prompted through eConfirm; all others through the
+    payment gateway.
+    """
     current = now or datetime.now(UTC)
     transaction = db.get(Transaction, transaction_id)
     if transaction is None or transaction.buyer_id != buyer.id:
@@ -189,6 +260,16 @@ def resend_payment_prompt(
             previous.status = PaymentPromptStatus.FAILED.value
             previous.failure_reason = PaymentFailureReason.TIMEOUT.value
             previous.resolved_at = current
+
+    if (transaction.custody_provider or "").strip().lower() == PROVIDER_ECONFIRM:
+        return _resend_via_econfirm(
+            db,
+            transaction,
+            buyer=buyer,
+            econfirm_provider=econfirm_provider,
+            settings=settings,
+            now=current,
+        )
 
     listing = db.get(Listing, transaction.listing_id)
     gateway = payment_gateway or get_payment_gateway()

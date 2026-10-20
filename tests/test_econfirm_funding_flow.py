@@ -23,6 +23,7 @@ from app.models.escrow import Escrow
 from app.models.listing import Listing
 from app.models.money_audit_event import MoneyAuditEvent
 from app.models.notification import Notification, NotificationEventType
+from app.models.payment_prompt import PaymentPrompt
 from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User, UserRole
 from app.schemas.transaction import (
@@ -80,7 +81,15 @@ def _session() -> Session:
         column.server_default = text("'{}'")
     tables = [
         cast(Table, model.__table__)
-        for model in (User, Listing, Transaction, Notification, Escrow, MoneyAuditEvent)
+        for model in (
+            User,
+            Listing,
+            Transaction,
+            Notification,
+            Escrow,
+            MoneyAuditEvent,
+            PaymentPrompt,
+        )
     ]
     try:
         Base.metadata.create_all(engine, tables=tables)
@@ -449,7 +458,7 @@ def test_transaction_custody_migration_is_additive():
     spec = importlib.util.spec_from_file_location("m20_txn_custody", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    assert module.down_revision == "d1a73be5c820"
+    assert module.down_revision == "b5e8f1c2a904"
 
     engine = create_engine("sqlite://")
     with engine.begin() as conn:
@@ -484,3 +493,117 @@ def test_transaction_detail_response_carries_custody_provider():
     )
 
     assert detail.custody_provider == "econfirm"
+
+
+# -- payment prompts (instruction + resend) ------------------------------------------
+def _prompts(db: Session, transaction: Transaction) -> list[PaymentPrompt]:
+    return list(
+        db.execute(
+            select(PaymentPrompt)
+            .where(PaymentPrompt.transaction_id == transaction.id)
+            .order_by(PaymentPrompt.sent_at.asc())
+        )
+        .scalars()
+        .all()
+    )
+
+
+def test_econfirm_create_records_pending_stk_prompt_and_poller_resolves_it():
+    db = _session()
+    buyer, _seller, listing = _seed(db)
+    transaction = _create(
+        db, buyer, listing, settings=_settings(), provider=_Provider(), gateway=_Gateway()
+    )
+
+    (prompt,) = _prompts(db, transaction)
+    assert prompt.kind == "stk_prompt"
+    assert prompt.status == "pending"
+    assert prompt.checkout_request_id == "txn_E7LIVE"
+
+    class _Rail:
+        def get_funding_status(self, reference):
+            return CollectionResult(
+                outcome=CollectionOutcome.SUCCEEDED, provider_reference=reference, raw_status="f"
+            )
+
+    run_econfirm_funding_reconciliation(db, collection_rail=_Rail())
+    db.refresh(prompt)
+    assert prompt.status == "succeeded"
+    assert prompt.resolved_at is not None
+
+
+@pytest.mark.parametrize(
+    "provider",
+    [
+        _Provider(stk_outcome=CollectionOutcome.FAILED_DEFINITE),
+        _Provider(open_exc=EconfirmUnknownError("timeout")),
+    ],
+    ids=["stk_rejected", "open_unknown"],
+)
+def test_econfirm_initiation_failure_records_failed_prompt(provider):
+    db = _session()
+    buyer, _seller, listing = _seed(db)
+
+    with pytest.raises(PaymentInitiationError) as excinfo:
+        _create(db, buyer, listing, settings=_settings(), provider=provider, gateway=_Gateway())
+
+    (prompt,) = _prompts(db, excinfo.value.transaction)
+    assert prompt.status == "failed_to_initiate"
+
+
+def test_resend_for_econfirm_goes_through_econfirm_not_daraja():
+    from datetime import timedelta
+
+    from app.services.payment_prompts import resend_payment_prompt
+
+    db = _session()
+    buyer, _seller, listing = _seed(db)
+    provider, gateway = _Provider(), _Gateway()
+    transaction = _create(
+        db, buyer, listing, settings=_settings(), provider=provider, gateway=gateway
+    )
+
+    prompt = resend_payment_prompt(
+        db,
+        transaction_id=transaction.id,
+        buyer=buyer,
+        payment_gateway=gateway,
+        now=datetime.now(UTC) + timedelta(minutes=1),
+        econfirm_provider=provider,
+        settings=_settings(),
+    )
+
+    assert gateway.calls == []
+    assert len(provider.funding_calls) == 2
+    assert prompt.status == "pending"
+    assert prompt.checkout_request_id == "txn_E7LIVE"
+    first, second = _prompts(db, transaction)
+    assert first.status == "failed"  # superseded
+
+
+def test_resend_is_refused_while_econfirm_escrow_needs_reconciliation():
+    from datetime import timedelta
+
+    from app.services.payment_prompts import (
+        PaymentResendInvalidStateError,
+        resend_payment_prompt,
+    )
+
+    db = _session()
+    buyer, _seller, listing = _seed(db)
+    provider, gateway = _Provider(open_exc=EconfirmUnknownError("timeout")), _Gateway()
+    with pytest.raises(PaymentInitiationError) as excinfo:
+        _create(db, buyer, listing, settings=_settings(), provider=provider, gateway=gateway)
+
+    with pytest.raises(PaymentResendInvalidStateError):
+        resend_payment_prompt(
+            db,
+            transaction_id=excinfo.value.transaction.id,
+            buyer=buyer,
+            payment_gateway=gateway,
+            now=datetime.now(UTC) + timedelta(minutes=1),
+            econfirm_provider=provider,
+            settings=_settings(),
+        )
+    assert gateway.calls == []
+    assert provider.funding_calls == []

@@ -13,6 +13,7 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models.listing import Listing
+from app.models.payment_prompt import PaymentPrompt
 from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User, UserRole
 from app.models.user_session import UserSession
@@ -72,6 +73,7 @@ def db() -> Iterator[Session]:
                 cast(Table, User.__table__),
                 cast(Table, Listing.__table__),
                 cast(Table, Transaction.__table__),
+                cast(Table, PaymentPrompt.__table__),
             ],
         )
     finally:

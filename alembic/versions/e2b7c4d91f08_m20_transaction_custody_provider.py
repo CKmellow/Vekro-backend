@@ -5,7 +5,7 @@ transaction's money, exposed on the API so the UI never presents a simulated
 escrow as real money (Hard Rule 2). Existing rows default to 'simulated'.
 
 Revision ID: e2b7c4d91f08
-Revises: d1a73be5c820
+Revises: b5e8f1c2a904
 Create Date: 2026-10-20 00:00:00.000000
 
 """
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "e2b7c4d91f08"
-down_revision: Union[str, Sequence[str], None] = "d1a73be5c820"
+down_revision: Union[str, Sequence[str], None] = "b5e8f1c2a904"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

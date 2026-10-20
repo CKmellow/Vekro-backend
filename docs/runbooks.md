@@ -130,3 +130,37 @@ dedicated key, not `SECRET_KEY`).
 - The plaintext code is decrypted only for the moment of a release/reversal
   call; it is never logged, returned in an API response, cached, or written to
   the DB in clear, and it is redacted in audit events.
+
+## RB-4: eConfirm funding poller and unconfirmed escrows (M20)
+
+**Funding poller.** The app does not schedule it. Run it every 10–60 s while
+eConfirm transactions await payment (`next_poll_delay_seconds` gives the
+jittered backoff). Each run makes at most 50 GETs and skips escrows older than
+15 minutes:
+
+```bash
+.venv/bin/python -c "from app.core.settings import get_settings; \
+from app.db.session import _get_session_factory; \
+from app.services.custody.registry import build_econfirm_provider; \
+from app.services.custody.econfirm_orchestration import run_econfirm_funding_reconciliation as run; \
+db=_get_session_factory()(); print(run(db, collection_rail=build_econfirm_provider(get_settings()))); db.close()"
+```
+
+A funded escrow moves its transaction to `locked`
+(`econfirm_funding_confirmed` in the money audit).
+
+**Unconfirmed escrow (`econfirm_needs_reconciliation`).** The count is shown in
+`GET /admin/rails/health`. It means eConfirm's create returned no definite
+answer, or the process stopped mid-call. The escrow may exist at eConfirm. No
+STK was sent, and the transaction stays `awaiting_payment`.
+
+1. Find the transaction's `econfirm_open_unknown_needs_reconciliation` audit
+   event (`GET /admin/audit/money-events?action=...`).
+2. Search the eConfirm dashboard for an escrow with the description
+   `Vekro escrow <transaction_id>`.
+3. If one exists, an engineer records its id in `escrows.econfirm_transaction_id`
+   and clears the flag, with a `money_audit_events` row. The
+   `confirmation_code` cannot be recovered after create, so release and reversal
+   must then be done from the eConfirm dashboard.
+4. If none exists, leave the transaction to the payment timeout. Do **not**
+   re-open it on eConfirm automatically, because there is no idempotency key.

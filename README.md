@@ -170,17 +170,27 @@ Read this before describing Vekro as "escrow" to anyone.
 - **Simulated custody is application-enforced and not regulated.** In the default configuration (`CUSTODY_MODE=tier_2`, simulated rails) no regulated custodian holds buyer funds. "Held in escrow" means the backend's ledger and state machine refuse to release money until the workflow allows it. It is not a trust account, a licensed escrow service, or a safeguarded e-money balance.
 - `holds_funds_structurally` is reported by `GET /admin/rails/health`. It is `false` for every Tier 2 setup and must be disclosed in user-facing copy whenever it is false.
 - Tier 2 with live rails (LOOP collections and payouts, Pesapal collections) moves real money directly between parties. Custody guarantees are still only as strong as this application, its database, and its operators.
-- Tier 1 (`CUSTODY_MODE=tier_1` with `ECONFIRM_ENABLED=true`) is designed for a structural custodian, but the eConfirm adapter is a mocked HTTP contract. It has not been certified against a live eConfirm environment and is disabled by default.
+- **eConfirm (Tier 1) is a third-party escrow service, not a Vekro licence.** With `ECONFIRM_ENABLED=true`, eligible new transactions (KES `ECONFIRM_MIN_AMOUNT`–`ECONFIRM_MAX_AMOUNT`, breaker closed, keys configured) are opened as escrows on eConfirm's v1 API, and the buyer funds them through eConfirm's M-Pesa prompt. Vekro makes no claim that eConfirm or Vekro is licensed, regulated, or insured; say "held by eConfirm", not "regulated escrow". The integration is built from observed API behaviour (`docs/econfirm-api-observed.md`) and contract/failure-matrix tests; the live funding and reversal round trip is an opt-in smoke test (below) and is disabled by default.
+- Every transaction response carries `custody_provider` (`econfirm` or `simulated`). The UI must show simulated custody as simulated and never present it as money held by a custodian.
 - Live payouts are blocked unless `ENVIRONMENT=production` and `ALLOW_LIVE_PAYOUTS=true`.
-- The payment callback (`POST /transactions/payment-callback`) only advances the state machine. Escrow funding is recorded from collection rails (webhooks confirmed by server-side inquiry) or, outside production, the admin simulated force-complete control.
-- The payout executor and reconciliation are not scheduled by the app; operators run them (see `docs/runbooks.md`).
+- The payment callback (`POST /transactions/payment-callback`) only advances the state machine. Escrow funding is recorded from collection rails (webhooks confirmed by server-side inquiry) or, outside production, the admin simulated force-complete control. It never locks an eConfirm transaction: eConfirm funding is confirmed only by polling eConfirm (`run_econfirm_funding_reconciliation`).
+- The payout executor, reconciliation, and the eConfirm funding poller are not scheduled by the app; operators run them (see `docs/runbooks.md`).
 - No KYC/AML screening, licensing, chargeback handling, or consumer-protection obligations are implemented. Any production launch needs a regulated partner and legal review.
 
 Operational docs:
 
 - Incident runbooks (rail outage, UNKNOWN payout resolution, reconciliation mismatch): `docs/runbooks.md`
 - Capstone demo script (normal flow, failover, unknown outcome, duplicate funding): `docs/demo-script.md`
-- Tier switching and capability gating: `docs/custody-tiers.md`
+- Tier switching, capability gating, and the eConfirm funding flow: `docs/custody-tiers.md`
+- eConfirm observed API, status values, and HTTP failure mapping: `docs/econfirm-api-observed.md`
+
+eConfirm test layers (all offline unless noted):
+
+- Contract tests replaying the sanitised E1 captures: `tests/test_econfirm_contract.py`
+- Shared provider conformance over the real httpx transport: `tests/test_custody_provider_conformance.py`
+- Failure matrix (HTTP/network condition × operation → outcome and breaker health): `tests/test_econfirm_failure_matrix.py`
+- Funding-flow wiring (eConfirm, simulated fallback, Daraja default): `tests/test_econfirm_funding_flow.py`
+- Live smoke, opt-in: `RUN_ECONFIRM_LIVE_TESTS=1 .venv/bin/pytest -m live -k econfirm -s`. Without further variables only `ping` runs. The KES 100 fund-and-reverse round trip moves real money and also needs `ECONFIRM_LIVE_MONEY_CONFIRM=KES100`, `ECONFIRM_LIVE_PAYER_PHONE`, `ECONFIRM_LIVE_RECEIVER_PHONE`, and `ECONFIRM_FALLBACK_EMAIL`.
 
 ## Local Runbook
 
@@ -578,3 +588,8 @@ Migration notes:
 - 2026-10-12: Milestone 19 Issue [#118] SMS delivery wired into the notification lifecycle: additive migration `a7c4e2d91f35` adds `notifications.delivery_status` (`not_attempted`, `sent`, `failed`), session hooks on the app session factory send each committed notification by SMS via `AfricasTalkingSmsSender` to the recipient's phone after commit (on a separate session, so row persistence is never blocked and delivery errors never propagate), `delivered_at` is set on success, status stays `not_attempted` when `AFRICASTALKING_API_KEY` is blank, and `GET /notifications` now returns `delivery_status`.
 - 2026-10-13: Milestone 19 Issue [#119] Africa's Talking SMS contract coverage completed with fixture-backed send-response tests under `tests/fixtures/africastalking`, a skipped-by-default `pytest -m live -k africastalking` smoke test gated by `RUN_AFRICASTALKING_LIVE_TESTS`, `.env.example` smoke variable notes, and README documentation for post-commit SMS delivery plus sandbox/test-number limitations.
 - 2026-10-12: Issue [#139] Frontend integration fixes: `POST /transactions` now always charges the listing price and rejects a mismatched client `amount` with 422 (`amount` is optional); the delivery code is sent only to the buyer in every environment (notification message, SMS, `payload.delivery_code`) and never to the seller; transactions get a random non-sequential `reference` such as `VK-7K3P9Q` (migration `b8d15e3f7a42`, unique, backfilled for existing rows) returned in `TransactionResponse`.
+- 2026-10-17: Milestone 20 E1–E3 (#146–#148): eConfirm discovery probe with sanitised fixtures and `docs/econfirm-api-observed.md`; real `httpx` transport with a browser User-Agent (Cloudflare), request ids, log redaction, and breaker classification (infra failures vs 4xx validation); adapter aligned to the real v1 API (`POST /transactions`, `POST /payments/stk-push`, `GET /transactions/{id}`, exact status strings).
+- 2026-10-18: Milestone 20 E4 (#149): eConfirm release/reversal with the one-time `confirmation_code` stored Fernet-encrypted (`ECONFIRM_CODE_ENCRYPTION_KEY`, rotatable, startup guard) and decrypted only for the payout call; additive escrow custody columns.
+- 2026-10-19: Milestone 20 E5 (#150): honest custody selection (enabled, keys, breaker, amount band), sticky `escrows.custody_provider`, open-on-eConfirm with UNKNOWN → reconciliation and definite rejection → simulated fallback, and the budgeted funding poller.
+- 2026-10-20: Milestone 20 E7 (#156): custody selection wired into `POST /transactions` behind `ECONFIRM_ENABLED`. eConfirm transactions get an eConfirm escrow and STK prompt and lock only when the poller confirms funding; the Daraja callback ignores them. `transactions.custody_provider` (migration `e2b7c4d91f08`, chained after the payment-prompt migration `b5e8f1c2a904`) is returned in `TransactionResponse` and `TransactionDetailResponse`. eConfirm transactions record payment prompts like the gateway path, and resend re-prompts through eConfirm.
+- 2026-10-20: Milestone 20 E6 (#151): fixture contract tests, shared conformance over the real transport, the eConfirm failure matrix, the opt-in live smoke (`pytest -m live -k econfirm`, KES 100 round trip behind an extra confirmation variable), and custody-honesty updates to this README, the demo script, the custody-tier doc, and the runbooks.

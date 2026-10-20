@@ -208,13 +208,32 @@ The real transport (`app/services/custody/econfirm_transport.py`, built on
   is logged. Logs redact the API key (`ek_`), bearer tokens, phone numbers and
   confirmation codes.
 
-## 9. NOT yet observed (deferred past E1)
+## 8b. Failure matrix (E6)
+
+`tests/test_econfirm_failure_matrix.py` runs every adapter operation through the
+real transport for each condition below and pins both classifications:
+
+| Condition | Business outcome | Counts against breaker |
+| --- | --- | --- |
+| HTTP 400 / 401 / 404 / 422 | `FAILED_DEFINITE` (open: definite → simulated fallback allowed) | no |
+| HTTP 409 (release in progress) | `UNKNOWN` | no |
+| HTTP 429 / 500 / 502 | `UNKNOWN` | yes |
+| Cloudflare 403 (1010) | `UNKNOWN` | yes |
+| Non-JSON 2xx body | `UNKNOWN` | yes |
+| Timeout / connection error | `UNKNOWN` | yes |
+| 2xx create without an `id` | `UNKNOWN` (reconcile, never retry) | no |
+
+UNKNOWN results are never cached, so the next call goes back to the wire.
+
+## 9. NOT yet observed
 
 Real response bodies for `POST /payments/stk-push`, `POST …/release`, and
 `POST …/reversal`, and the funded/`Completed`/`payout_failed` transitions, are
-**not** captured here — the brief forbids calling them in E1. The portal-doc
-shapes are recorded in the M20 brief; they must be verified against real
-responses in E4/E6 (with the user's go-ahead and a ≤ KES 10 amount).
+**not** captured here. The adapter follows the portal-doc shapes. The opt-in
+live smoke (`RUN_ECONFIRM_LIVE_TESTS=1 pytest -m live -k econfirm -s`, with
+`ECONFIRM_LIVE_MONEY_CONFIRM=KES100`) exercises them once with KES 100 (the default
+`ECONFIRM_MIN_AMOUNT`) and reverses the funds to the payer. Run it only with an
+explicit go-ahead, then capture the bodies as fixtures here.
 
 ---
 

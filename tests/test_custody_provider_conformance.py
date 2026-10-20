@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
 
+from tests import econfirm_mock
 from tests.custody_provider_conformance import ProviderConformanceVector, run_provider_conformance
 
 
@@ -104,11 +105,9 @@ def _econfirm_envelope(data: dict, *, status_code: int = 200) -> EconfirmHttpRes
 class _EconfirmRealProtocolTransport:
     """Mocks the real v1 endpoints for the eConfirm protocol-shape check.
 
-    The shared vector-driven ``run_provider_conformance`` differentiates funding
-    outcomes via ``account_reference``, which the real ``/payments/stk-push`` does
-    not carry, so full shared-contract conformance for eConfirm is completed in
-    E6 (where the harness is made transport-agnostic). Here we assert the adapter
-    satisfies the CustodyProvider protocol on the real endpoints.
+    Asserts the adapter satisfies the CustodyProvider protocol on the real
+    endpoints. The full shared-contract run over the real httpx transport is
+    ``test_econfirm_provider_conforms_to_shared_contract_over_httpx``.
     """
 
     def __call__(self, method, url, headers, payload, timeout_seconds):
@@ -216,3 +215,69 @@ def test_econfirm_provider_satisfies_custody_protocol_on_real_endpoints() -> Non
     )
     assert release.outcome == PayoutOutcome.SUCCEEDED
     assert refund.outcome == PayoutOutcome.SUCCEEDED
+
+
+# Shared-contract scenarios for eConfirm, keyed off what the real API carries:
+# the payer phone for STK push and the purpose (sent as ``notes``) for payouts.
+_ECONFIRM_FUND_SUCCESS_PHONE = "+254700111201"
+_ECONFIRM_FUND_UNKNOWN_PHONE = "+254700111202"
+_ECONFIRM_FUND_FAILED_PHONE = "+254700111203"
+
+
+def _econfirm_conformance_handler(calls: list[tuple[str, str]]):
+    def handler(request):
+        path = request.url.path
+        payload = econfirm_mock.request_json(request)
+        calls.append((request.method, path))
+
+        if request.method == "POST" and path.endswith("/transactions"):
+            return econfirm_mock.fixture_response("create_transaction")
+        if request.method == "POST" and path.endswith("/payments/stk-push"):
+            phone = payload["payer_phone"]
+            if phone == _ECONFIRM_FUND_SUCCESS_PHONE.lstrip("+"):
+                # Synchronously funded: exercises the SUCCEEDED mapping.
+                return econfirm_mock.envelope(id=payload["transaction_id"], status="Escrow Funded")
+            if phone == _ECONFIRM_FUND_UNKNOWN_PHONE.lstrip("+"):
+                return econfirm_mock.envelope(id=payload["transaction_id"], status="stk_initiated")
+            return econfirm_mock.error_envelope(422, "Invalid payer phone")
+        if request.method == "POST" and path.endswith(("/release", "/reversal")):
+            notes = payload["notes"]
+            assert payload["confirmation_code"] == "REDACTED_CODE"
+            if notes.startswith("conf-release-success") or notes.startswith("conf-idempotent"):
+                return econfirm_mock.envelope(id="txn_SAMPLE0001", status="Completed")
+            if notes.startswith("conf-release-unknown"):
+                return econfirm_mock.error_envelope(409, "Release already in progress")
+            return econfirm_mock.error_envelope(422, "Not releasable")
+        if request.method == "GET":
+            return econfirm_mock.fixture_response("get_transaction")
+        raise AssertionError(f"unexpected request {request.method} {path}")
+
+    return handler
+
+
+def test_econfirm_provider_conforms_to_shared_contract_over_httpx() -> None:
+    calls: list[tuple[str, str]] = []
+    provider = econfirm_mock.build_provider(_econfirm_conformance_handler(calls))
+
+    run_provider_conformance(
+        provider,
+        vector=ProviderConformanceVector(
+            success_funding_reference="conf-fund-success",
+            unknown_funding_reference="conf-fund-unknown",
+            failed_funding_reference="conf-fund-failed",
+            success_release_purpose="conf-release-success",
+            idempotent_release_purpose="conf-idempotent",
+            unknown_release_purpose="conf-release-unknown",
+            failed_refund_purpose="conf-refund-failed",
+            success_funding_phone=_ECONFIRM_FUND_SUCCESS_PHONE,
+            unknown_funding_phone=_ECONFIRM_FUND_UNKNOWN_PHONE,
+            failed_funding_phone=_ECONFIRM_FUND_FAILED_PHONE,
+            receiver_phone="+254700111333",
+            confirmation_code="REDACTED_CODE",
+        ),
+    )
+
+    # The idempotent release is served from the adapter cache: one HTTP call only.
+    release_calls = [c for c in calls if c[1].endswith("/release")]
+    assert len(release_calls) == 3  # success, idempotent (once), unknown
+    assert ("POST", "/api/v1/transactions/txn_SAMPLE0001/reversal") in calls

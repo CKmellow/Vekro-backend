@@ -47,6 +47,11 @@ from app.services.deadlines import (
 )
 from app.services.escrow_service import EscrowService
 from app.services.payment import PaymentGateway, PaymentRequest, get_payment_gateway
+from app.services.payment_prompts import (
+    econfirm_payment_response,
+    record_payment_prompt,
+    resolve_open_prompt,
+)
 
 audit_logger = logging.getLogger("app.transactions.audit")
 
@@ -240,6 +245,7 @@ def _fund_via_econfirm(
     # Persist the open result (provider id + encrypted code) before money can move.
     db.commit()
     if escrow.econfirm_needs_reconciliation:
+        record_payment_prompt(db, transaction, payment_response=None)
         db.refresh(transaction)
         raise PaymentInitiationError(
             "eConfirm escrow creation is unconfirmed; payment prompt withheld "
@@ -262,10 +268,14 @@ def _fund_via_econfirm(
         result.outcome.value,
     )
     if result.outcome == CollectionOutcome.FAILED_DEFINITE:
+        record_payment_prompt(db, transaction, payment_response=None)
         raise PaymentInitiationError(
             "eConfirm rejected the payment prompt.",
             transaction=transaction,
         )
+    record_payment_prompt(
+        db, transaction, payment_response=econfirm_payment_response(escrow, result)
+    )
     return PROVIDER_ECONFIRM
 
 
@@ -343,21 +353,24 @@ def create_transaction(
 
     gateway = payment_gateway or get_payment_gateway()
     try:
-        gateway.initiate_stk_push(
+        payment_response = gateway.initiate_stk_push(
             PaymentRequest(
                 transaction_id=str(transaction.id),
                 amount=f"{transaction.amount:.2f}",
-                phone_number=buyer.mpesa_phone,
+                # Buyers register with one phone; it is also their M-Pesa number unless set apart.
+                phone_number=buyer.mpesa_phone or buyer.phone,
                 account_reference=str(transaction.id),
                 transaction_desc=f"Escrow payment for listing {listing.id}",
             )
         )
     except Exception as exc:  # pragma: no cover
+        record_payment_prompt(db, transaction, payment_response=None)
         raise PaymentInitiationError(
             "Failed to initiate payment transport.",
             transaction=transaction,
         ) from exc
 
+    record_payment_prompt(db, transaction, payment_response=payment_response)
     return transaction
 
 
@@ -1087,6 +1100,10 @@ def confirm_payment_callback(
             payload.result_code,
             payload.result_desc or "",
         )
+        if transaction.status == TransactionStatus.AWAITING_PAYMENT:
+            # Tell the buyer why it failed (cancelled, wrong PIN, ...); the state does not change.
+            if resolve_open_prompt(db, transaction.id, result_code=payload.result_code):
+                db.commit()
         return PaymentCallbackResult(
             transaction=transaction,
             transitioned=False,
@@ -1123,6 +1140,7 @@ def confirm_payment_callback(
 
     transaction.status = TransactionStatus.LOCKED
     transaction.locked_at = datetime.now(UTC)
+    resolve_open_prompt(db, transaction.id, result_code=0, now=transaction.locked_at)
     _create_locked_notifications(
         db,
         transaction=transaction,
@@ -1174,6 +1192,7 @@ def lock_transaction_after_custody_funding(
     transaction.status = TransactionStatus.LOCKED
     transaction.locked_at = datetime.now(UTC)
     db.add(transaction)
+    resolve_open_prompt(db, transaction.id, result_code=0, now=transaction.locked_at)
     _create_locked_notifications(
         db,
         transaction=transaction,

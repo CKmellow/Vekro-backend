@@ -404,7 +404,7 @@
           "Transactions"
         ],
         "summary": "Create transaction (buyer only)",
-        "description": "Create an escrow transaction from a listing as the authenticated buyer. New transactions start in awaiting_payment state.",
+        "description": "Create an escrow transaction from a listing as the authenticated buyer. New transactions start in awaiting_payment state. The response carries the payment instruction: an STK prompt sent to the buyer's phone, or a checkout URL to redirect to.",
         "operationId": "create_buyer_transaction_transactions_post",
         "requestBody": {
           "content": {
@@ -422,13 +422,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TransactionResponse"
+                  "$ref": "#/components/schemas/TransactionCreatedResponse"
                 }
               }
             }
           },
           "202": {
-            "description": "Transaction created, but payment initiation transport failed. Client should continue with this transaction id."
+            "description": "Transaction created, but payment initiation transport failed (payment.status is failed_to_initiate). Continue with this transaction id and offer a resend."
           },
           "401": {
             "description": "Authentication required."
@@ -494,6 +494,58 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/transactions/{transaction_id}/payment/resend": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Resend the payment prompt (buyer only)",
+        "description": "Send a new STK prompt for an unpaid transaction, for example after the buyer cancelled or missed it. At most one prompt per cooldown (see resend_available_at).",
+        "operationId": "resend_transaction_payment_prompt_transactions__transaction_id__payment_resend_post",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentInstructionResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "A prompt was recorded but sending it failed (failed_to_initiate)."
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not a buyer."
+          },
+          "404": {
+            "description": "Transaction not found, or the caller is not its buyer."
+          },
+          "422": {
+            "description": "Transaction is not awaiting payment."
+          },
+          "429": {
+            "description": "Too soon after the last prompt; see the Retry-After header."
           }
         }
       }
@@ -3140,6 +3192,88 @@
         "title": "PaymentCallbackResponse",
         "description": "Outcome of callback processing and resulting transaction state."
       },
+      "PaymentInstructionResponse": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "STK_PROMPT",
+              "REDIRECT"
+            ],
+            "title": "Kind",
+            "description": "STK_PROMPT: a PIN prompt was sent to the buyer's phone. REDIRECT: send the buyer to redirect_url."
+          },
+          "redirect_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Redirect Url",
+            "description": "Only when kind is REDIRECT."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "succeeded",
+              "failed",
+              "expired",
+              "failed_to_initiate"
+            ],
+            "title": "Status",
+            "description": "expired: no answer before expires_at. Success is only final when the transaction status is locked."
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "cancelled",
+                  "wrong_pin",
+                  "insufficient_funds",
+                  "timeout",
+                  "provider_error"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason",
+            "description": "Why the prompt failed, when status is failed."
+          },
+          "sent_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Sent At"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "resend_available_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Resend Available At",
+            "description": "Earliest time POST /transactions/{id}/payment/resend is accepted."
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "status",
+          "sent_at",
+          "expires_at",
+          "resend_available_at"
+        ],
+        "title": "PaymentInstructionResponse",
+        "description": "What the buyer was asked to do to pay, and how it went. Names no payment provider."
+      },
       "PayoutOutcome": {
         "type": "string",
         "enum": [
@@ -3404,6 +3538,81 @@
         "title": "SellerResolutionActionRequest",
         "description": "Seller-selected resolution action in dispute flow."
       },
+      "TransactionCreatedResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "reference": {
+            "type": "string",
+            "title": "Reference",
+            "description": "Random, non-sequential human-readable reference, for example VK-7K3P9Q."
+          },
+          "listing_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Listing Id"
+          },
+          "buyer_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Buyer Id"
+          },
+          "seller_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Seller Id"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TransactionStatus"
+          },
+          "custody_provider": {
+            "type": "string",
+            "enum": [
+              "econfirm",
+              "simulated"
+            ],
+            "title": "Custody Provider",
+            "description": "Who holds the money. 'econfirm' is real Tier-1 custody; 'simulated' is the Vekro-side simulated ledger and must never be presented as real money.",
+            "default": "simulated"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "payment": {
+            "$ref": "#/components/schemas/PaymentInstructionResponse"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "reference",
+          "listing_id",
+          "buyer_id",
+          "seller_id",
+          "amount",
+          "status",
+          "created_at",
+          "updated_at",
+          "payment"
+        ],
+        "title": "TransactionCreatedResponse",
+        "description": "A new transaction and the payment prompt sent for it."
+      },
       "TransactionDeadlinesResponse": {
         "properties": {
           "dispatch_by": {
@@ -3552,6 +3761,17 @@
             "format": "date-time",
             "title": "Server Time",
             "description": "Server clock when the response was built; offset countdowns with it."
+          },
+          "payment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PaymentInstructionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest payment prompt. Shown to the buyer and admins only."
           }
         },
         "type": "object",

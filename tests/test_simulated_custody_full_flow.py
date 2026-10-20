@@ -10,6 +10,7 @@ from app.models.escrow import Escrow
 from app.models.ledger_entry import LedgerEntry
 from app.models.listing import Listing
 from app.models.notification import Notification
+from app.models.payment_prompt import PaymentPrompt
 from app.models.payout_attempt import PayoutAttempt
 from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User, UserRole
@@ -61,6 +62,7 @@ def _build_db_session() -> Session:
                 User.__table__,
                 Listing.__table__,
                 Transaction.__table__,
+                PaymentPrompt.__table__,
                 Dispute.__table__,
                 Notification.__table__,
                 Escrow.__table__,

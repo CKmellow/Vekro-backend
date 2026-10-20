@@ -51,4 +51,6 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_users_role"), table_name="users")  # type: ignore[attr-defined]
     op.drop_index(op.f("ix_users_phone"), table_name="users")  # type: ignore[attr-defined]
     op.drop_table("users")  # type: ignore[attr-defined]
+    # drop_table leaves the enum types behind on PostgreSQL; drop them so upgrade can run again.
+    sa.Enum(name="user_role").drop(op.get_bind(), checkfirst=True)
     # ### end Alembic commands ###

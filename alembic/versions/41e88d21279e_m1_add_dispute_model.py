@@ -105,4 +105,9 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_disputes_opened_by_user_id"), table_name="disputes")
     op.drop_index(op.f("ix_disputes_dispute_type"), table_name="disputes")
     op.drop_table("disputes")
+    # drop_table leaves the enum types behind on PostgreSQL; drop them so upgrade can run again.
+    sa.Enum(name="dispute_type").drop(op.get_bind(), checkfirst=True)
+    sa.Enum(name="dispute_status").drop(op.get_bind(), checkfirst=True)
+    sa.Enum(name="seller_resolution_action").drop(op.get_bind(), checkfirst=True)
+    sa.Enum(name="admin_decision").drop(op.get_bind(), checkfirst=True)
     # ### end Alembic commands ###

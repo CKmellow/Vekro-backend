@@ -89,4 +89,7 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_notifications_is_read"), table_name="notifications")
     op.drop_index(op.f("ix_notifications_event_type"), table_name="notifications")
     op.drop_table("notifications")
+    # drop_table leaves the enum types behind on PostgreSQL; drop them so upgrade can run again.
+    sa.Enum(name="notification_event_type").drop(op.get_bind(), checkfirst=True)
+    sa.Enum(name="notification_channel").drop(op.get_bind(), checkfirst=True)
     # ### end Alembic commands ###

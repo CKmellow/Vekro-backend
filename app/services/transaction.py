@@ -2,7 +2,7 @@ import logging
 import secrets
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -22,6 +22,13 @@ from app.models.user import User, UserRole
 from app.schemas.transaction import (
     CreateTransactionRequest,
     PaymentCallbackRequest,
+)
+from app.services.deadlines import (
+    AT_DOOR_INSPECTION_WINDOW,
+    HOLD_WINDOW,
+    NO_DISPATCH_WINDOW,
+    RETURN_RECEIPT_WINDOW,
+    RETURN_SEND_WINDOW,
 )
 from app.services.escrow_service import EscrowService
 from app.services.payment import PaymentGateway, PaymentRequest, get_payment_gateway
@@ -1767,11 +1774,11 @@ def run_timeout_jobs(
     now: datetime | None = None,
 ) -> TimeoutSweepResult:
     current_time = now or datetime.now(UTC)
-    at_door_cutoff = current_time - timedelta(hours=1)
-    no_dispatch_cutoff = current_time - timedelta(hours=48)
-    hold_auto_release_cutoff = current_time - timedelta(hours=24)
-    dispute_buyer_sent_back_cutoff = current_time - timedelta(days=3)
-    seller_received_cutoff = current_time - timedelta(days=3)
+    at_door_cutoff = current_time - AT_DOOR_INSPECTION_WINDOW
+    no_dispatch_cutoff = current_time - NO_DISPATCH_WINDOW
+    hold_auto_release_cutoff = current_time - HOLD_WINDOW
+    dispute_buyer_sent_back_cutoff = current_time - RETURN_SEND_WINDOW
+    seller_received_cutoff = current_time - RETURN_RECEIPT_WINDOW
 
     at_door_due = _get_due_at_door_timeout_transactions(db, at_door_cutoff)
     locked_due = _get_due_locked_timeout_transactions(db, no_dispatch_cutoff)

@@ -1786,7 +1786,10 @@ def submit_buyer_reconfirmation(
             dispute.escalated_at = now
 
     if dispute is not None and notes:
-        dispute.seller_resolution_notes = notes.strip()
+        # The buyer's words; the seller's resolution note stays as they wrote it.
+        evidence = dict(dispute.evidence or {})
+        evidence["buyer_reconfirm_notes"] = notes.strip()
+        dispute.evidence = evidence
 
     _create_buyer_reconfirmation_notifications(
         db,

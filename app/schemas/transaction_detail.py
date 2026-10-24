@@ -6,11 +6,13 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.core.phone import mask_phone
+from app.models.dispute import AdminDecision, DisputeStatus, SellerResolutionAction
 from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User, UserRole
 from app.schemas.payment_prompt import PaymentInstructionResponse
 from app.schemas.transaction import TransactionResponse
 from app.services.deadlines import deadlines_for
+from app.services.dispute_summary import DisputeSummary
 from app.services.transaction_list import OrderListItem, OrderPage, OrderSegment
 from app.services.transaction_payout import SellerPayout, SellerPayoutStatus
 from app.services.transaction_read import TransactionView
@@ -74,6 +76,31 @@ class DoorRejection(BaseModel):
     note: str | None
 
 
+class DisputeSummaryResponse(BaseModel):
+    """The dispute behind this order. The raw evidence blob is never included."""
+
+    id: uuid.UUID
+    status: DisputeStatus
+    category: str = Field(
+        description="not_working, damaged_on_arrival, missing_parts, not_as_described or other."
+    )
+    description: str = Field(description="The buyer's own words.")
+    opened_at: datetime
+    escalated_at: datetime | None
+    resolved_at: datetime | None
+    seller_action: SellerResolutionAction | None
+    seller_notes: str | None = Field(description="The seller's note with their chosen action.")
+    buyer_notes: str | None = Field(description="The buyer's note when reconfirming.")
+    reconfirm_rejections: int = Field(description='How many times the buyer said "not fixed".')
+    buyer_confirmed_resolved: bool
+    seller_confirmed_resolved: bool
+    admin_decision: AdminDecision | None
+
+    @classmethod
+    def from_summary(cls, summary: DisputeSummary) -> "DisputeSummaryResponse":
+        return cls(**summary.__dict__)
+
+
 class SellerPayoutResponse(BaseModel):
     """Where the seller's money is for this order."""
 
@@ -119,6 +146,9 @@ class TransactionDetailResponse(TransactionResponse):
     payout: SellerPayoutResponse | None = Field(
         default=None, description="The seller's payout. Shown to the seller and admins only."
     )
+    dispute: DisputeSummaryResponse | None = Field(
+        default=None, description="The dispute behind this order, when there is one."
+    )
 
     @classmethod
     def from_view(
@@ -126,6 +156,7 @@ class TransactionDetailResponse(TransactionResponse):
         view: TransactionView,
         payment: PaymentInstructionResponse | None = None,
         payout: SellerPayout | None = None,
+        dispute: DisputeSummary | None = None,
     ) -> "TransactionDetailResponse":
         base = TransactionResponse.model_validate(view.transaction)
         return cls(
@@ -143,6 +174,7 @@ class TransactionDetailResponse(TransactionResponse):
             deadlines=TransactionDeadlinesResponse.for_transaction(view.transaction),
             server_time=datetime.now(UTC),
             payment=payment if view.viewer_role != UserRole.SELLER else None,
+            dispute=DisputeSummaryResponse.from_summary(dispute) if dispute else None,
             payout=(
                 SellerPayoutResponse.from_payout(payout)
                 if payout is not None and view.viewer_role != UserRole.BUYER
@@ -194,6 +226,9 @@ class TransactionSummaryResponse(BaseModel):
         description="The other party: the buyer for a seller, the seller for a buyer."
     )
     deadlines: TransactionDeadlinesResponse
+    dispute_category: str | None = Field(
+        default=None, description="The category of the order's latest dispute, if any."
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -218,6 +253,7 @@ class TransactionSummaryResponse(BaseModel):
             ),
             counterpart=_party(item.counterpart),
             deadlines=TransactionDeadlinesResponse.for_transaction(transaction),
+            dispute_category=item.dispute_category,
             created_at=transaction.created_at,
             updated_at=transaction.updated_at,
         )

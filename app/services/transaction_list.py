@@ -11,6 +11,7 @@ from app.models.listing import Listing
 from app.models.listing_photo import ListingPhoto
 from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User, UserRole
+from app.services.dispute_summary import latest_categories
 
 
 class OrderListForbiddenError(Exception):
@@ -77,6 +78,7 @@ class OrderListItem:
     listing: Listing
     counterpart: User
     cover_photo_id: uuid.UUID | None
+    dispute_category: str | None = None
 
 
 @dataclass(frozen=True)
@@ -170,6 +172,7 @@ def list_orders_for_viewer(
         ).all():
             covers[listing_id] = photo_id  # lowest position wins (written last)
 
+    categories = latest_categories(db, {row.Transaction.id for row in rows})
     items = [
         OrderListItem(
             transaction=row.Transaction,
@@ -182,6 +185,7 @@ def list_orders_for_viewer(
                 )
             ],
             cover_photo_id=covers.get(row.Listing.id),
+            dispute_category=categories.get(row.Transaction.id),
         )
         for row in rows
     ]

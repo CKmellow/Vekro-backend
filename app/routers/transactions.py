@@ -32,6 +32,7 @@ from app.schemas.transaction_detail import (
     TransactionDetailResponse,
     TransactionListResponse,
 )
+from app.services.dispute_summary import dispute_summary
 from app.services.payment_prompts import (
     PaymentResendInitiationError,
     PaymentResendInvalidStateError,
@@ -324,6 +325,7 @@ def get_transaction(
         payout=(
             seller_payout(db, view.transaction) if view.viewer_role != UserRole.BUYER else None
         ),
+        dispute=dispute_summary(db, view.transaction.id),
     )
 
 

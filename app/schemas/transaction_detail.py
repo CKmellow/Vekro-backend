@@ -259,3 +259,27 @@ class TransactionListResponse(BaseModel):
             status_counts={status.value: n for status, n in page.status_counts.items()},
             server_time=datetime.now(UTC),
         )
+
+
+class MoneyTotal(BaseModel):
+    amount: Decimal
+    orders: int
+
+
+class OrderRef(BaseModel):
+    id: uuid.UUID
+    reference: str
+
+
+class SellerSummaryResponse(BaseModel):
+    """Money totals for the seller dashboard. Months are calendar months in EAT."""
+
+    in_escrow: MoneyTotal = Field(description="Paid and not yet settled, including disputes.")
+    released_this_month: MoneyTotal
+    released_last_month: MoneyTotal
+    awaiting_dispatch: int
+    open_issues: int
+    next_release: OrderRef | None = Field(
+        description="The held order whose 24-hour hold ends first, if any."
+    )
+    server_time: datetime

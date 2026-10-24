@@ -1,6 +1,7 @@
 import hmac
 import logging
 import uuid
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
@@ -24,6 +25,9 @@ from app.schemas.transaction import (
     TransactionResponse,
 )
 from app.schemas.transaction_detail import (
+    MoneyTotal,
+    OrderRef,
+    SellerSummaryResponse,
     TimelineEventResponse,
     TransactionDetailResponse,
     TransactionListResponse,
@@ -75,6 +79,7 @@ from app.services.transaction_list import (
 )
 from app.services.transaction_payout import seller_payout
 from app.services.transaction_read import TransactionNotVisibleError, get_transaction_for_viewer
+from app.services.transaction_summary import SummaryForbiddenError, seller_summary
 from app.services.transaction_timeline import get_transaction_timeline
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
@@ -241,6 +246,46 @@ def list_my_transactions(
     except OrderListForbiddenError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     return TransactionListResponse.from_page(result)
+
+
+@router.get(
+    "/summary",
+    response_model=SellerSummaryResponse,
+    summary="Seller dashboard totals",
+    description=(
+        "Money in escrow, released this and last month (calendar months in EAT), orders awaiting "
+        "dispatch, open issues and the next order due to be paid out. Sellers only."
+    ),
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
+        status.HTTP_403_FORBIDDEN: {"description": "Only sellers have a dashboard."},
+    },
+)
+def get_seller_summary(
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> SellerSummaryResponse:
+    try:
+        result = seller_summary(db, seller=current_user)
+    except SummaryForbiddenError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+    def money(total) -> MoneyTotal:
+        return MoneyTotal(amount=total.amount, orders=total.orders)
+
+    return SellerSummaryResponse(
+        in_escrow=money(result.in_escrow),
+        released_this_month=money(result.released_this_month),
+        released_last_month=money(result.released_last_month),
+        awaiting_dispatch=result.awaiting_dispatch,
+        open_issues=result.open_issues,
+        next_release=(
+            OrderRef(id=result.next_release[0], reference=result.next_release[1])
+            if result.next_release
+            else None
+        ),
+        server_time=datetime.now(UTC),
+    )
 
 
 @router.get(

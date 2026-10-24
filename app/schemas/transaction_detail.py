@@ -6,10 +6,12 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.core.phone import mask_phone
+from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User, UserRole
 from app.schemas.payment_prompt import PaymentInstructionResponse
 from app.schemas.transaction import TransactionResponse
 from app.services.deadlines import deadlines_for
+from app.services.transaction_list import OrderListItem, OrderPage, OrderSegment
 from app.services.transaction_read import TransactionView
 
 
@@ -52,6 +54,17 @@ class TransactionDeadlinesResponse(BaseModel):
         description="return_in_transit: the seller must confirm receipt by then.",
     )
 
+    @classmethod
+    def for_transaction(cls, transaction: Transaction) -> "TransactionDeadlinesResponse":
+        deadlines = deadlines_for(transaction)
+        return cls(
+            dispatch_by=deadlines.dispatch_by,
+            inspect_by=deadlines.inspect_by,
+            hold_until=deadlines.hold_until,
+            return_send_by=deadlines.return_send_by,
+            return_confirm_by=deadlines.return_confirm_by,
+        )
+
 
 class DoorRejection(BaseModel):
     """Why the buyer rejected the item at the door."""
@@ -85,7 +98,6 @@ class TransactionDetailResponse(TransactionResponse):
         view: TransactionView,
         payment: PaymentInstructionResponse | None = None,
     ) -> "TransactionDetailResponse":
-        deadlines = deadlines_for(view.transaction)
         base = TransactionResponse.model_validate(view.transaction)
         return cls(
             **base.model_dump(),
@@ -99,13 +111,7 @@ class TransactionDetailResponse(TransactionResponse):
             ),
             buyer=_party(view.buyer),
             seller=_party(view.seller),
-            deadlines=TransactionDeadlinesResponse(
-                dispatch_by=deadlines.dispatch_by,
-                inspect_by=deadlines.inspect_by,
-                hold_until=deadlines.hold_until,
-                return_send_by=deadlines.return_send_by,
-                return_confirm_by=deadlines.return_confirm_by,
-            ),
+            deadlines=TransactionDeadlinesResponse.for_transaction(view.transaction),
             server_time=datetime.now(UTC),
             payment=payment if view.viewer_role != UserRole.SELLER else None,
             door_rejection=(
@@ -132,3 +138,90 @@ class TimelineEventResponse(BaseModel):
     at: datetime
     title: str
     description: str
+
+
+class TransactionSummaryListing(BaseModel):
+    id: uuid.UUID
+    title: str
+    is_serialized: bool
+    photo_url: str | None = Field(description="The listing's cover photo, when it has one.")
+
+
+class TransactionSummaryResponse(BaseModel):
+    """One row of the caller's order list."""
+
+    id: uuid.UUID
+    reference: str
+    status: TransactionStatus
+    amount: Decimal
+    viewer_role: UserRole
+    listing: TransactionSummaryListing
+    counterpart: TransactionParty = Field(
+        description="The other party: the buyer for a seller, the seller for a buyer."
+    )
+    deadlines: TransactionDeadlinesResponse
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_item(cls, item: OrderListItem, viewer_role: UserRole) -> "TransactionSummaryResponse":
+        transaction = item.transaction
+        return cls(
+            id=transaction.id,
+            reference=transaction.reference,
+            status=transaction.status,
+            amount=transaction.amount,
+            viewer_role=viewer_role,
+            listing=TransactionSummaryListing(
+                id=item.listing.id,
+                title=item.listing.title,
+                is_serialized=item.listing.is_serialized,
+                photo_url=(
+                    f"/listings/{item.listing.id}/photos/{item.cover_photo_id}"
+                    if item.cover_photo_id
+                    else None
+                ),
+            ),
+            counterpart=_party(item.counterpart),
+            deadlines=TransactionDeadlinesResponse.for_transaction(transaction),
+            created_at=transaction.created_at,
+            updated_at=transaction.updated_at,
+        )
+
+
+class OrderSegmentCounts(BaseModel):
+    """How many of the caller's orders are in each list segment."""
+
+    needs_action: int
+    in_transit: int
+    held: int
+    completed: int
+    issues: int
+
+
+class TransactionListResponse(BaseModel):
+    """One page of the caller's orders, with counts across all of them."""
+
+    items: list[TransactionSummaryResponse]
+    total: int = Field(description="Orders matching the filters.")
+    page: int
+    page_size: int
+    counts: OrderSegmentCounts = Field(description="Per segment, before filters.")
+    status_counts: dict[str, int] = Field(
+        description="Per transaction status, before filters. Missing statuses are 0."
+    )
+    server_time: datetime = Field(description="Server clock; offset countdowns with it.")
+
+    @classmethod
+    def from_page(cls, page: OrderPage) -> "TransactionListResponse":
+        return cls(
+            items=[TransactionSummaryResponse.from_item(i, page.viewer_role) for i in page.items],
+            total=page.total,
+            page=page.page,
+            page_size=page.page_size,
+            counts=OrderSegmentCounts(
+                **{segment.value: page.segment_counts[segment] for segment in OrderSegment}
+            ),
+            status_counts={status.value: n for status, n in page.status_counts.items()},
+            server_time=datetime.now(UTC),
+        )

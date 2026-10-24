@@ -57,17 +57,81 @@ class ListingContent:
     completed_sales: int
 
 
-def listing_status(db: Session, listing_id: uuid.UUID) -> str:
-    statuses = set(
-        db.execute(select(Transaction.status).where(Transaction.listing_id == listing_id))
-        .scalars()
-        .all()
-    )
+LISTING_STATUSES = ("active", "awaiting_payment", "sold")
+
+
+@dataclass(frozen=True)
+class ListingPage:
+    items: list[Listing]
+    total: int
+    page: int
+    page_size: int
+    counts: dict[str, int]
+
+
+def _status_from(statuses: set[TransactionStatus]) -> str:
     if statuses - UNPAID_STATUSES - REFUNDED_STATUSES:
         return "sold"
     if statuses & UNPAID_STATUSES:
         return "awaiting_payment"
     return "active"
+
+
+def listing_status(db: Session, listing_id: uuid.UUID) -> str:
+    return _status_from(
+        set(
+            db.execute(select(Transaction.status).where(Transaction.listing_id == listing_id))
+            .scalars()
+            .all()
+        )
+    )
+
+
+def list_seller_listings(
+    db: Session,
+    *,
+    seller: User,
+    status: str | None = None,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> ListingPage:
+    """One page of the seller's listings, newest first. Counts cover all of them, before filters."""
+    listings = list(
+        db.execute(
+            select(Listing)
+            .where(Listing.seller_id == seller.id)
+            .order_by(Listing.created_at.desc(), Listing.id.desc())
+        )
+        .scalars()
+        .all()
+    )
+    by_listing: dict[uuid.UUID, set[TransactionStatus]] = {}
+    for listing_id, tx_status in db.execute(
+        select(Transaction.listing_id, Transaction.status).where(Transaction.seller_id == seller.id)
+    ).all():
+        by_listing.setdefault(listing_id, set()).add(tx_status)
+    statuses = {listing.id: _status_from(by_listing.get(listing.id, set())) for listing in listings}
+
+    counts = {key: 0 for key in LISTING_STATUSES}
+    for value in statuses.values():
+        counts[value] += 1
+
+    needle = (q or "").strip().lower()
+    shown = [
+        listing
+        for listing in listings
+        if (status is None or statuses[listing.id] == status)
+        and (not needle or needle in listing.title.lower())
+    ]
+    start = (page - 1) * page_size
+    return ListingPage(
+        items=shown[start : start + page_size],
+        total=len(shown),
+        page=page,
+        page_size=page_size,
+        counts=counts,
+    )
 
 
 def listing_is_sold(db: Session, listing_id: uuid.UUID) -> bool:

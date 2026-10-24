@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
@@ -27,6 +28,22 @@ class SmsSender(Protocol):
 
 
 SenderProvider = Callable[[], SmsSender | None]
+# Runs a delivery job: inline (tests, scripts) or on a background thread (the app).
+Dispatcher = Callable[[Callable[[], None]], None]
+
+_executor: ThreadPoolExecutor | None = None
+
+
+def run_inline(job: Callable[[], None]) -> None:
+    job()
+
+
+def run_in_background(job: Callable[[], None]) -> None:
+    """Sends after the response: the gateway can be slow, and buyers shouldn't wait on it."""
+    global _executor
+    if _executor is None:
+        _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="notification-sms")
+    _executor.submit(job)
 
 
 @dataclass(frozen=True)
@@ -109,6 +126,7 @@ def install_notification_sms_hooks(
     session_factory: sessionmaker,
     *,
     sender_provider: SenderProvider = default_sender_provider,
+    dispatch: Dispatcher = run_inline,
 ) -> None:
     if getattr(session_factory, _HOOKS_INSTALLED_KEY, False):
         return
@@ -129,16 +147,20 @@ def install_notification_sms_hooks(
         ids = session.info.pop(_PENDING_KEY, None)
         if not ids:
             return
-        # The committing session cannot run SQL inside after_commit.
-        delivery_db = session_factory()
-        try:
-            deliver_notification_sms(delivery_db, ids, sender=sender_provider())
-        except Exception as exc:
-            delivery_db.rollback()
-            delivery_logger.warning(
-                "notification_sms_delivery_failed count=%s error_type=%s",
-                len(ids),
-                type(exc).__name__,
-            )
-        finally:
-            delivery_db.close()
+        dispatch(lambda: _deliver(session_factory, ids, sender_provider))
+
+
+def _deliver(session_factory: sessionmaker, ids: list, sender_provider: SenderProvider) -> None:
+    # The committing session cannot run SQL inside after_commit, so delivery uses its own.
+    delivery_db = session_factory()
+    try:
+        deliver_notification_sms(delivery_db, ids, sender=sender_provider())
+    except Exception as exc:
+        delivery_db.rollback()
+        delivery_logger.warning(
+            "notification_sms_delivery_failed count=%s error_type=%s",
+            len(ids),
+            type(exc).__name__,
+        )
+    finally:
+        delivery_db.close()

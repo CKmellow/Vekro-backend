@@ -3195,6 +3195,133 @@
         ],
         "title": "DisputeStatus"
       },
+      "DisputeSummaryResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DisputeStatus"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "description": "not_working, damaged_on_arrival, missing_parts, not_as_described or other."
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "The buyer's own words."
+          },
+          "opened_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Opened At"
+          },
+          "escalated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalated At"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "seller_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SellerResolutionAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seller_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seller Notes",
+            "description": "The seller's note with their chosen action."
+          },
+          "buyer_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buyer Notes",
+            "description": "The buyer's note when reconfirming."
+          },
+          "reconfirm_rejections": {
+            "type": "integer",
+            "title": "Reconfirm Rejections",
+            "description": "How many times the buyer said \"not fixed\"."
+          },
+          "buyer_confirmed_resolved": {
+            "type": "boolean",
+            "title": "Buyer Confirmed Resolved"
+          },
+          "seller_confirmed_resolved": {
+            "type": "boolean",
+            "title": "Seller Confirmed Resolved"
+          },
+          "admin_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "category",
+          "description",
+          "opened_at",
+          "escalated_at",
+          "resolved_at",
+          "seller_action",
+          "seller_notes",
+          "buyer_notes",
+          "reconfirm_rejections",
+          "buyer_confirmed_resolved",
+          "seller_confirmed_resolved",
+          "admin_decision"
+        ],
+        "title": "DisputeSummaryResponse",
+        "description": "The dispute behind this order. The raw evidence blob is never included."
+      },
       "DisputeTimelineEventResponse": {
         "properties": {
           "source": {
@@ -4754,6 +4881,15 @@
         ],
         "title": "SellerPayoutStatus"
       },
+      "SellerResolutionAction": {
+        "type": "string",
+        "enum": [
+          "refund_issued",
+          "repair_shipped",
+          "replacement_shipped"
+        ],
+        "title": "SellerResolutionAction"
+      },
       "SellerResolutionActionRequest": {
         "properties": {
           "action": {
@@ -5121,6 +5257,17 @@
               }
             ],
             "description": "The seller's payout. Shown to the seller and admins only."
+          },
+          "dispute": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DisputeSummaryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The dispute behind this order, when there is one."
           }
         },
         "type": "object",
@@ -5425,6 +5572,18 @@
           },
           "deadlines": {
             "$ref": "#/components/schemas/TransactionDeadlinesResponse"
+          },
+          "dispute_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispute Category",
+            "description": "The category of the order's latest dispute, if any."
           },
           "created_at": {
             "type": "string",

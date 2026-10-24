@@ -25,6 +25,8 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from tests.sqlite_tables import create_disputes_table
+
 
 @compiles(JSONB, "sqlite")
 def _compile_jsonb_for_sqlite(_type, _compiler, **_kwargs) -> str:
@@ -76,6 +78,7 @@ def db() -> Iterator[Session]:
     finally:
         for column, default in originals.items():
             column.server_default = default
+    create_disputes_table(engine)
     session = sessionmaker(bind=engine, expire_on_commit=False, class_=Session)()
     try:
         yield session

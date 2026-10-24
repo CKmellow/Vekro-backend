@@ -1115,6 +1115,34 @@
         }
       }
     },
+    "/transactions/summary": {
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Seller dashboard totals",
+        "description": "Money in escrow, released this and last month (calendar months in EAT), orders awaiting dispatch, open issues and the next order due to be paid out. Sellers only.",
+        "operationId": "get_seller_summary_transactions_summary_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SellerSummaryResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Only sellers have a dashboard."
+          }
+        }
+      }
+    },
     "/transactions/{transaction_id}": {
       "get": {
         "tags": [
@@ -3955,6 +3983,25 @@
         ],
         "title": "MoneyAuditEventResponse"
       },
+      "MoneyTotal": {
+        "properties": {
+          "amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount"
+          },
+          "orders": {
+            "type": "integer",
+            "title": "Orders"
+          }
+        },
+        "type": "object",
+        "required": [
+          "amount",
+          "orders"
+        ],
+        "title": "MoneyTotal"
+      },
       "NotificationChannel": {
         "type": "string",
         "enum": [
@@ -4079,6 +4126,25 @@
         ],
         "title": "NotificationResponse",
         "description": "Notification entry returned to the authenticated user feed."
+      },
+      "OrderRef": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "reference": {
+            "type": "string",
+            "title": "Reference"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "reference"
+        ],
+        "title": "OrderRef"
       },
       "OrderSegment": {
         "type": "string",
@@ -4705,6 +4771,56 @@
         ],
         "title": "SellerResolutionActionRequest",
         "description": "Seller-selected resolution action in dispute flow."
+      },
+      "SellerSummaryResponse": {
+        "properties": {
+          "in_escrow": {
+            "$ref": "#/components/schemas/MoneyTotal",
+            "description": "Paid and not yet settled, including disputes."
+          },
+          "released_this_month": {
+            "$ref": "#/components/schemas/MoneyTotal"
+          },
+          "released_last_month": {
+            "$ref": "#/components/schemas/MoneyTotal"
+          },
+          "awaiting_dispatch": {
+            "type": "integer",
+            "title": "Awaiting Dispatch"
+          },
+          "open_issues": {
+            "type": "integer",
+            "title": "Open Issues"
+          },
+          "next_release": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OrderRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The held order whose 24-hour hold ends first, if any."
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Server Time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "in_escrow",
+          "released_this_month",
+          "released_last_month",
+          "awaiting_dispatch",
+          "open_issues",
+          "next_release",
+          "server_time"
+        ],
+        "title": "SellerSummaryResponse",
+        "description": "Money totals for the seller dashboard. Months are calendar months in EAT."
       },
       "TimelineEventResponse": {
         "properties": {

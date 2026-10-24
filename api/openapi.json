@@ -491,7 +491,7 @@
           "Notifications"
         ],
         "summary": "List notifications for current user",
-        "description": "Return notifications belonging to the authenticated user only, ordered by newest first. Supports limit/offset pagination for client polling.",
+        "description": "Return notifications belonging to the authenticated user only, ordered by newest first. Supports limit/offset pagination for client polling, an unread-only filter and a channel filter (in-app inboxes pass channel=in_app so SMS copies are not repeated).",
         "operationId": "list_current_user_notifications_notifications_get",
         "parameters": [
           {
@@ -516,6 +516,36 @@
               "default": 0,
               "title": "Offset"
             }
+          },
+          {
+            "name": "unread",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Only unread notifications.",
+              "default": false,
+              "title": "Unread"
+            },
+            "description": "Only unread notifications."
+          },
+          {
+            "name": "channel",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/NotificationChannel"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this channel.",
+              "title": "Channel"
+            },
+            "description": "Only this channel."
           }
         ],
         "responses": {
@@ -538,6 +568,104 @@
           },
           "422": {
             "description": "Pagination query parameters are invalid."
+          }
+        }
+      }
+    },
+    "/notifications/unread-count": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Count unread in-app notifications",
+        "operationId": "get_unread_count_notifications_unread_count_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnreadCountResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        }
+      }
+    },
+    "/notifications/read-all": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Mark all my notifications as read",
+        "operationId": "mark_all_read_notifications_read_all_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkAllReadResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        }
+      }
+    },
+    "/notifications/{notification_id}/read": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Mark one notification as read",
+        "description": "Idempotent: a notification already read keeps its first read_at.",
+        "operationId": "mark_one_read_notifications__notification_id__read_post",
+        "parameters": [
+          {
+            "name": "notification_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Notification Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "404": {
+            "description": "Not found, or not the caller's."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
         }
       }
@@ -3447,6 +3575,25 @@
         "title": "LoopCollectionWebhookResponse",
         "description": "Acknowledgement payload for LOOP collection callbacks."
       },
+      "MarkAllReadResponse": {
+        "properties": {
+          "updated": {
+            "type": "integer",
+            "title": "Updated"
+          },
+          "unread_count": {
+            "type": "integer",
+            "title": "Unread Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "updated",
+          "unread_count"
+        ],
+        "title": "MarkAllReadResponse",
+        "description": "How many notifications were marked read, and what is still unread (always 0)."
+      },
       "MoneyAuditEventListResponse": {
         "properties": {
           "items": {
@@ -4923,6 +5070,20 @@
         ],
         "title": "TransactionSummaryResponse",
         "description": "One row of the caller's order list."
+      },
+      "UnreadCountResponse": {
+        "properties": {
+          "unread_count": {
+            "type": "integer",
+            "title": "Unread Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "unread_count"
+        ],
+        "title": "UnreadCountResponse",
+        "description": "Unread in-app notifications, for the bell badge."
       },
       "UserRole": {
         "type": "string",

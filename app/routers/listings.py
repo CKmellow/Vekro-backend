@@ -1,7 +1,7 @@
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.auth_context import require_seller_user
@@ -10,9 +10,11 @@ from app.models.listing import Listing
 from app.models.user import User
 from app.schemas.listing import (
     CreateListingRequest,
+    ListingListResponse,
     ListingPhotoResponse,
     ListingResponse,
     ListingSellerSummary,
+    ListingStatusCounts,
 )
 from app.services.listing import (
     ListingNotFoundError,
@@ -31,6 +33,7 @@ from app.services.listing_content import (
     add_listing_photo,
     describe_listing,
     get_listing_photo,
+    list_seller_listings,
 )
 
 router = APIRouter(prefix="/listings", tags=["Listings"])
@@ -100,6 +103,41 @@ def create_seller_listing(
         ) from exc
 
     return _listing_response(db, listing)
+
+
+@router.get(
+    "",
+    response_model=ListingListResponse,
+    summary="List my listings (seller only)",
+    description=(
+        "The authenticated seller's own listings, newest first. Filter by status and title; "
+        "`counts` cover all their listings, before filters."
+    ),
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
+        status.HTTP_403_FORBIDDEN: {"description": "Authenticated user is not a seller."},
+    },
+)
+def list_my_listings(
+    current_user: Annotated[User, Depends(require_seller_user)],
+    db: Annotated[Session, Depends(get_db)],
+    status_filter: Annotated[
+        Literal["active", "awaiting_payment", "sold"] | None, Query(alias="status")
+    ] = None,
+    q: Annotated[str | None, Query(max_length=64, description="Title contains.")] = None,
+    page: Annotated[int, Query(ge=1, le=10_000)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> ListingListResponse:
+    result = list_seller_listings(
+        db, seller=current_user, status=status_filter, q=q, page=page, page_size=page_size
+    )
+    return ListingListResponse(
+        items=[_listing_response(db, listing) for listing in result.items],
+        total=result.total,
+        page=result.page,
+        page_size=result.page_size,
+        counts=ListingStatusCounts(**result.counts),
+    )
 
 
 @router.get(

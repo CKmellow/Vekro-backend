@@ -3,12 +3,13 @@ import logging
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.auth_context import CurrentUser, require_buyer_user, require_seller_user
 from app.core.settings import get_settings
 from app.db.session import get_db
+from app.models.transaction import TransactionStatus
 from app.models.user import User
 from app.schemas.payment_prompt import PaymentInstructionResponse, TransactionCreatedResponse
 from app.schemas.transaction import (
@@ -22,7 +23,11 @@ from app.schemas.transaction import (
     SellerResolutionActionRequest,
     TransactionResponse,
 )
-from app.schemas.transaction_detail import TimelineEventResponse, TransactionDetailResponse
+from app.schemas.transaction_detail import (
+    TimelineEventResponse,
+    TransactionDetailResponse,
+    TransactionListResponse,
+)
 from app.services.payment_prompts import (
     PaymentResendInitiationError,
     PaymentResendInvalidStateError,
@@ -61,6 +66,12 @@ from app.services.transaction import (
     submit_buyer_resolution_confirmation,
     submit_seller_resolution_confirmation,
     withhold_buyer_delivery_otp,
+)
+from app.services.transaction_list import (
+    OrderListForbiddenError,
+    OrderSegment,
+    OrderSort,
+    list_orders_for_viewer,
 )
 from app.services.transaction_read import TransactionNotVisibleError, get_transaction_for_viewer
 from app.services.transaction_timeline import get_transaction_timeline
@@ -183,6 +194,52 @@ def _created_response(db: Session, transaction) -> TransactionCreatedResponse:
         **TransactionResponse.model_validate(transaction).model_dump(),
         payment=payment,
     )
+
+
+@router.get(
+    "",
+    response_model=TransactionListResponse,
+    status_code=status.HTTP_200_OK,
+    summary="List my orders (buyer or seller)",
+    description=(
+        "The caller's own orders: orders they bought (buyers) or sold (sellers). Filter by list "
+        "segment, by status (repeatable) and by reference or listing title; sort and page. "
+        "`counts` and `status_counts` cover all the caller's orders, before filters."
+    ),
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
+        status.HTTP_403_FORBIDDEN: {"description": "Only buyers and sellers have orders."},
+    },
+)
+def list_my_transactions(
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    segment: Annotated[OrderSegment | None, Query(description="List segment.")] = None,
+    status_filter: Annotated[
+        list[TransactionStatus] | None,
+        Query(alias="status", description="Only these statuses (repeat the parameter)."),
+    ] = None,
+    q: Annotated[
+        str | None, Query(max_length=64, description="Reference or listing title contains.")
+    ] = None,
+    sort: Annotated[OrderSort, Query()] = OrderSort.NEWEST,
+    page: Annotated[int, Query(ge=1, le=10_000)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> TransactionListResponse:
+    try:
+        result = list_orders_for_viewer(
+            db,
+            viewer=current_user,
+            segment=segment,
+            statuses=status_filter,
+            q=q,
+            sort=sort,
+            page=page,
+            page_size=page_size,
+        )
+    except OrderListForbiddenError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    return TransactionListResponse.from_page(result)
 
 
 @router.get(

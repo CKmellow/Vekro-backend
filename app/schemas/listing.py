@@ -108,3 +108,21 @@ class ListingResponse(BaseModel):
     seller: ListingSellerSummary
     created_at: datetime
     updated_at: datetime
+
+
+class ListingStatusCounts(BaseModel):
+    """How many of the seller's listings are in each status."""
+
+    active: int
+    awaiting_payment: int
+    sold: int
+
+
+class ListingListResponse(BaseModel):
+    """One page of the seller's own listings, newest first."""
+
+    items: list[ListingResponse]
+    total: int = Field(description="Listings matching the filters.")
+    page: int
+    page_size: int
+    counts: ListingStatusCounts = Field(description="Per status, before filters.")

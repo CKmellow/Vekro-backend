@@ -166,14 +166,14 @@
         "description": "Create a listing owned by the authenticated seller. Serialized listings must satisfy unique_id and dispute policy requirements. Add photos afterwards with POST /listings/{listing_id}/photos.",
         "operationId": "create_seller_listing_listings_post",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CreateListingRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -194,6 +194,108 @@
           },
           "422": {
             "description": "Business-rule or payload validation failed."
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Listings"
+        ],
+        "summary": "List my listings (seller only)",
+        "description": "The authenticated seller's own listings, newest first. Filter by status and title; `counts` cover all their listings, before filters.",
+        "operationId": "list_my_listings_listings_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "active",
+                    "awaiting_payment",
+                    "sold"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Title contains.",
+              "title": "Q"
+            },
+            "description": "Title contains."
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not a seller."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
         }
       }
@@ -545,14 +647,14 @@
         "description": "Create an escrow transaction from a listing as the authenticated buyer. New transactions start in awaiting_payment state. The response carries the payment instruction: an STK prompt sent to the buyer's phone, or a checkout URL to redirect to.",
         "operationId": "create_buyer_transaction_transactions_post",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CreateTransactionRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -582,6 +684,135 @@
           },
           "422": {
             "description": "Business-rule or payload validation failed."
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "List my orders (buyer or seller)",
+        "description": "The caller's own orders: orders they bought (buyers) or sold (sellers). Filter by list segment, by status (repeatable) and by reference or listing title; sort and page. `counts` and `status_counts` cover all the caller's orders, before filters.",
+        "operationId": "list_my_transactions_transactions_get",
+        "parameters": [
+          {
+            "name": "segment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/OrderSegment"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "List segment.",
+              "title": "Segment"
+            },
+            "description": "List segment."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TransactionStatus"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only these statuses (repeat the parameter).",
+              "title": "Status"
+            },
+            "description": "Only these statuses (repeat the parameter)."
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Reference or listing title contains.",
+              "title": "Q"
+            },
+            "description": "Reference or listing title contains."
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/OrderSort",
+              "default": "newest"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Only buyers and sellers have orders."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
         }
       }
@@ -2829,6 +3060,44 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "ListingListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ListingResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Listings matching the filters."
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/ListingStatusCounts",
+            "description": "Per status, before filters."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "counts"
+        ],
+        "title": "ListingListResponse",
+        "description": "One page of the seller's own listings, newest first."
+      },
       "ListingPhotoResponse": {
         "properties": {
           "id": {
@@ -2994,6 +3263,30 @@
         ],
         "title": "ListingSellerSummary",
         "description": "What a buyer may see about the seller before paying."
+      },
+      "ListingStatusCounts": {
+        "properties": {
+          "active": {
+            "type": "integer",
+            "title": "Active"
+          },
+          "awaiting_payment": {
+            "type": "integer",
+            "title": "Awaiting Payment"
+          },
+          "sold": {
+            "type": "integer",
+            "title": "Sold"
+          }
+        },
+        "type": "object",
+        "required": [
+          "active",
+          "awaiting_payment",
+          "sold"
+        ],
+        "title": "ListingStatusCounts",
+        "description": "How many of the seller's listings are in each status."
       },
       "LoginRequest": {
         "properties": {
@@ -3463,6 +3756,61 @@
         ],
         "title": "NotificationResponse",
         "description": "Notification entry returned to the authenticated user feed."
+      },
+      "OrderSegment": {
+        "type": "string",
+        "enum": [
+          "needs_action",
+          "in_transit",
+          "held",
+          "completed",
+          "issues"
+        ],
+        "title": "OrderSegment"
+      },
+      "OrderSegmentCounts": {
+        "properties": {
+          "needs_action": {
+            "type": "integer",
+            "title": "Needs Action"
+          },
+          "in_transit": {
+            "type": "integer",
+            "title": "In Transit"
+          },
+          "held": {
+            "type": "integer",
+            "title": "Held"
+          },
+          "completed": {
+            "type": "integer",
+            "title": "Completed"
+          },
+          "issues": {
+            "type": "integer",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "needs_action",
+          "in_transit",
+          "held",
+          "completed",
+          "issues"
+        ],
+        "title": "OrderSegmentCounts",
+        "description": "How many of the caller's orders are in each list segment."
+      },
+      "OrderSort": {
+        "type": "string",
+        "enum": [
+          "newest",
+          "oldest",
+          "amount_desc",
+          "amount_asc"
+        ],
+        "title": "OrderSort"
       },
       "OtpGiveRequest": {
         "properties": {
@@ -4267,6 +4615,60 @@
         "title": "TransactionDetailResponse",
         "description": "One transaction as its buyer, its seller or an admin sees it."
       },
+      "TransactionListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TransactionSummaryResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Orders matching the filters."
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/OrderSegmentCounts",
+            "description": "Per segment, before filters."
+          },
+          "status_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Status Counts",
+            "description": "Per transaction status, before filters. Missing statuses are 0."
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Server Time",
+            "description": "Server clock; offset countdowns with it."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "counts",
+          "status_counts",
+          "server_time"
+        ],
+        "title": "TransactionListResponse",
+        "description": "One page of the caller's orders, with counts across all of them."
+      },
       "TransactionListingSummary": {
         "properties": {
           "id": {
@@ -4425,6 +4827,102 @@
           "resolved_split"
         ],
         "title": "TransactionStatus"
+      },
+      "TransactionSummaryListing": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "is_serialized": {
+            "type": "boolean",
+            "title": "Is Serialized"
+          },
+          "photo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Photo Url",
+            "description": "The listing's cover photo, when it has one."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "is_serialized",
+          "photo_url"
+        ],
+        "title": "TransactionSummaryListing"
+      },
+      "TransactionSummaryResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "reference": {
+            "type": "string",
+            "title": "Reference"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TransactionStatus"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount"
+          },
+          "viewer_role": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "listing": {
+            "$ref": "#/components/schemas/TransactionSummaryListing"
+          },
+          "counterpart": {
+            "$ref": "#/components/schemas/TransactionParty",
+            "description": "The other party: the buyer for a seller, the seller for a buyer."
+          },
+          "deadlines": {
+            "$ref": "#/components/schemas/TransactionDeadlinesResponse"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "reference",
+          "status",
+          "amount",
+          "viewer_role",
+          "listing",
+          "counterpart",
+          "deadlines",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "TransactionSummaryResponse",
+        "description": "One row of the caller's order list."
       },
       "UserRole": {
         "type": "string",

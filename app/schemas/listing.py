@@ -67,7 +67,7 @@ class CreateListingRequest(BaseModel):
         return normalized or None
 
 
-ListingStatus = Literal["active", "awaiting_payment", "sold"]
+ListingStatus = Literal["active", "awaiting_payment", "sold", "archived"]
 
 
 class ListingPhotoResponse(BaseModel):
@@ -116,6 +116,20 @@ class ListingStatusCounts(BaseModel):
     active: int
     awaiting_payment: int
     sold: int
+    archived: int
+
+
+class UpdateListingRequest(BaseModel):
+    """Fields to change; anything left out keeps its value. The result must pass create rules."""
+
+    title: str | None = Field(default=None, min_length=2, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
+    category: str | None = Field(default=None, max_length=64)
+    buyer_name: str | None = Field(default=None, max_length=120)
+    price: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
+    is_serialized: bool | None = None
+    unique_id: str | None = Field(default=None, max_length=128)
+    dispute_policy: dict[str, Any] | None = None
 
 
 class ListingListResponse(BaseModel):

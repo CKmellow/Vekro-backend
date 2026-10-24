@@ -57,7 +57,7 @@ class ListingContent:
     completed_sales: int
 
 
-LISTING_STATUSES = ("active", "awaiting_payment", "sold")
+LISTING_STATUSES = ("active", "awaiting_payment", "sold", "archived")
 
 
 @dataclass(frozen=True)
@@ -69,21 +69,23 @@ class ListingPage:
     counts: dict[str, int]
 
 
-def _status_from(statuses: set[TransactionStatus]) -> str:
+def _status_from(statuses: set[TransactionStatus], *, archived: bool = False) -> str:
     if statuses - UNPAID_STATUSES - REFUNDED_STATUSES:
         return "sold"
     if statuses & UNPAID_STATUSES:
         return "awaiting_payment"
-    return "active"
+    return "archived" if archived else "active"
 
 
 def listing_status(db: Session, listing_id: uuid.UUID) -> str:
+    listing = db.get(Listing, listing_id)
     return _status_from(
         set(
             db.execute(select(Transaction.status).where(Transaction.listing_id == listing_id))
             .scalars()
             .all()
-        )
+        ),
+        archived=listing is not None and listing.archived_at is not None,
     )
 
 
@@ -111,7 +113,12 @@ def list_seller_listings(
         select(Transaction.listing_id, Transaction.status).where(Transaction.seller_id == seller.id)
     ).all():
         by_listing.setdefault(listing_id, set()).add(tx_status)
-    statuses = {listing.id: _status_from(by_listing.get(listing.id, set())) for listing in listings}
+    statuses = {
+        listing.id: _status_from(
+            by_listing.get(listing.id, set()), archived=listing.archived_at is not None
+        )
+        for listing in listings
+    }
 
     counts = {key: 0 for key in LISTING_STATUSES}
     for value in statuses.values():

@@ -1,4 +1,4 @@
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Response, status
@@ -15,12 +15,18 @@ from app.schemas.listing import (
     ListingResponse,
     ListingSellerSummary,
     ListingStatusCounts,
+    UpdateListingRequest,
 )
 from app.services.listing import (
+    ListingForbiddenError,
+    ListingLockedError,
     ListingNotFoundError,
     ListingValidationError,
+    archive_listing,
     create_listing,
     get_listing_by_id,
+    restore_listing,
+    update_listing,
 )
 from app.services.listing_content import (
     MAX_PHOTO_BYTES,
@@ -122,7 +128,7 @@ def list_my_listings(
     current_user: Annotated[User, Depends(require_seller_user)],
     db: Annotated[Session, Depends(get_db)],
     status_filter: Annotated[
-        Literal["active", "awaiting_payment", "sold"] | None, Query(alias="status")
+        Literal["active", "awaiting_payment", "sold", "archived"] | None, Query(alias="status")
     ] = None,
     q: Annotated[str | None, Query(max_length=64, description="Title contains.")] = None,
     page: Annotated[int, Query(ge=1, le=10_000)] = 1,
@@ -240,3 +246,82 @@ def get_listing_photo_image(
         media_type=photo.content_type,
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )
+
+
+_OWNER_RESPONSES: dict[int | str, dict[str, Any]] = {
+    status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
+    status.HTTP_403_FORBIDDEN: {"description": "Caller is not the listing's seller."},
+    status.HTTP_404_NOT_FOUND: {"description": "Listing not found."},
+    status.HTTP_409_CONFLICT: {"description": "The listing can't change in its current status."},
+}
+
+
+def _owner_action(action) -> Listing:
+    try:
+        return action()
+    except ListingNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Listing not found.") from exc
+    except ListingForbiddenError as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except ListingLockedError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ListingValidationError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+
+@router.patch(
+    "/{listing_id}",
+    response_model=ListingResponse,
+    summary="Update a listing (owner only)",
+    description=(
+        "Change any of the create fields; the result must pass the create rules. Refused (409) "
+        "once the listing has a paid or pending order, or while it is archived."
+    ),
+    responses={
+        **_OWNER_RESPONSES,
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "The updated listing is invalid."},
+    },
+)
+def update_seller_listing(
+    listing_id: UUID,
+    payload: UpdateListingRequest,
+    current_user: Annotated[User, Depends(require_seller_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ListingResponse:
+    listing = _owner_action(lambda: update_listing(db, current_user, listing_id, payload))
+    return _listing_response(db, listing)
+
+
+@router.post(
+    "/{listing_id}/archive",
+    response_model=ListingResponse,
+    summary="Archive a listing (owner only)",
+    description=(
+        "The Trust Link stops taking payments. Idempotent. Refused (409) once the listing has a "
+        "paid or pending order."
+    ),
+    responses=_OWNER_RESPONSES,
+)
+def archive_seller_listing(
+    listing_id: UUID,
+    current_user: Annotated[User, Depends(require_seller_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ListingResponse:
+    listing = _owner_action(lambda: archive_listing(db, current_user, listing_id))
+    return _listing_response(db, listing)
+
+
+@router.post(
+    "/{listing_id}/restore",
+    response_model=ListingResponse,
+    summary="Restore an archived listing (owner only)",
+    description="The Trust Link takes payments again. Idempotent.",
+    responses=_OWNER_RESPONSES,
+)
+def restore_seller_listing(
+    listing_id: UUID,
+    current_user: Annotated[User, Depends(require_seller_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ListingResponse:
+    listing = _owner_action(lambda: restore_listing(db, current_user, listing_id))
+    return _listing_response(db, listing)

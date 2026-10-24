@@ -50,6 +50,12 @@ class Listing(Base):
         server_default=text("'{}'::jsonb"),
     )
 
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Set while the seller has archived the listing; its link takes no payments.",
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

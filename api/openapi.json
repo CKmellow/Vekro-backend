@@ -215,7 +215,8 @@
                   "enum": [
                     "active",
                     "awaiting_payment",
-                    "sold"
+                    "sold",
+                    "archived"
                   ],
                   "type": "string"
                 },
@@ -345,6 +346,63 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "Listings"
+        ],
+        "summary": "Update a listing (owner only)",
+        "description": "Change any of the create fields; the result must pass the create rules. Refused (409) once the listing has a paid or pending order, or while it is archived.",
+        "operationId": "update_seller_listing_listings__listing_id__patch",
+        "parameters": [
+          {
+            "name": "listing_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Listing Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateListingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Caller is not the listing's seller."
+          },
+          "404": {
+            "description": "Listing not found."
+          },
+          "409": {
+            "description": "The listing can't change in its current status."
+          },
+          "422": {
+            "description": "The updated listing is invalid."
+          }
+        }
       }
     },
     "/listings/{listing_id}/photos": {
@@ -471,6 +529,118 @@
           },
           "404": {
             "description": "Photo not found."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/listings/{listing_id}/archive": {
+      "post": {
+        "tags": [
+          "Listings"
+        ],
+        "summary": "Archive a listing (owner only)",
+        "description": "The Trust Link stops taking payments. Idempotent. Refused (409) once the listing has a paid or pending order.",
+        "operationId": "archive_seller_listing_listings__listing_id__archive_post",
+        "parameters": [
+          {
+            "name": "listing_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Listing Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Caller is not the listing's seller."
+          },
+          "404": {
+            "description": "Listing not found."
+          },
+          "409": {
+            "description": "The listing can't change in its current status."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/listings/{listing_id}/restore": {
+      "post": {
+        "tags": [
+          "Listings"
+        ],
+        "summary": "Restore an archived listing (owner only)",
+        "description": "The Trust Link takes payments again. Idempotent.",
+        "operationId": "restore_seller_listing_listings__listing_id__restore_post",
+        "parameters": [
+          {
+            "name": "listing_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Listing Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Caller is not the listing's seller."
+          },
+          "404": {
+            "description": "Listing not found."
+          },
+          "409": {
+            "description": "The listing can't change in its current status."
           },
           "422": {
             "description": "Validation Error",
@@ -3318,7 +3488,8 @@
             "enum": [
               "active",
               "awaiting_payment",
-              "sold"
+              "sold",
+              "archived"
             ],
             "title": "Status",
             "description": "active: open for payment. awaiting_payment: a buyer started paying. sold: paid and not refunded; new transactions are refused."
@@ -3405,13 +3576,18 @@
           "sold": {
             "type": "integer",
             "title": "Sold"
+          },
+          "archived": {
+            "type": "integer",
+            "title": "Archived"
           }
         },
         "type": "object",
         "required": [
           "active",
           "awaiting_payment",
-          "sold"
+          "sold",
+          "archived"
         ],
         "title": "ListingStatusCounts",
         "description": "How many of the seller's listings are in each status."
@@ -5084,6 +5260,113 @@
         ],
         "title": "UnreadCountResponse",
         "description": "Unread in-app notifications, for the bell badge."
+      },
+      "UpdateListingRequest": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "buyer_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buyer Name"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "is_serialized": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Serialized"
+          },
+          "unique_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unique Id"
+          },
+          "dispute_policy": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispute Policy"
+          }
+        },
+        "type": "object",
+        "title": "UpdateListingRequest",
+        "description": "Fields to change; anything left out keeps its value. The result must pass create rules."
       },
       "UserRole": {
         "type": "string",

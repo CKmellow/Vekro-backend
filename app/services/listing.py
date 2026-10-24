@@ -1,8 +1,12 @@
+from datetime import UTC, datetime
+
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.models.listing import Listing
 from app.models.user import User, UserRole
-from app.schemas.listing import CreateListingRequest
+from app.schemas.listing import CreateListingRequest, UpdateListingRequest
+from app.services.listing_content import listing_status
 
 
 class ListingValidationError(Exception):
@@ -11,6 +15,14 @@ class ListingValidationError(Exception):
 
 class ListingNotFoundError(Exception):
     pass
+
+
+class ListingForbiddenError(Exception):
+    """The caller is not the listing's seller."""
+
+
+class ListingLockedError(Exception):
+    """The listing can't change in its current status."""
 
 
 def _validate_serialized_listing(payload: CreateListingRequest) -> dict:
@@ -59,4 +71,71 @@ def get_listing_by_id(db: Session, listing_id) -> Listing:
     listing = db.get(Listing, listing_id)
     if listing is None:
         raise ListingNotFoundError("Listing not found.")
+    return listing
+
+
+def _owned_listing(db: Session, seller: User, listing_id) -> Listing:
+    listing = get_listing_by_id(db, listing_id)
+    if listing.seller_id != seller.id:
+        raise ListingForbiddenError("Only the listing's seller can change it.")
+    return listing
+
+
+def _require_unpaid(db: Session, listing: Listing) -> str:
+    status = listing_status(db, listing.id)
+    if status in {"sold", "awaiting_payment"}:
+        raise ListingLockedError("This listing has a paid or pending order, so it can't change.")
+    return status
+
+
+def update_listing(db: Session, seller: User, listing_id, payload: UpdateListingRequest) -> Listing:
+    listing = _owned_listing(db, seller, listing_id)
+    if _require_unpaid(db, listing) == "archived":
+        raise ListingLockedError("Restore this listing before editing it.")
+
+    current = {
+        "title": listing.title,
+        "description": listing.description,
+        "category": listing.category,
+        "buyer_name": listing.buyer_name,
+        "price": listing.price,
+        "is_serialized": listing.is_serialized,
+        "unique_id": listing.unique_id,
+        "dispute_policy": listing.dispute_policy or {},
+    }
+    try:
+        merged = CreateListingRequest(**{**current, **payload.model_dump(exclude_unset=True)})
+    except ValidationError as exc:
+        raise ListingValidationError(str(exc.errors()[0]["msg"])) from exc
+    dispute_policy = _validate_serialized_listing(merged)
+
+    listing.title = merged.title
+    listing.description = merged.description
+    listing.category = merged.category
+    listing.buyer_name = merged.buyer_name
+    listing.price = merged.price
+    listing.is_serialized = merged.is_serialized
+    listing.unique_id = merged.unique_id
+    listing.dispute_policy = dispute_policy
+    db.commit()
+    db.refresh(listing)
+    return listing
+
+
+def archive_listing(db: Session, seller: User, listing_id) -> Listing:
+    listing = _owned_listing(db, seller, listing_id)
+    _require_unpaid(db, listing)
+    if listing.archived_at is None:
+        listing.archived_at = datetime.now(UTC)
+        db.commit()
+        db.refresh(listing)
+    return listing
+
+
+def restore_listing(db: Session, seller: User, listing_id) -> Listing:
+    listing = _owned_listing(db, seller, listing_id)
+    if listing.archived_at is not None:
+        listing.archived_at = None
+        db.commit()
+        db.refresh(listing)
     return listing

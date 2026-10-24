@@ -327,7 +327,7 @@ def test_seller_lists_their_listings_with_status_counts(monkeypatch, db, shop) -
         "Nike Air Force 1 size 42",
         "iPhone 13, 128GB, Midnight",
     ]
-    assert body["counts"] == {"active": 1, "awaiting_payment": 1, "sold": 3}
+    assert body["counts"] == {"active": 1, "awaiting_payment": 1, "sold": 3, "archived": 0}
     assert body["total"] == 5
     assert body["items"][0]["status"] == "active"
     assert body["items"][-1]["photos"][0]["id"] == str(shop["cover"].id)

@@ -298,6 +298,8 @@ def create_transaction(
 
     if listing_is_sold(db, listing.id):
         raise TransactionValidationError("This item has already been paid for.")
+    if listing.archived_at is not None:
+        raise TransactionValidationError("This listing is no longer taking payments.")
 
     amount = Decimal(listing.price).quantize(Decimal("0.01"))
     if payload.amount is not None and Decimal(payload.amount).quantize(Decimal("0.01")) != amount:

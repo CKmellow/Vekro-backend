@@ -16,6 +16,7 @@ from app.models.notification import (
     NotificationDeliveryStatus,
     NotificationEventType,
 )
+from app.models.transaction import Transaction
 from app.models.user import User, UserRole
 from app.models.user_session import UserSession
 from app.services.auth import ActiveSessionContext
@@ -63,7 +64,9 @@ def _session_factory(sender_provider) -> sessionmaker:
     original_default = payload_column.server_default
     payload_column.server_default = text("'{}'")
     try:
-        Base.metadata.create_all(engine, tables=[User.__table__, Notification.__table__])
+        Base.metadata.create_all(
+            engine, tables=[User.__table__, Notification.__table__, Transaction.__table__]
+        )
     finally:
         payload_column.server_default = original_default
 

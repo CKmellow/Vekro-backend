@@ -1,6 +1,7 @@
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from app import main as app_main
@@ -9,6 +10,7 @@ from app.core.settings import get_settings
 from app.db.session import get_db
 from app.main import app
 from app.models.notification import Notification, NotificationChannel
+from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User, UserRole
 from app.models.user_session import UserSession
 from app.services.auth import ActiveSessionContext
@@ -184,3 +186,27 @@ def test_read_endpoints_need_a_session() -> None:
 
     assert client.get("/notifications/unread-count").status_code == 401
     assert client.post("/notifications/read-all").status_code in {401, 403}
+
+
+def test_notifications_carry_the_order_reference(monkeypatch, db) -> None:
+    me = _user(db)
+    notification = _add(db, me)
+    db.add(
+        Transaction(
+            id=notification.transaction_id,
+            reference="VK-7K3P9Q",
+            listing_id=uuid.uuid4(),
+            buyer_id=me.id,
+            seller_id=uuid.uuid4(),
+            amount=Decimal("52000.00"),
+            status=TransactionStatus.LOCKED,
+        )
+    )
+    db.commit()
+    client = _client_as(monkeypatch, db, me)
+
+    listed = client.get("/notifications").json()
+    marked = client.post(f"/notifications/{notification.id}/read").json()
+
+    assert listed[0]["transaction_reference"] == "VK-7K3P9Q"
+    assert marked["transaction_reference"] == "VK-7K3P9Q"

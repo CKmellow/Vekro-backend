@@ -37,9 +37,9 @@ def _get_session_factory():
         expire_on_commit=False,
         class_=Session,
     )
-    from app.services.notification_delivery import install_notification_sms_hooks
+    from app.services.notification_delivery import install_notification_sms_hooks, run_in_background
 
-    install_notification_sms_hooks(factory)
+    install_notification_sms_hooks(factory, dispatch=run_in_background)
     return factory
 
 

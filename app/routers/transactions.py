@@ -10,7 +10,7 @@ from app.core.auth_context import CurrentUser, require_buyer_user, require_selle
 from app.core.settings import get_settings
 from app.db.session import get_db
 from app.models.transaction import TransactionStatus
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.payment_prompt import PaymentInstructionResponse, TransactionCreatedResponse
 from app.schemas.transaction import (
     BuyerReconfirmationRequest,
@@ -73,6 +73,7 @@ from app.services.transaction_list import (
     OrderSort,
     list_orders_for_viewer,
 )
+from app.services.transaction_payout import seller_payout
 from app.services.transaction_read import TransactionNotVisibleError, get_transaction_for_viewer
 from app.services.transaction_timeline import get_transaction_timeline
 
@@ -273,7 +274,11 @@ def get_transaction(
         ) from exc
 
     return TransactionDetailResponse.from_view(
-        view, payment=_payment_instruction(db, view.transaction.id)
+        view,
+        payment=_payment_instruction(db, view.transaction.id),
+        payout=(
+            seller_payout(db, view.transaction) if view.viewer_role != UserRole.BUYER else None
+        ),
     )
 
 

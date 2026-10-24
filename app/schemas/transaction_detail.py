@@ -12,6 +12,7 @@ from app.schemas.payment_prompt import PaymentInstructionResponse
 from app.schemas.transaction import TransactionResponse
 from app.services.deadlines import deadlines_for
 from app.services.transaction_list import OrderListItem, OrderPage, OrderSegment
+from app.services.transaction_payout import SellerPayout, SellerPayoutStatus
 from app.services.transaction_read import TransactionView
 
 
@@ -73,6 +74,30 @@ class DoorRejection(BaseModel):
     note: str | None
 
 
+class SellerPayoutResponse(BaseModel):
+    """Where the seller's money is for this order."""
+
+    status: SellerPayoutStatus = Field(
+        description=(
+            "not_paid: the buyer hasn't paid. held: in escrow. in_progress: release queued or "
+            "awaiting the provider. paid_out. delayed: the provider refused; retried or handled "
+            "by support. refunded: the money went back to the buyer."
+        )
+    )
+    amount: Decimal | None = Field(description="Released to the seller (gross), once releasing.")
+    reference: str | None = Field(description="Provider reference of the succeeded release.")
+    paid_at: datetime | None = Field(description="When the release succeeded.")
+
+    @classmethod
+    def from_payout(cls, payout: SellerPayout) -> "SellerPayoutResponse":
+        return cls(
+            status=payout.status,
+            amount=payout.amount,
+            reference=payout.reference,
+            paid_at=payout.paid_at,
+        )
+
+
 class TransactionDetailResponse(TransactionResponse):
     """One transaction as its buyer, its seller or an admin sees it."""
 
@@ -91,12 +116,16 @@ class TransactionDetailResponse(TransactionResponse):
         default=None,
         description="The latest payment prompt. Shown to the buyer and admins only.",
     )
+    payout: SellerPayoutResponse | None = Field(
+        default=None, description="The seller's payout. Shown to the seller and admins only."
+    )
 
     @classmethod
     def from_view(
         cls,
         view: TransactionView,
         payment: PaymentInstructionResponse | None = None,
+        payout: SellerPayout | None = None,
     ) -> "TransactionDetailResponse":
         base = TransactionResponse.model_validate(view.transaction)
         return cls(
@@ -114,6 +143,11 @@ class TransactionDetailResponse(TransactionResponse):
             deadlines=TransactionDeadlinesResponse.for_transaction(view.transaction),
             server_time=datetime.now(UTC),
             payment=payment if view.viewer_role != UserRole.SELLER else None,
+            payout=(
+                SellerPayoutResponse.from_payout(payout)
+                if payout is not None and view.viewer_role != UserRole.BUYER
+                else None
+            ),
             door_rejection=(
                 DoorRejection(
                     reason=view.transaction.door_rejection_reason,

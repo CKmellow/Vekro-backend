@@ -4609,6 +4609,73 @@
         "title": "ReportFunctionalIssueRequest",
         "description": "Buyer dispute intake payload used during serialized hold window."
       },
+      "SellerPayoutResponse": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/SellerPayoutStatus",
+            "description": "not_paid: the buyer hasn't paid. held: in escrow. in_progress: release queued or awaiting the provider. paid_out. delayed: the provider refused; retried or handled by support. refunded: the money went back to the buyer."
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount",
+            "description": "Released to the seller (gross), once releasing."
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference",
+            "description": "Provider reference of the succeeded release."
+          },
+          "paid_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid At",
+            "description": "When the release succeeded."
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "amount",
+          "reference",
+          "paid_at"
+        ],
+        "title": "SellerPayoutResponse",
+        "description": "Where the seller's money is for this order."
+      },
+      "SellerPayoutStatus": {
+        "type": "string",
+        "enum": [
+          "not_paid",
+          "held",
+          "in_progress",
+          "paid_out",
+          "delayed",
+          "refunded"
+        ],
+        "title": "SellerPayoutStatus"
+      },
       "SellerResolutionActionRequest": {
         "properties": {
           "action": {
@@ -4915,6 +4982,17 @@
               }
             ],
             "description": "The latest payment prompt. Shown to the buyer and admins only."
+          },
+          "payout": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SellerPayoutResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The seller's payout. Shown to the seller and admins only."
           }
         },
         "type": "object",

@@ -16,6 +16,7 @@ from app.services.notification import (
     list_user_notifications,
     mark_all_notifications_read,
     mark_notification_read,
+    transaction_references,
 )
 
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
@@ -32,6 +33,12 @@ class MarkAllReadResponse(BaseModel):
 
     updated: int
     unread_count: int
+
+
+def _response(item, references: dict[uuid.UUID, str]) -> NotificationResponse:
+    response = NotificationResponse.model_validate(item)
+    response.transaction_reference = references.get(item.transaction_id)
+    return response
 
 
 @router.get(
@@ -67,7 +74,8 @@ def list_current_user_notifications(
         unread_only=unread,
         channel=channel,
     )
-    return [NotificationResponse.model_validate(item) for item in notifications]
+    references = transaction_references(db, {item.transaction_id for item in notifications})
+    return [_response(item, references) for item in notifications]
 
 
 @router.get(
@@ -120,4 +128,4 @@ def mark_one_read(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found."
         ) from exc
-    return NotificationResponse.model_validate(notification)
+    return _response(notification, transaction_references(db, {notification.transaction_id}))

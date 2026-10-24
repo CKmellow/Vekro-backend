@@ -4052,6 +4052,18 @@
             "format": "uuid",
             "title": "Transaction Id"
           },
+          "transaction_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transaction Reference",
+            "description": "The order's human reference, for example VK-7K3P9Q."
+          },
           "event_type": {
             "$ref": "#/components/schemas/NotificationEventType"
           },

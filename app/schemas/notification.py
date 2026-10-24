@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.notification import (
     NotificationChannel,
@@ -19,6 +19,9 @@ class NotificationResponse(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID
     transaction_id: uuid.UUID
+    transaction_reference: str | None = Field(
+        default=None, description="The order's human reference, for example VK-7K3P9Q."
+    )
     event_type: NotificationEventType
     channel: NotificationChannel
     title: str

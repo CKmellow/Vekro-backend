@@ -5,6 +5,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.models.notification import Notification, NotificationChannel
+from app.models.transaction import Transaction
 
 
 class NotificationNotFoundError(Exception):
@@ -79,3 +80,14 @@ def mark_all_notifications_read(db: Session, *, user_id: uuid.UUID) -> int:
     )
     db.commit()
     return int(getattr(result, "rowcount", 0) or 0)
+
+
+def transaction_references(db: Session, ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """Human references for these transactions, in one query."""
+    if not ids:
+        return {}
+    return dict(
+        db.execute(
+            select(Transaction.id, Transaction.reference).where(Transaction.id.in_(ids))
+        ).all()
+    )

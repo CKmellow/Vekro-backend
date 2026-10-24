@@ -126,7 +126,7 @@ def test_list_notifications_returns_current_user_only(monkeypatch) -> None:
     monkeypatch.setattr(
         notifications_router,
         "list_user_notifications",
-        lambda _db, user_id, limit, offset: [own_notification],
+        lambda _db, user_id, limit, offset, **_filters: [own_notification],
     )
 
     response = client.get("/notifications")
@@ -142,10 +142,12 @@ def test_list_notifications_forwards_pagination_params(monkeypatch) -> None:
     client, auth_user = _authenticated_client(monkeypatch, UserRole.BUYER)
     observed: dict[str, object] = {}
 
-    def fake_list_user_notifications(_db, user_id, limit, offset):
+    def fake_list_user_notifications(_db, user_id, limit, offset, unread_only, channel):
         observed["user_id"] = user_id
         observed["limit"] = limit
         observed["offset"] = offset
+        observed["unread_only"] = unread_only
+        observed["channel"] = channel
         return []
 
     monkeypatch.setattr(
@@ -154,12 +156,14 @@ def test_list_notifications_forwards_pagination_params(monkeypatch) -> None:
         fake_list_user_notifications,
     )
 
-    response = client.get("/notifications?limit=5&offset=10")
+    response = client.get("/notifications?limit=5&offset=10&unread=true&channel=in_app")
 
     assert response.status_code == 200
     assert observed["user_id"] == auth_user.id
     assert observed["limit"] == 5
     assert observed["offset"] == 10
+    assert observed["unread_only"] is True
+    assert observed["channel"] == NotificationChannel.IN_APP
 
 
 def test_service_list_user_notifications_filters_and_orders_desc() -> None:

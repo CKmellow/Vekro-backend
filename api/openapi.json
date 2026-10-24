@@ -1926,6 +1926,65 @@
         }
       }
     },
+    "/transactions/{transaction_id}/escalate": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Send an open return case to Vekro support (buyer or seller)",
+        "description": "Either party can disagree with how a return is going. The order and the dispute move to escalated_admin_review; the reason is kept for support and both parties are notified.",
+        "operationId": "escalate_transaction_dispute_transactions__transaction_id__escalate_post",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EscalateDisputeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Caller is not the buyer or the seller."
+          },
+          "404": {
+            "description": "Transaction not found."
+          },
+          "409": {
+            "description": "The order has no open return case."
+          },
+          "422": {
+            "description": "The reason is missing or too short."
+          }
+        }
+      }
+    },
     "/admin/disputes/escalation-queue": {
       "get": {
         "tags": [
@@ -3417,6 +3476,23 @@
         ],
         "title": "DoorRejection",
         "description": "Why the buyer rejected the item at the door."
+      },
+      "EscalateDisputeRequest": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 20,
+            "title": "Reason",
+            "description": "What's wrong with the case so far."
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "EscalateDisputeRequest",
+        "description": "Why the party disagrees; Vekro support reads it with the case."
       },
       "EscalationQueueItemResponse": {
         "properties": {

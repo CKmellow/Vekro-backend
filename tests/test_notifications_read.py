@@ -2,13 +2,11 @@ import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import cast
 
 import pytest
 from app import main as app_main
 from app.core.security import hash_session_token
 from app.core.settings import get_settings
-from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models.notification import Notification, NotificationChannel
@@ -17,7 +15,6 @@ from app.models.user import User, UserRole
 from app.models.user_session import UserSession
 from app.services.auth import ActiveSessionContext
 from fastapi.testclient import TestClient
-from sqlalchemy import Table
 from sqlalchemy.orm import Session, sessionmaker
 
 from tests.test_notification_sms_delivery import _notification, _session_factory, _user
@@ -45,9 +42,7 @@ def _other(db: Session) -> User:
 
 @pytest.fixture
 def factory() -> sessionmaker:
-    made = _session_factory(lambda: None)
-    Base.metadata.create_all(made.kw["bind"], tables=[cast(Table, Transaction.__table__)])
-    return made
+    return _session_factory(lambda: None)
 
 
 @pytest.fixture

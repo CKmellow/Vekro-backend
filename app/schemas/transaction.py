@@ -162,3 +162,19 @@ class BuyerReconfirmationRequest(BaseModel):
         max_length=2000,
         description="Optional buyer remarks supporting acceptance or rejection.",
     )
+
+
+class EscalateDisputeRequest(BaseModel):
+    """Why the party disagrees; Vekro support reads it with the case."""
+
+    reason: str = Field(
+        min_length=20, max_length=1000, description="What's wrong with the case so far."
+    )
+
+    @field_validator("reason")
+    @classmethod
+    def _strip(cls, value: str) -> str:
+        stripped = value.strip()
+        if len(stripped) < 20:
+            raise ValueError("Tell support what happened in at least 20 characters.")
+        return stripped

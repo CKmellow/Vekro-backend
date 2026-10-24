@@ -16,6 +16,7 @@ from app.schemas.payment_prompt import PaymentInstructionResponse, TransactionCr
 from app.schemas.transaction import (
     BuyerReconfirmationRequest,
     CreateTransactionRequest,
+    EscalateDisputeRequest,
     OtpGiveRequest,
     OtpWithholdRequest,
     PaymentCallbackRequest,
@@ -31,6 +32,12 @@ from app.schemas.transaction_detail import (
     TimelineEventResponse,
     TransactionDetailResponse,
     TransactionListResponse,
+)
+from app.services.dispute_escalation import (
+    EscalationForbiddenError,
+    EscalationInvalidStateError,
+    EscalationNotFoundError,
+    escalate_dispute,
 )
 from app.services.dispute_summary import dispute_summary
 from app.services.payment_prompts import (
@@ -1110,4 +1117,40 @@ def confirm_resolved_seller_for_transaction(
             detail=str(exc),
         ) from exc
 
+    return TransactionResponse.model_validate(transaction)
+
+
+@router.post(
+    "/{transaction_id}/escalate",
+    response_model=TransactionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Send an open return case to Vekro support (buyer or seller)",
+    description=(
+        "Either party can disagree with how a return is going. The order and the dispute move to "
+        "escalated_admin_review; the reason is kept for support and both parties are notified."
+    ),
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
+        status.HTTP_403_FORBIDDEN: {"description": "Caller is not the buyer or the seller."},
+        status.HTTP_404_NOT_FOUND: {"description": "Transaction not found."},
+        status.HTTP_409_CONFLICT: {"description": "The order has no open return case."},
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
+            "description": "The reason is missing or too short."
+        },
+    },
+)
+def escalate_transaction_dispute(
+    transaction_id: uuid.UUID,
+    payload: EscalateDisputeRequest,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> TransactionResponse:
+    try:
+        transaction = escalate_dispute(db, transaction_id, current_user, reason=payload.reason)
+    except EscalationNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Transaction not found.") from exc
+    except EscalationForbiddenError as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except EscalationInvalidStateError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return TransactionResponse.model_validate(transaction)

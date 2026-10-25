@@ -165,6 +165,14 @@ _BY_KIND: dict[str, tuple[str, str]] = {
 }
 
 
+# Admins read the seller's wording (it names the buyer), with the seller's own lines rewritten.
+_ADMIN_TEXT = {
+    "You sent the item.": "The seller sent the item.",
+    "You received the returned item.": "The seller received the returned item.",
+    "You chose how to fix it.": "The seller chose how to fix it.",
+}
+
+
 def _utc(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
@@ -174,11 +182,16 @@ def _event(notification: Notification, role: UserRole) -> TimelineEvent:
     known = _BY_TITLE.get(notification.title)
     if known:
         title, buyer_text, seller_text = known
-        description = seller_text if role == UserRole.SELLER else buyer_text
+        if role == UserRole.ADMIN:
+            description = _ADMIN_TEXT.get(seller_text, seller_text)
+        else:
+            description = seller_text if role == UserRole.SELLER else buyer_text
     else:
         title, description = _BY_KIND.get(
             kind, ("Order updated", "Your order moved to its next step.")
         )
+        if role == UserRole.ADMIN and description.startswith("Your order"):
+            description = "The order moved to its next step."
     if kind == NotificationEventType.TRANSACTION_CREATED.value:
         kind = TRANSACTION_CREATED
     return TimelineEvent(
@@ -198,5 +211,4 @@ def get_transaction_timeline(
     # Admins read the buyer's side, so each event appears once.
     owner = view.transaction.buyer_id if view.viewer_role == UserRole.ADMIN else viewer.id
     query = query.where(Notification.user_id == owner).order_by(Notification.created_at.asc())
-    role = UserRole.BUYER if view.viewer_role == UserRole.ADMIN else view.viewer_role
-    return [_event(item, role) for item in db.execute(query).scalars().all()]
+    return [_event(item, view.viewer_role) for item in db.execute(query).scalars().all()]

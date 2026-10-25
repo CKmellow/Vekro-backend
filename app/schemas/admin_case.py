@@ -151,3 +151,34 @@ class AdminCaseDetailResponse(AdminCaseSummaryResponse):
             ),
             timeline=[AdminCaseEvent(**e.__dict__) for e in d.timeline],
         )
+
+
+class AdminSearchParty(BaseModel):
+    name: str
+    phone: str
+
+
+class AdminSearchEvent(BaseModel):
+    title: str
+    at: datetime
+
+
+class AdminTransactionRow(BaseModel):
+    transaction_id: uuid.UUID
+    reference: str
+    status: TransactionStatus
+    amount: Decimal
+    item_title: str
+    is_serialized: bool
+    buyer: AdminSearchParty
+    seller: AdminSearchParty
+    created_at: datetime
+    last_event: AdminSearchEvent | None
+    dispute_id: uuid.UUID | None
+
+
+class AdminTransactionSearchResponse(BaseModel):
+    items: list[AdminTransactionRow]
+    total: int
+    page: int
+    page_size: int

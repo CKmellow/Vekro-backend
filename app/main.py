@@ -11,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.settings import get_settings
 from app.db.session import _get_session_factory
 from app.routers.admin_cases import router as admin_cases_router
+from app.routers.admin_search import router as admin_search_router
 from app.routers.auth import router as auth_router
 from app.routers.disputes import router as disputes_router
 from app.routers.health import router as health_router
@@ -195,6 +196,7 @@ app.include_router(protected_router)
 app.include_router(transactions_router)
 app.include_router(disputes_router)
 app.include_router(admin_cases_router)
+app.include_router(admin_search_router)
 app.include_router(rail_health_admin_router)
 app.include_router(money_audit_admin_router)
 app.include_router(simulated_custody_admin_router)

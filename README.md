@@ -304,6 +304,12 @@ Migration notes:
    - Purpose: the seller's shop name, area, description and logo (S3, S13). Logos are stored in the database (JPEG, PNG or WebP, 1 MB).
 - POST /me/mpesa-number/request-code and PUT /me/mpesa-number
    - Purpose: change where payouts go. A new number needs the SMS code sent to it once the seller has orders (before the first order no money can move). The previous number gets an SMS that it changed. Codes are scoped by purpose, so a sign-in code can't confirm a payout number.
+- POST /auth/password/change, POST /auth/password/reset/request-code, POST /auth/password/reset
+   - Purpose: change the password (signs out other devices) or reset it with an SMS code (signs out every device). The reset request always answers 202, so it doesn't reveal which numbers have accounts.
+- GET /auth/sessions, DELETE /auth/sessions/{id}, POST /auth/sessions/revoke-others
+   - Purpose: signed-in devices (a label from the User-Agent and a last-seen time; no IP addresses), and signing them out.
+- GET/PUT /me/notification-preferences
+   - Purpose: a seller's in-app and SMS choice per category (payment received, delivery, returns, support). Support decisions always show in the app; buyers can't mute anything (one message carries the delivery code). Honoured by SMS delivery and the in-app list and count.
 - GET /public/orders/{key}
    - Purpose: what an SMS order link shows before the buyer verifies their phone.
    - `key` is the order id or reference; returns reference, item title, amount, a coarse state (unpaid, paid, closed) and the listing status. No names, phones or ids.

@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.settings import get_settings
 from app.db.session import _get_session_factory
+from app.routers.account import router as account_router
 from app.routers.admin_cases import router as admin_cases_router
 from app.routers.admin_search import router as admin_search_router
 from app.routers.auth import router as auth_router
@@ -206,3 +207,4 @@ app.include_router(loop_webhooks_router)
 app.include_router(pesapal_webhooks_router)
 app.include_router(public_orders_router)
 app.include_router(seller_profile_router)
+app.include_router(account_router)

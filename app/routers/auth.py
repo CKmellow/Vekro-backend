@@ -120,6 +120,7 @@ def login(
             db,
             payload,
             client_identifier=get_client_identifier(request),
+            user_agent=request.headers.get("user-agent"),
         )
     except TooManyLoginAttemptsError as exc:
         logger.warning(
@@ -288,7 +289,9 @@ def phone_verify(
 ) -> LoginResponse:
     client = get_client_identifier(request)
     try:
-        authenticated = verify_phone_code(db, payload.phone, payload.code)
+        authenticated = verify_phone_code(
+            db, payload.phone, payload.code, user_agent=request.headers.get("user-agent")
+        )
     except PhoneCodeRateLimitedError as exc:
         logger.warning("phone_code_locked client_ip=%s", client)
         raise HTTPException(

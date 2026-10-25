@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.models.notification import Notification, NotificationChannel
+from app.models.notification import Notification, NotificationChannel, NotificationEventType
 from app.models.transaction import Transaction
 
 
@@ -20,8 +20,11 @@ def list_user_notifications(
     offset: int,
     unread_only: bool = False,
     channel: NotificationChannel | None = None,
+    muted: set[NotificationEventType] | None = None,
 ) -> list[Notification]:
     query = select(Notification).where(Notification.user_id == user_id)
+    if muted:
+        query = query.where(Notification.event_type.not_in(muted))
     if unread_only:
         query = query.where(Notification.is_read.is_(False))
     if channel is not None:
@@ -42,18 +45,21 @@ def list_user_notifications(
     return filtered
 
 
-def count_unread_in_app(db: Session, *, user_id: uuid.UUID) -> int:
-    return int(
-        db.execute(
-            select(func.count())
-            .select_from(Notification)
-            .where(
-                Notification.user_id == user_id,
-                Notification.channel == NotificationChannel.IN_APP,
-                Notification.is_read.is_(False),
-            )
-        ).scalar_one()
+def count_unread_in_app(
+    db: Session, *, user_id: uuid.UUID, muted: set[NotificationEventType] | None = None
+) -> int:
+    query = (
+        select(func.count())
+        .select_from(Notification)
+        .where(
+            Notification.user_id == user_id,
+            Notification.channel == NotificationChannel.IN_APP,
+            Notification.is_read.is_(False),
+        )
     )
+    if muted:
+        query = query.where(Notification.event_type.not_in(muted))
+    return int(db.execute(query).scalar_one())
 
 
 def mark_notification_read(

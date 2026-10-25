@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from sqlalchemy import Boolean, DateTime, Enum, Integer, LargeBinary, String, text
+from sqlalchemy import JSON, Boolean, DateTime, Enum, Integer, LargeBinary, String, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, deferred, mapped_column
 
@@ -43,6 +43,8 @@ class User(Base):
     shop_about: Mapped[str | None] = mapped_column(String(280), nullable=True)
     logo_content_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     logo_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # {"payment_received": {"in_app": true, "sms": false}, ...}; null means everything on.
+    notification_prefs: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # Deferred so user reads never load image bytes.
     logo_data: Mapped[bytes | None] = deferred(mapped_column(LargeBinary, nullable=True))
 

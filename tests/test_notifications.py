@@ -143,7 +143,7 @@ def test_list_notifications_forwards_pagination_params(monkeypatch) -> None:
     client, auth_user = _authenticated_client(monkeypatch, UserRole.BUYER)
     observed: dict[str, object] = {}
 
-    def fake_list_user_notifications(_db, user_id, limit, offset, unread_only, channel):
+    def fake_list_user_notifications(_db, user_id, limit, offset, unread_only, channel, muted=None):
         observed["user_id"] = user_id
         observed["limit"] = limit
         observed["offset"] = offset

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.settings import get_settings
 from app.models.notification import Notification, NotificationDeliveryStatus
 from app.models.user import User
+from app.services.notification_prefs import muted_event_types
 from app.services.sms import AfricasTalkingSmsSender, SmsSendResult
 
 _PENDING_KEY = "pending_sms_notification_ids"
@@ -91,10 +92,14 @@ def deliver_notification_sms(
         .all()
     )
 
-    sent = failed = 0
+    sent = failed = skipped = 0
     current_time = now or datetime.now(UTC)
     for notification in notifications:
         user = db.get(User, notification.user_id)
+        if user is not None and notification.event_type in muted_event_types(user, "sms"):
+            # The seller turned SMS off for this kind of message; it stays in the app.
+            skipped += 1
+            continue
         phone = (user.phone or "").strip() if user is not None else ""
         delivered = False
         if phone:
@@ -118,8 +123,10 @@ def deliver_notification_sms(
         db.add(notification)
 
     db.commit()
-    delivery_logger.info("notification_sms_delivery sent=%s failed=%s", sent, failed)
-    return NotificationSmsDeliveryResult(sent=sent, failed=failed)
+    delivery_logger.info(
+        "notification_sms_delivery sent=%s failed=%s skipped=%s", sent, failed, skipped
+    )
+    return NotificationSmsDeliveryResult(sent=sent, failed=failed, skipped=skipped)
 
 
 def install_notification_sms_hooks(

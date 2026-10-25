@@ -32,7 +32,7 @@ from app.services.notification_delivery import (
 )
 
 CODE_LENGTH = 6
-Purpose = Literal["sign_in", "payout"]
+Purpose = Literal["sign_in", "payout", "reset"]
 NEW_BUYER_NAME = "Vekro buyer"
 
 logger = logging.getLogger("app.auth.phone")
@@ -121,6 +121,14 @@ def payout_sms_text(code: str, ttl_seconds: int) -> str:
     )
 
 
+def reset_sms_text(code: str, ttl_seconds: int) -> str:
+    minutes = max(ttl_seconds // 60, 1)
+    return (
+        f"Vekro: your password reset code is {code}. It expires in {minutes} minutes. "
+        "If you didn't ask for it, ignore this message."
+    )
+
+
 def request_phone_code(
     db: Session,
     phone: str,
@@ -185,9 +193,9 @@ def request_phone_code(
     )
     db.commit()
 
-    text = (sign_in_sms_text if purpose == "sign_in" else payout_sms_text)(
-        code, settings.phone_code_ttl_seconds
-    )
+    text = {"sign_in": sign_in_sms_text, "payout": payout_sms_text, "reset": reset_sms_text}[
+        purpose
+    ](code, settings.phone_code_ttl_seconds)
     dispatch(_send_job(phone, text, sender_provider or default_sender_provider))
     return IssuedCode(
         expires_at=expires_at,
@@ -249,6 +257,7 @@ def verify_phone_code(
     code: str,
     *,
     now: datetime | None = None,
+    user_agent: str | None = None,
 ) -> AuthenticatedSession:
     current = now or datetime.now(UTC)
     user = db.execute(select(User).where(User.phone == phone)).scalar_one_or_none()
@@ -270,4 +279,4 @@ def verify_phone_code(
         )
         db.add(user)
         db.flush()
-    return create_session(db, user, current)
+    return create_session(db, user, current, user_agent=user_agent)

@@ -26,6 +26,9 @@ class UserSession(Base):
         index=True,
     )
     csrf_token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    # For the signed-in devices list (S13): the browser's User-Agent, and when it was last used.
+    user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

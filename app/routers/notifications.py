@@ -18,6 +18,7 @@ from app.services.notification import (
     mark_notification_read,
     transaction_references,
 )
+from app.services.notification_prefs import muted_event_types
 
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
@@ -73,6 +74,7 @@ def list_current_user_notifications(
         offset=offset,
         unread_only=unread,
         channel=channel,
+        muted=muted_event_types(current_user, "in_app"),
     )
     references = transaction_references(db, {item.transaction_id for item in notifications})
     return [_response(item, references) for item in notifications]
@@ -88,7 +90,11 @@ def get_unread_count(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> UnreadCountResponse:
-    return UnreadCountResponse(unread_count=count_unread_in_app(db, user_id=current_user.id))
+    return UnreadCountResponse(
+        unread_count=count_unread_in_app(
+            db, user_id=current_user.id, muted=muted_event_types(current_user, "in_app")
+        )
+    )
 
 
 @router.post(

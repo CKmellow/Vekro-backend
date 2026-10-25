@@ -24,6 +24,7 @@ UNIQUE_VIOLATION_SQLSTATE = "23505"
 PHONE_UNIQUE_CONSTRAINT_NAMES = {"ix_users_phone", "users_phone_key"}
 _LOGIN_RATE_LIMIT_BUCKETS: dict[str, deque[datetime]] = {}
 _LOGIN_RATE_LIMIT_LOCK = Lock()
+LAST_SEEN_EVERY = timedelta(minutes=5)
 
 
 class PhoneAlreadyRegisteredError(Exception):
@@ -177,6 +178,7 @@ def authenticate_and_create_session(
     db: Session,
     payload: LoginRequest,
     client_identifier: str,
+    user_agent: str | None = None,
 ) -> AuthenticatedSession:
     retry_after = _check_login_rate_limit(client_identifier, payload.phone)
     if retry_after is not None:
@@ -202,12 +204,14 @@ def authenticate_and_create_session(
         db.add(user)
         db.flush()
 
-    authenticated = create_session(db, user, now)
+    authenticated = create_session(db, user, now, user_agent=user_agent)
     _clear_login_rate_limit(client_identifier, payload.phone)
     return authenticated
 
 
-def create_session(db: Session, user: User, now: datetime) -> AuthenticatedSession:
+def create_session(
+    db: Session, user: User, now: datetime, *, user_agent: str | None = None
+) -> AuthenticatedSession:
     """Open a server-side session for a verified user (password login or SMS code)."""
     session_token = generate_session_token()
     csrf_token = generate_session_token()
@@ -218,6 +222,8 @@ def create_session(db: Session, user: User, now: datetime) -> AuthenticatedSessi
         session_token_hash=_token_hash(session_token),
         csrf_token_hash=_token_hash(csrf_token),
         expires_at=expires_at,
+        user_agent=(user_agent or "")[:255] or None,
+        last_seen_at=now,
     )
     db.add(db_session)
     db.commit()
@@ -250,6 +256,15 @@ def resolve_active_session(db: Session, session_token: str) -> ActiveSessionCont
         return None
     if not user.is_active:
         return None
+
+    # Last seen, for the devices list; written at most every few minutes, not on every request.
+    seen = session.last_seen_at
+    if seen is not None and seen.tzinfo is None:
+        seen = seen.replace(tzinfo=UTC)
+    if seen is None or now - seen > LAST_SEEN_EVERY:
+        session.last_seen_at = now
+        db.add(session)
+        db.commit()
 
     return ActiveSessionContext(user=user, session=session)
 

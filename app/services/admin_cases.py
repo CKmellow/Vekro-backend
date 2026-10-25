@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.dispute import AdminDecision, Dispute, DisputeStatus
 from app.models.listing import Listing
-from app.models.notification import Notification
+from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User
 from app.services.dispute_summary import DisputeSummary, summarize
@@ -263,13 +263,10 @@ def get_admin_case(db: Session, dispute_id: uuid.UUID) -> CaseDetail:
     )
     decider = db.get(User, dispute.decided_by_user_id) if dispute.decided_by_user_id else None
 
+    # The seller's copies cover every event once. Their messages speak to the seller, so support
+    # sees titles only; the report and the escalation come from the dispute, in the parties' words.
     events = [
-        CaseEvent(
-            at=n.created_at,
-            title=n.title,
-            message=n.message,
-            source="notification",
-        )
+        CaseEvent(at=n.created_at, title=n.title, message="", source="notification")
         for n in db.execute(
             select(Notification)
             .where(
@@ -278,6 +275,8 @@ def get_admin_case(db: Session, dispute_id: uuid.UUID) -> CaseDetail:
             )
             .order_by(Notification.created_at.asc())
         ).scalars()
+        if n.event_type != NotificationEventType.DISPUTE_OPENED
+        and n.title != "Sent to Vekro support"
     ]
     events.append(CaseEvent(dispute.opened_at, "Problem reported", dispute.description, "dispute"))
     if dispute.escalated_at:

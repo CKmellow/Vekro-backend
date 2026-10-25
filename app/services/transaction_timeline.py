@@ -165,7 +165,7 @@ _BY_KIND: dict[str, tuple[str, str]] = {
 }
 
 
-# Admins read the seller's wording (it names the buyer), with the seller's own lines in third person.
+# Admins read the seller's wording (it names the buyer), with the seller's own lines rewritten.
 _ADMIN_TEXT = {
     "You sent the item.": "The seller sent the item.",
     "You received the returned item.": "The seller received the returned item.",

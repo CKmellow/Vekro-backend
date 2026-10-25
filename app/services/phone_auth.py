@@ -14,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from threading import Lock
+from typing import Literal
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
@@ -31,6 +32,7 @@ from app.services.notification_delivery import (
 )
 
 CODE_LENGTH = 6
+Purpose = Literal["sign_in", "payout"]
 NEW_BUYER_NAME = "Vekro buyer"
 
 logger = logging.getLogger("app.auth.phone")
@@ -70,14 +72,15 @@ class IssuedCode:
     code: str
 
 
-def _code_hash(phone: str, code: str) -> str:
-    return hash_session_token(f"{phone}:{code}", get_settings().secret_key)
+def _code_hash(phone: str, code: str, purpose: Purpose) -> str:
+    # The purpose is in the hash too, so a sign-in code can never confirm a payout number.
+    return hash_session_token(f"{purpose}:{phone}:{code}", get_settings().secret_key)
 
 
-def _latest_code(db: Session, phone: str) -> PhoneCode | None:
+def _latest_code(db: Session, phone: str, purpose: Purpose) -> PhoneCode | None:
     return db.execute(
         select(PhoneCode)
-        .where(PhoneCode.phone == phone)
+        .where(PhoneCode.phone == phone, PhoneCode.purpose == purpose)
         .order_by(PhoneCode.created_at.desc())
         .limit(1)
     ).scalar_one_or_none()
@@ -110,10 +113,19 @@ def sign_in_sms_text(code: str, ttl_seconds: int) -> str:
     )
 
 
+def payout_sms_text(code: str, ttl_seconds: int) -> str:
+    minutes = max(ttl_seconds // 60, 1)
+    return (
+        f"Vekro: your code to make this your payout number is {code}. It expires in {minutes} "
+        "minutes. If you didn't ask for it, ignore this message."
+    )
+
+
 def request_phone_code(
     db: Session,
     phone: str,
     *,
+    purpose: Purpose = "sign_in",
     client_identifier: str = "unknown",
     now: datetime | None = None,
     sender_provider: SenderProvider | None = None,
@@ -122,7 +134,7 @@ def request_phone_code(
     settings = get_settings()
     current = now or datetime.now(UTC)
 
-    latest = _latest_code(db, phone)
+    latest = _latest_code(db, phone, purpose)
     if latest is not None:
         if latest.locked_until is not None and _aware(latest.locked_until) > current:
             raise PhoneCodeRateLimitedError((_aware(latest.locked_until) - current).total_seconds())
@@ -153,7 +165,11 @@ def request_phone_code(
     # A new code replaces any earlier one.
     db.execute(
         update(PhoneCode)
-        .where(PhoneCode.phone == phone, PhoneCode.consumed_at.is_(None))
+        .where(
+            PhoneCode.phone == phone,
+            PhoneCode.purpose == purpose,
+            PhoneCode.consumed_at.is_(None),
+        )
         .values(consumed_at=current)
     )
     code = f"{secrets.randbelow(10**CODE_LENGTH):0{CODE_LENGTH}d}"
@@ -161,14 +177,17 @@ def request_phone_code(
     db.add(
         PhoneCode(
             phone=phone,
-            code_hash=_code_hash(phone, code),
+            purpose=purpose,
+            code_hash=_code_hash(phone, code, purpose),
             expires_at=expires_at,
             created_at=current,
         )
     )
     db.commit()
 
-    text = sign_in_sms_text(code, settings.phone_code_ttl_seconds)
+    text = (sign_in_sms_text if purpose == "sign_in" else payout_sms_text)(
+        code, settings.phone_code_ttl_seconds
+    )
     dispatch(_send_job(phone, text, sender_provider or default_sender_provider))
     return IssuedCode(
         expires_at=expires_at,
@@ -192,24 +211,26 @@ def _send_job(phone: str, text: str, sender_provider: SenderProvider) -> Callabl
     return job
 
 
-def verify_phone_code(
+def consume_phone_code(
     db: Session,
     phone: str,
     code: str,
+    purpose: Purpose,
     *,
     now: datetime | None = None,
-) -> AuthenticatedSession:
+) -> None:
+    """Check a code and use it up; wrong tries count down to a lockout. Success isn't committed."""
     settings = get_settings()
     current = now or datetime.now(UTC)
 
-    latest = _latest_code(db, phone)
+    latest = _latest_code(db, phone, purpose)
     if latest is not None and latest.locked_until is not None:
         if _aware(latest.locked_until) > current:
             raise PhoneCodeRateLimitedError((_aware(latest.locked_until) - current).total_seconds())
     if latest is None or latest.consumed_at is not None or _aware(latest.expires_at) <= current:
         raise PhoneCodeExpiredError
 
-    if not verify_hashed_token(f"{phone}:{code}", latest.code_hash, settings.secret_key):
+    if not verify_hashed_token(f"{purpose}:{phone}:{code}", latest.code_hash, settings.secret_key):
         latest.attempts += 1
         if latest.attempts >= settings.phone_code_max_attempts:
             latest.consumed_at = current
@@ -219,13 +240,26 @@ def verify_phone_code(
         db.commit()
         raise PhoneCodeInvalidError(settings.phone_code_max_attempts - latest.attempts)
 
+    latest.consumed_at = current
+
+
+def verify_phone_code(
+    db: Session,
+    phone: str,
+    code: str,
+    *,
+    now: datetime | None = None,
+) -> AuthenticatedSession:
+    current = now or datetime.now(UTC)
     user = db.execute(select(User).where(User.phone == phone)).scalar_one_or_none()
+    consume_phone_code(db, phone, code, "sign_in", now=current)
     if user is not None and user.role != UserRole.BUYER:
+        db.rollback()
         raise PhoneNotBuyerError
     if user is not None and not user.is_active:
+        db.rollback()
         raise PhoneCodeExpiredError
 
-    latest.consumed_at = current
     if user is None:
         # No password: an unusable random one, so this account can only sign in by SMS code.
         user = User(

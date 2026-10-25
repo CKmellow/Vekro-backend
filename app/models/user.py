@@ -2,9 +2,9 @@ import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from sqlalchemy import Boolean, DateTime, Enum, Integer, String, text
+from sqlalchemy import Boolean, DateTime, Enum, Integer, LargeBinary, String, text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, deferred, mapped_column
 
 from app.db.base import Base
 
@@ -36,6 +36,15 @@ class User(Base):
 
     mpesa_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     mpesa_account_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    # Seller shop profile (S3, S13).
+    shop_name: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    shop_area: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    shop_about: Mapped[str | None] = mapped_column(String(280), nullable=True)
+    logo_content_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    logo_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Deferred so user reads never load image bytes.
+    logo_data: Mapped[bytes | None] = deferred(mapped_column(LargeBinary, nullable=True))
 
     session_version: Mapped[int] = mapped_column(
         Integer,

@@ -15,6 +15,10 @@ class PhoneCode(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     phone: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    # What the code confirms: "sign_in" (buyer sign-in) or "payout" (a seller's new payout number).
+    purpose: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="sign_in", server_default=text("'sign_in'")
+    )
     code_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     attempts: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default=text("0")

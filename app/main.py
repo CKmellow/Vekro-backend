@@ -23,6 +23,7 @@ from app.routers.pesapal_webhooks import router as pesapal_webhooks_router
 from app.routers.protected import router as protected_router
 from app.routers.public_orders import router as public_orders_router
 from app.routers.rail_health_admin import router as rail_health_admin_router
+from app.routers.seller_profile import router as seller_profile_router
 from app.routers.simulated_custody_admin import router as simulated_custody_admin_router
 from app.routers.transactions import router as transactions_router
 from app.services.auth import is_valid_csrf_for_session, resolve_active_session
@@ -204,3 +205,4 @@ app.include_router(simulated_custody_admin_router)
 app.include_router(loop_webhooks_router)
 app.include_router(pesapal_webhooks_router)
 app.include_router(public_orders_router)
+app.include_router(seller_profile_router)

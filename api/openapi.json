@@ -2961,6 +2961,317 @@
           }
         }
       }
+    },
+    "/me/profile": {
+      "get": {
+        "tags": [
+          "Seller profile"
+        ],
+        "summary": "The seller's shop profile and payout details",
+        "operationId": "get_profile_me_profile_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SellerProfileResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Not a seller."
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Seller profile"
+        ],
+        "summary": "Change shop name, area or description",
+        "description": "Only the fields sent change; an empty string clears the area or description.",
+        "operationId": "patch_profile_me_profile_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SellerProfileUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SellerProfileResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Not a seller."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/profile/logo": {
+      "put": {
+        "tags": [
+          "Seller profile"
+        ],
+        "summary": "Upload the shop logo",
+        "description": "Raw image body (JPEG, PNG or WebP, at most 1 MB), compressed on the client.",
+        "operationId": "put_logo_me_profile_logo_put",
+        "parameters": [
+          {
+            "name": "content-type",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Content-Type"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "image/jpeg": {
+              "schema": {
+                "type": "string",
+                "contentMediaType": "application/octet-stream",
+                "title": "Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SellerProfileResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Not a seller."
+          },
+          "413": {
+            "description": "Larger than 1 MB."
+          },
+          "415": {
+            "description": "Not a JPEG, PNG or WebP."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Seller profile"
+        ],
+        "summary": "Remove the shop logo",
+        "operationId": "delete_logo_me_profile_logo_delete",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SellerProfileResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Not a seller."
+          }
+        }
+      }
+    },
+    "/sellers/{seller_id}/logo": {
+      "get": {
+        "tags": [
+          "Seller profile"
+        ],
+        "summary": "A seller's shop logo",
+        "description": "Public image. The URL carries a version, so it caches for a year.",
+        "operationId": "get_logo_sellers__seller_id__logo_get",
+        "parameters": [
+          {
+            "name": "seller_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Seller Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "image/jpeg": {},
+              "image/png": {},
+              "image/webp": {}
+            }
+          },
+          "404": {
+            "description": "No logo."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/mpesa-number/request-code": {
+      "post": {
+        "tags": [
+          "Seller profile"
+        ],
+        "summary": "Text a code to a new payout number",
+        "description": "Same cooldown, hourly cap and lockout as sign-in codes.",
+        "operationId": "payout_request_code_me_mpesa_number_request_code_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PayoutCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneCodeRequestResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Not a seller."
+          },
+          "429": {
+            "description": "Too many codes. See Retry-After."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/mpesa-number": {
+      "put": {
+        "tags": [
+          "Seller profile"
+        ],
+        "summary": "Change the payout number and account name",
+        "description": "A new number needs the code texted to it, except before the seller's first order. The previous number gets an SMS saying it changed. Payouts not yet sent go to the new number.",
+        "operationId": "put_payout_me_mpesa_number_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PayoutUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SellerProfileResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Not a seller."
+          },
+          "410": {
+            "description": "No active code: it expired or was used."
+          },
+          "422": {
+            "description": "The code doesn't match."
+          },
+          "428": {
+            "description": "A code is needed for this number."
+          },
+          "429": {
+            "description": "Too many wrong tries."
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5850,6 +6161,21 @@
         "title": "PaymentInstructionResponse",
         "description": "What the buyer was asked to do to pay, and how it went. Names no payment provider."
       },
+      "PayoutCodeRequest": {
+        "properties": {
+          "mpesa_phone": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 7,
+            "title": "Mpesa Phone"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mpesa_phone"
+        ],
+        "title": "PayoutCodeRequest"
+      },
       "PayoutOutcome": {
         "type": "string",
         "enum": [
@@ -5858,6 +6184,40 @@
           "UNKNOWN"
         ],
         "title": "PayoutOutcome"
+      },
+      "PayoutUpdate": {
+        "properties": {
+          "mpesa_phone": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 7,
+            "title": "Mpesa Phone"
+          },
+          "mpesa_account_name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 2,
+            "title": "Mpesa Account Name"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{6}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mpesa_phone",
+          "mpesa_account_name"
+        ],
+        "title": "PayoutUpdate"
       },
       "PesapalCollectionWebhookResponse": {
         "properties": {
@@ -6273,6 +6633,148 @@
           "refunded"
         ],
         "title": "SellerPayoutStatus"
+      },
+      "SellerProfileResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone"
+          },
+          "shop_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shop Name"
+          },
+          "shop_area": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shop Area"
+          },
+          "shop_about": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shop About"
+          },
+          "logo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url",
+            "description": "Public logo URL, or null without a logo."
+          },
+          "mpesa_phone": {
+            "type": "string",
+            "title": "Mpesa Phone",
+            "description": "Where payouts go (the login phone if none was set)."
+          },
+          "mpesa_account_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpesa Account Name"
+          },
+          "has_orders": {
+            "type": "boolean",
+            "title": "Has Orders",
+            "description": "False before the first order: a new payout number needs no SMS code yet."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "phone",
+          "shop_name",
+          "shop_area",
+          "shop_about",
+          "logo_url",
+          "mpesa_phone",
+          "mpesa_account_name",
+          "has_orders",
+          "updated_at"
+        ],
+        "title": "SellerProfileResponse",
+        "description": "The signed-in seller's shop profile and payout details (their own, so unmasked)."
+      },
+      "SellerProfileUpdate": {
+        "properties": {
+          "shop_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 60,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shop Name"
+          },
+          "shop_area": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shop Area"
+          },
+          "shop_about": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 280
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shop About"
+          }
+        },
+        "type": "object",
+        "title": "SellerProfileUpdate",
+        "description": "Only the fields sent are changed; an empty string clears a field."
       },
       "SellerResolutionAction": {
         "type": "string",

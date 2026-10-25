@@ -300,6 +300,10 @@ Migration notes:
       - csrf cookie (readable by client) carrying CSRF token.
    - Login is protected by rate limiting and temporary account lockout.
    - Session/CSRF cookie behavior is controlled by env vars in .env.example.
+- GET/PATCH /me/profile, PUT/DELETE /me/profile/logo, GET /sellers/{id}/logo
+   - Purpose: the seller's shop name, area, description and logo (S3, S13). Logos are stored in the database (JPEG, PNG or WebP, 1 MB).
+- POST /me/mpesa-number/request-code and PUT /me/mpesa-number
+   - Purpose: change where payouts go. A new number needs the SMS code sent to it once the seller has orders (before the first order no money can move). The previous number gets an SMS that it changed. Codes are scoped by purpose, so a sign-in code can't confirm a payout number.
 - GET /public/orders/{key}
    - Purpose: what an SMS order link shows before the buyer verifies their phone.
    - `key` is the order id or reference; returns reference, item title, amount, a coarse state (unpaid, paid, closed) and the listing status. No names, phones or ids.

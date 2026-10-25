@@ -205,6 +205,9 @@ def test_admin_sees_each_event_once(monkeypatch, db, world) -> None:
 
     assert len(response.json()) == 4
     assert code not in response.text
+    descriptions = [e["description"] for e in response.json()]
+    assert "The seller sent the item." in descriptions
+    assert not any(d.startswith(("You ", "Your ")) for d in descriptions)
 
 
 def test_strangers_get_not_found(monkeypatch, db, world) -> None:

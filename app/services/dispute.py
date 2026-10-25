@@ -215,6 +215,7 @@ def force_resolve_dispute_case(
     decision: AdminDecision,
     reason: str,
     actor_id: uuid.UUID | None = None,
+    seller_share: Decimal | None = None,
 ) -> AdminForceResolveResult:
     normalized_reason = reason.strip()
     if not normalized_reason:
@@ -269,7 +270,8 @@ def force_resolve_dispute_case(
             purpose=f"admin-release:{dispute.id}",
         )
     else:
-        split_ratio = Decimal("0.5000")
+        # The seller's share of the escrow; the buyer gets the rest. Half each unless chosen.
+        split_ratio = (seller_share or Decimal("0.5")).quantize(Decimal("0.0001"))
         try:
             escrow_service.queue_split_payout(
                 transaction,
@@ -288,6 +290,7 @@ def force_resolve_dispute_case(
 
     dispute.admin_decision = decision
     dispute.admin_reason = normalized_reason
+    dispute.decided_by_user_id = actor_id
     dispute.resolved_at = now
 
     record_money_audit_event(

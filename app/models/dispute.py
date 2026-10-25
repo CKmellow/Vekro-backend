@@ -116,6 +116,11 @@ class Dispute(Base):
     )
     seller_resolution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     admin_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decided_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     opened_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

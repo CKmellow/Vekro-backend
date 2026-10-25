@@ -116,6 +116,7 @@ def admin_force_resolve_dispute_case(
             decision=payload.decision,
             reason=payload.reason,
             actor_id=current_user.id,
+            seller_share=payload.seller_share,
         )
     except DisputeCaseNotFoundError as exc:
         raise HTTPException(

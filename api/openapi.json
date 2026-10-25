@@ -85,6 +85,88 @@
         }
       }
     },
+    "/auth/phone/request-code": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Send a buyer sign-in code by SMS",
+        "description": "Send a one-time 6-digit code to the phone. A new code replaces the previous one. Codes expire after a few minutes; resends wait out a short cooldown and are capped per hour.",
+        "operationId": "phone_request_code_auth_phone_request_code_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneCodeRequestResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too soon after the last code, too many codes, or locked after wrong tries. See Retry-After."
+          },
+          "422": {
+            "description": "Invalid phone number."
+          }
+        }
+      }
+    },
+    "/auth/phone/verify": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Verify a sign-in code and open a buyer session",
+        "description": "Check the SMS code. On success, find or create the buyer for this phone and set the same session and CSRF cookies as /auth/login.",
+        "operationId": "phone_verify_auth_phone_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneCodeVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The number belongs to a seller or admin, who log in with a password."
+          },
+          "410": {
+            "description": "No active code: it expired or was already used."
+          },
+          "422": {
+            "description": "The code doesn't match."
+          },
+          "429": {
+            "description": "Too many wrong tries. See Retry-After."
+          }
+        }
+      }
+    },
     "/auth/logout": {
       "post": {
         "tags": [
@@ -5783,6 +5865,81 @@
         ],
         "title": "PesapalCollectionWebhookResponse",
         "description": "Acknowledgement payload for Pesapal collection callbacks."
+      },
+      "PhoneCodeRequest": {
+        "properties": {
+          "phone": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 7,
+            "title": "Phone",
+            "description": "Buyer's phone number."
+          }
+        },
+        "type": "object",
+        "required": [
+          "phone"
+        ],
+        "title": "PhoneCodeRequest",
+        "description": "Ask for a one-time sign-in code by SMS."
+      },
+      "PhoneCodeRequestResponse": {
+        "properties": {
+          "resend_after_seconds": {
+            "type": "integer",
+            "title": "Resend After Seconds",
+            "description": "Seconds before another code can be requested."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At",
+            "description": "When this code stops working."
+          },
+          "dev_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dev Code",
+            "description": "The code itself, only when PHONE_CODE_DEV_ECHO is on (never in production)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "resend_after_seconds",
+          "expires_at"
+        ],
+        "title": "PhoneCodeRequestResponse",
+        "description": "The code is on its way."
+      },
+      "PhoneCodeVerifyRequest": {
+        "properties": {
+          "phone": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 7,
+            "title": "Phone",
+            "description": "Buyer's phone number."
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^\\d{6}$",
+            "title": "Code",
+            "description": "The 6-digit code from the SMS."
+          }
+        },
+        "type": "object",
+        "required": [
+          "phone",
+          "code"
+        ],
+        "title": "PhoneCodeVerifyRequest",
+        "description": "Verify the SMS code and open a buyer session."
       },
       "RailBreakerState": {
         "type": "string",

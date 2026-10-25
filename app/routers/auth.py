@@ -8,15 +8,33 @@ from app.core.auth_context import get_client_identifier, get_current_user
 from app.core.settings import get_settings
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.auth import LoginRequest, LoginResponse, RegisterUserRequest, RegisterUserResponse
+from app.schemas.auth import (
+    LoginRequest,
+    LoginResponse,
+    PhoneCodeRequest,
+    PhoneCodeRequestResponse,
+    PhoneCodeVerifyRequest,
+    RegisterUserRequest,
+    RegisterUserResponse,
+)
 from app.services.auth import (
     AccountLockedError,
+    AuthenticatedSession,
     InvalidCredentialsError,
     PhoneAlreadyRegisteredError,
     TooManyLoginAttemptsError,
     authenticate_and_create_session,
     invalidate_session,
     register_user,
+)
+from app.services.notification_delivery import run_in_background
+from app.services.phone_auth import (
+    PhoneCodeExpiredError,
+    PhoneCodeInvalidError,
+    PhoneCodeRateLimitedError,
+    PhoneNotBuyerError,
+    request_phone_code,
+    verify_phone_code,
 )
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -138,6 +156,17 @@ def login(
             detail="Invalid phone or password.",
         ) from exc
 
+    logger.info(
+        "login_success user_id=%s phone=%s client_ip=%s",
+        authenticated.user.id,
+        authenticated.user.phone,
+        get_client_identifier(request),
+    )
+    return _open_session(response, authenticated)
+
+
+def _open_session(response: Response, authenticated: AuthenticatedSession) -> LoginResponse:
+    """Set the session and CSRF cookies and describe the signed-in user."""
     settings = get_settings()
     session_samesite = cast(
         Literal["lax", "strict", "none"],
@@ -169,13 +198,6 @@ def login(
         path="/",
     )
 
-    logger.info(
-        "login_success user_id=%s phone=%s client_ip=%s",
-        authenticated.user.id,
-        authenticated.user.phone,
-        get_client_identifier(request),
-    )
-
     return LoginResponse(
         id=authenticated.user.id,
         name=authenticated.user.name,
@@ -187,6 +209,111 @@ def login(
         created_at=authenticated.user.created_at,
         session_expires_at=authenticated.expires_at,
     )
+
+
+@router.post(
+    "/phone/request-code",
+    response_model=PhoneCodeRequestResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Send a buyer sign-in code by SMS",
+    description=(
+        "Send a one-time 6-digit code to the phone. A new code replaces the previous one. "
+        "Codes expire after a few minutes; resends wait out a short cooldown and are capped "
+        "per hour."
+    ),
+    responses={
+        status.HTTP_429_TOO_MANY_REQUESTS: {
+            "description": "Too soon after the last code, too many codes, or locked after "
+            "wrong tries. See Retry-After."
+        },
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "Invalid phone number."},
+    },
+)
+def phone_request_code(
+    payload: PhoneCodeRequest,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+) -> PhoneCodeRequestResponse:
+    try:
+        issued = request_phone_code(
+            db,
+            payload.phone,
+            client_identifier=get_client_identifier(request),
+            dispatch=run_in_background,
+        )
+    except PhoneCodeRateLimitedError as exc:
+        logger.warning(
+            "phone_code_rate_limited client_ip=%s retry_after=%s",
+            get_client_identifier(request),
+            exc.retry_after_seconds,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many codes. Please wait before asking again.",
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
+
+    logger.info("phone_code_sent client_ip=%s", get_client_identifier(request))
+    return PhoneCodeRequestResponse(
+        resend_after_seconds=issued.resend_after_seconds,
+        expires_at=issued.expires_at,
+        dev_code=issued.code if get_settings().phone_code_dev_echo else None,
+    )
+
+
+@router.post(
+    "/phone/verify",
+    response_model=LoginResponse,
+    summary="Verify a sign-in code and open a buyer session",
+    description=(
+        "Check the SMS code. On success, find or create the buyer for this phone and set the "
+        "same session and CSRF cookies as /auth/login."
+    ),
+    responses={
+        status.HTTP_409_CONFLICT: {
+            "description": "The number belongs to a seller or admin, who log in with a password."
+        },
+        status.HTTP_410_GONE: {"description": "No active code: it expired or was already used."},
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "The code doesn't match."},
+        status.HTTP_429_TOO_MANY_REQUESTS: {
+            "description": "Too many wrong tries. See Retry-After."
+        },
+    },
+)
+def phone_verify(
+    payload: PhoneCodeVerifyRequest,
+    request: Request,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+) -> LoginResponse:
+    client = get_client_identifier(request)
+    try:
+        authenticated = verify_phone_code(db, payload.phone, payload.code)
+    except PhoneCodeRateLimitedError as exc:
+        logger.warning("phone_code_locked client_ip=%s", client)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many tries. Please wait before trying again.",
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
+    except PhoneCodeExpiredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE, detail="That code has expired."
+        ) from exc
+    except PhoneCodeInvalidError as exc:
+        logger.warning("phone_code_invalid client_ip=%s", client)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="That code doesn't match.",
+        ) from exc
+    except PhoneNotBuyerError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This number has a seller account. Log in with your password.",
+        ) from exc
+
+    logger.info("phone_login_success user_id=%s client_ip=%s", authenticated.user.id, client)
+    return _open_session(response, authenticated)
 
 
 @router.post(

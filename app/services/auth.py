@@ -202,6 +202,13 @@ def authenticate_and_create_session(
         db.add(user)
         db.flush()
 
+    authenticated = create_session(db, user, now)
+    _clear_login_rate_limit(client_identifier, payload.phone)
+    return authenticated
+
+
+def create_session(db: Session, user: User, now: datetime) -> AuthenticatedSession:
+    """Open a server-side session for a verified user (password login or SMS code)."""
     session_token = generate_session_token()
     csrf_token = generate_session_token()
     expires_at = now + timedelta(seconds=get_settings().session_cookie_max_age_seconds)
@@ -214,8 +221,6 @@ def authenticate_and_create_session(
     )
     db.add(db_session)
     db.commit()
-
-    _clear_login_rate_limit(client_identifier, payload.phone)
 
     return AuthenticatedSession(
         user=user,

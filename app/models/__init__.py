@@ -19,6 +19,7 @@ from app.models.payment_prompt import (
     PaymentPromptStatus,
 )
 from app.models.payout_attempt import PayoutAttempt
+from app.models.phone_code import PhoneCode
 from app.models.provider_event import ProviderEvent
 from app.models.rail_health import RailBreakerState, RailHealth
 from app.models.transaction import Transaction, TransactionPayoutStatus, TransactionStatus
@@ -56,4 +57,5 @@ __all__ = [
     "NotificationChannel",
     "NotificationEventType",
     "UserSession",
+    "PhoneCode",
 ]

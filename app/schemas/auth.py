@@ -87,3 +87,37 @@ class LoginResponse(BaseModel):
     is_active: bool
     created_at: datetime
     session_expires_at: datetime
+
+
+class PhoneCodeRequest(BaseModel):
+    """Ask for a one-time sign-in code by SMS."""
+
+    phone: str = Field(min_length=7, max_length=32, description="Buyer's phone number.")
+
+    @field_validator("phone", mode="before")
+    @classmethod
+    def normalize_phone(cls, value: str) -> str | None:
+        return normalize_phone(value)
+
+
+class PhoneCodeRequestResponse(BaseModel):
+    """The code is on its way."""
+
+    resend_after_seconds: int = Field(description="Seconds before another code can be requested.")
+    expires_at: datetime = Field(description="When this code stops working.")
+    dev_code: str | None = Field(
+        default=None,
+        description="The code itself, only when PHONE_CODE_DEV_ECHO is on (never in production).",
+    )
+
+
+class PhoneCodeVerifyRequest(BaseModel):
+    """Verify the SMS code and open a buyer session."""
+
+    phone: str = Field(min_length=7, max_length=32, description="Buyer's phone number.")
+    code: str = Field(pattern=r"^\d{6}$", description="The 6-digit code from the SMS.")
+
+    @field_validator("phone", mode="before")
+    @classmethod
+    def normalize_phone(cls, value: str) -> str | None:
+        return normalize_phone(value)

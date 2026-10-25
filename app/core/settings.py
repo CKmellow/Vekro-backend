@@ -78,6 +78,16 @@ class Settings(BaseSettings):
     login_lockout_max_attempts: int = 5
     login_lockout_seconds: int = 15 * 60
 
+    # Buyer sign-in with an SMS code (POST /auth/phone/*).
+    phone_code_ttl_seconds: int = 5 * 60
+    phone_code_resend_seconds: int = 30
+    phone_code_max_attempts: int = 5
+    phone_code_lockout_seconds: int = 5 * 60
+    phone_code_hourly_limit: int = 5
+    # Local development and end-to-end tests only: return the code in the request-code
+    # response, since no SMS is sent without a gateway key. Refused in production.
+    phone_code_dev_echo: bool = False
+
     custody_mode: Literal["tier_1", "tier_2"] = "tier_2"
     custody_collection_rail_priority: str = "simulated"
     custody_payout_rail_priority: str = "simulated"
@@ -150,6 +160,11 @@ class Settings(BaseSettings):
         "login_rate_limit_window_seconds",
         "login_lockout_max_attempts",
         "login_lockout_seconds",
+        "phone_code_ttl_seconds",
+        "phone_code_resend_seconds",
+        "phone_code_max_attempts",
+        "phone_code_lockout_seconds",
+        "phone_code_hourly_limit",
     )
     @classmethod
     def _must_be_positive(cls, value: int) -> int:
@@ -225,6 +240,8 @@ class Settings(BaseSettings):
         violations: list[str] = []
 
         if environment == "production":
+            if self.phone_code_dev_echo:
+                violations.append("PHONE_CODE_DEV_ECHO=false")
             if not self.session_cookie_secure:
                 violations.append("SESSION_COOKIE_SECURE=true")
             if not self.csrf_cookie_secure:

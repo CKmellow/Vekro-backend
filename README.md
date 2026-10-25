@@ -300,6 +300,12 @@ Migration notes:
       - csrf cookie (readable by client) carrying CSRF token.
    - Login is protected by rate limiting and temporary account lockout.
    - Session/CSRF cookie behavior is controlled by env vars in .env.example.
+- POST /auth/phone/request-code and POST /auth/phone/verify
+   - Purpose: passwordless buyer sign-in with a one-time 6-digit SMS code.
+   - Codes are random, single-use, expire after 5 minutes, and are stored only as HMAC hashes.
+   - A resend waits 30 seconds; at most 5 codes per phone per hour; 5 wrong tries lock the phone for 5 minutes (429 with Retry-After).
+   - Verify finds or creates the buyer and sets the same session and CSRF cookies as /auth/login; seller and admin numbers get 409 (password only).
+   - PHONE_CODE_DEV_ECHO=true returns the code in the response for local development and e2e; refused in production.
    - Expected response: 200 OK with user profile and session expiration timestamp.
 - POST /auth/logout
    - Purpose: invalidate active server-side session if present.

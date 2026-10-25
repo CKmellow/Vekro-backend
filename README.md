@@ -300,6 +300,10 @@ Migration notes:
       - csrf cookie (readable by client) carrying CSRF token.
    - Login is protected by rate limiting and temporary account lockout.
    - Session/CSRF cookie behavior is controlled by env vars in .env.example.
+- GET /public/orders/{key}
+   - Purpose: what an SMS order link shows before the buyer verifies their phone.
+   - `key` is the order id or reference; returns reference, item title, amount, a coarse state (unpaid, paid, closed) and the listing status. No names, phones or ids.
+   - 30 lookups per minute per client (429 with Retry-After).
 - POST /auth/phone/request-code and POST /auth/phone/verify
    - Purpose: passwordless buyer sign-in with a one-time 6-digit SMS code.
    - Codes are random, single-use, expire after 5 minutes, and are stored only as HMAC hashes.

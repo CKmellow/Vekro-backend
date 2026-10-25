@@ -2910,6 +2910,57 @@
           }
         }
       }
+    },
+    "/public/orders/{key}": {
+      "get": {
+        "tags": [
+          "Public"
+        ],
+        "summary": "Public order summary (no auth)",
+        "description": "The order behind an SMS link (its id) or a reference: title, amount and where the money is, with no names, phones or ids. Full details need a phone-verified session.",
+        "operationId": "public_order_public_orders__key__get",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 4,
+              "maxLength": 64,
+              "title": "Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicOrderSummary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such order."
+          },
+          "429": {
+            "description": "Too many lookups. See Retry-After."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5940,6 +5991,54 @@
         ],
         "title": "PhoneCodeVerifyRequest",
         "description": "Verify the SMS code and open a buyer session."
+      },
+      "PublicOrderSummary": {
+        "properties": {
+          "reference": {
+            "type": "string",
+            "title": "Reference",
+            "description": "Human order reference, such as VK-7K3P9Q."
+          },
+          "listing_title": {
+            "type": "string",
+            "title": "Listing Title"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount"
+          },
+          "state_group": {
+            "type": "string",
+            "enum": [
+              "unpaid",
+              "paid",
+              "closed"
+            ],
+            "title": "State Group",
+            "description": "unpaid: waiting for M-Pesa; paid: money in escrow; closed: released or refunded."
+          },
+          "listing_status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "awaiting_payment",
+              "sold",
+              "archived"
+            ],
+            "title": "Listing Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reference",
+          "listing_title",
+          "amount",
+          "state_group",
+          "listing_status"
+        ],
+        "title": "PublicOrderSummary",
+        "description": "What an order link shows before the buyer verifies their phone: no personal data."
       },
       "RailBreakerState": {
         "type": "string",

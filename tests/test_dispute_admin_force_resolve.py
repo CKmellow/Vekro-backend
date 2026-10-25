@@ -361,3 +361,48 @@ def test_service_force_resolve_split_updates_state_and_ratio() -> None:
     assert transaction.refunded_at is not None
     assert dispute.split_ratio == Decimal("0.5000")
     assert result.decision == AdminDecision.SPLIT
+
+
+def test_service_force_resolve_split_uses_the_chosen_seller_share_and_records_the_admin() -> None:
+    transaction = _build_transaction(TransactionStatus.ESCALATED_ADMIN_REVIEW)
+    dispute = _build_dispute(transaction.id, DisputeStatus.ESCALATED_ADMIN_REVIEW)
+    db = _FakeDb(dispute=dispute, transaction=transaction)
+    admin_id = uuid.uuid4()
+
+    force_resolve_dispute_case(
+        cast(Session, db),
+        dispute_id=dispute.id,
+        decision=AdminDecision.SPLIT,
+        reason="Seller shipped late; buyer kept the charger.",
+        actor_id=admin_id,
+        seller_share=Decimal("0.6"),
+    )
+
+    assert dispute.split_ratio == Decimal("0.6000")
+    assert dispute.decided_by_user_id == admin_id
+
+
+def test_force_resolve_forwards_the_seller_share_and_validates_it(monkeypatch) -> None:
+    seen: dict = {}
+
+    def fake(_db, dispute_id, decision, reason, **kwargs):
+        seen.update(kwargs)
+        raise DisputeSplitPayoutUnsupportedError("split payout unsupported")
+
+    monkeypatch.setattr(disputes_router, "force_resolve_dispute_case", fake)
+    client = _authenticated_client(monkeypatch, UserRole.ADMIN)
+    url = f"/admin/disputes/{uuid.uuid4()}/force-resolve"
+
+    client.post(
+        url,
+        json={"decision": "split", "reason": "mixed", "seller_share": "0.25"},
+        headers=_csrf_headers(),
+    )
+    bad = client.post(
+        url,
+        json={"decision": "split", "reason": "mixed", "seller_share": "1"},
+        headers=_csrf_headers(),
+    )
+
+    assert seen["seller_share"] == Decimal("0.25")
+    assert bad.status_code == 422

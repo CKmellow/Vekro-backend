@@ -2129,6 +2129,132 @@
         }
       }
     },
+    "/admin/cases": {
+      "get": {
+        "tags": [
+          "Admin Disputes"
+        ],
+        "summary": "Support queue: escalated cases with counters",
+        "description": "Open cases oldest first (by escalation), decided cases newest first, or all. Each case carries its reference, amount, item, parties and why it reached support.",
+        "operationId": "list_cases_admin_cases_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/CaseStatusFilter",
+              "default": "open"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminCaseListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not an admin."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/cases/{dispute_id}": {
+      "get": {
+        "tags": [
+          "Admin Disputes"
+        ],
+        "summary": "One case for review and decision",
+        "description": "Parties with full phones and history, the item and declared policy, both accounts, the escalation reason, the decision when made, and a timeline (payloads are never returned).",
+        "operationId": "get_case_admin_cases__dispute_id__get",
+        "parameters": [
+          {
+            "name": "dispute_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Dispute Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminCaseDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not an admin."
+          },
+          "404": {
+            "description": "Case not found."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/rails/health": {
       "get": {
         "tags": [
@@ -2514,6 +2640,567 @@
   },
   "components": {
     "schemas": {
+      "AdminCaseCounters": {
+        "properties": {
+          "open": {
+            "type": "integer",
+            "title": "Open"
+          },
+          "older_than_24h": {
+            "type": "integer",
+            "title": "Older Than 24H"
+          },
+          "decided_today": {
+            "type": "integer",
+            "title": "Decided Today",
+            "description": "Decided by support today (EAT)."
+          },
+          "average_decision_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Decision Seconds",
+            "description": "Average from escalation to decision over the last 30 days."
+          }
+        },
+        "type": "object",
+        "required": [
+          "open",
+          "older_than_24h",
+          "decided_today",
+          "average_decision_seconds"
+        ],
+        "title": "AdminCaseCounters"
+      },
+      "AdminCaseDecision": {
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/AdminDecision"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "seller_share": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seller Share"
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision",
+          "reason",
+          "seller_share",
+          "decided_by",
+          "decided_at"
+        ],
+        "title": "AdminCaseDecision"
+      },
+      "AdminCaseDetailResponse": {
+        "properties": {
+          "dispute_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Dispute Id"
+          },
+          "transaction_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Transaction Id"
+          },
+          "reference": {
+            "type": "string",
+            "title": "Reference"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount"
+          },
+          "item_title": {
+            "type": "string",
+            "title": "Item Title"
+          },
+          "buyer_name": {
+            "type": "string",
+            "title": "Buyer Name"
+          },
+          "seller_name": {
+            "type": "string",
+            "title": "Seller Name"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CaseTrigger"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the case reached support."
+          },
+          "escalated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalated By",
+            "description": "buyer or seller, when a party escalated."
+          },
+          "dispute_status": {
+            "$ref": "#/components/schemas/DisputeStatus"
+          },
+          "transaction_status": {
+            "$ref": "#/components/schemas/TransactionStatus"
+          },
+          "admin_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "opened_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Opened At"
+          },
+          "escalated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalated At"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "unique_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unique Id"
+          },
+          "is_serialized": {
+            "type": "boolean",
+            "title": "Is Serialized"
+          },
+          "dispute_policy": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Dispute Policy"
+          },
+          "buyer": {
+            "$ref": "#/components/schemas/AdminCaseParty"
+          },
+          "seller": {
+            "$ref": "#/components/schemas/AdminCaseParty"
+          },
+          "seller_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SellerResolutionAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seller_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seller Notes"
+          },
+          "buyer_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buyer Notes"
+          },
+          "reconfirm_rejections": {
+            "type": "integer",
+            "title": "Reconfirm Rejections"
+          },
+          "escalation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalation Reason"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminCaseDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timeline": {
+            "items": {
+              "$ref": "#/components/schemas/AdminCaseEvent"
+            },
+            "type": "array",
+            "title": "Timeline"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dispute_id",
+          "transaction_id",
+          "reference",
+          "amount",
+          "item_title",
+          "buyer_name",
+          "seller_name",
+          "category",
+          "trigger",
+          "escalated_by",
+          "dispute_status",
+          "transaction_status",
+          "admin_decision",
+          "opened_at",
+          "escalated_at",
+          "resolved_at",
+          "description",
+          "unique_id",
+          "is_serialized",
+          "dispute_policy",
+          "buyer",
+          "seller",
+          "seller_action",
+          "seller_notes",
+          "buyer_notes",
+          "reconfirm_rejections",
+          "escalation_reason",
+          "decision",
+          "timeline"
+        ],
+        "title": "AdminCaseDetailResponse",
+        "description": "Everything support needs to decide a case. Notification payloads are never included."
+      },
+      "AdminCaseEvent": {
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "at",
+          "title",
+          "message",
+          "source"
+        ],
+        "title": "AdminCaseEvent"
+      },
+      "AdminCaseListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AdminCaseSummaryResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "counters": {
+            "$ref": "#/components/schemas/AdminCaseCounters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "counters"
+        ],
+        "title": "AdminCaseListResponse"
+      },
+      "AdminCaseParty": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone",
+            "description": "Full phone number (admins only)."
+          },
+          "orders": {
+            "type": "integer",
+            "title": "Orders"
+          },
+          "completed_sales": {
+            "type": "integer",
+            "title": "Completed Sales"
+          },
+          "dispute_rate": {
+            "type": "number",
+            "title": "Dispute Rate",
+            "description": "Share of paid orders that had a dispute (sellers)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "phone",
+          "orders",
+          "completed_sales",
+          "dispute_rate"
+        ],
+        "title": "AdminCaseParty"
+      },
+      "AdminCaseSummaryResponse": {
+        "properties": {
+          "dispute_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Dispute Id"
+          },
+          "transaction_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Transaction Id"
+          },
+          "reference": {
+            "type": "string",
+            "title": "Reference"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount"
+          },
+          "item_title": {
+            "type": "string",
+            "title": "Item Title"
+          },
+          "buyer_name": {
+            "type": "string",
+            "title": "Buyer Name"
+          },
+          "seller_name": {
+            "type": "string",
+            "title": "Seller Name"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CaseTrigger"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the case reached support."
+          },
+          "escalated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalated By",
+            "description": "buyer or seller, when a party escalated."
+          },
+          "dispute_status": {
+            "$ref": "#/components/schemas/DisputeStatus"
+          },
+          "transaction_status": {
+            "$ref": "#/components/schemas/TransactionStatus"
+          },
+          "admin_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "opened_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Opened At"
+          },
+          "escalated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalated At"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dispute_id",
+          "transaction_id",
+          "reference",
+          "amount",
+          "item_title",
+          "buyer_name",
+          "seller_name",
+          "category",
+          "trigger",
+          "escalated_by",
+          "dispute_status",
+          "transaction_status",
+          "admin_decision",
+          "opened_at",
+          "escalated_at",
+          "resolved_at"
+        ],
+        "title": "AdminCaseSummaryResponse",
+        "description": "One escalated case in the support queue."
+      },
       "AdminCollectionControlResponse": {
         "properties": {
           "escrow_reference": {
@@ -2645,6 +3332,24 @@
             "minLength": 1,
             "title": "Reason",
             "description": "Required rationale for the admin decision."
+          },
+          "seller_share": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 0.99,
+                "minimum": 0.01
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seller Share",
+            "description": "Split only: the seller's share of the escrow; the buyer gets the rest."
           }
         },
         "type": "object",
@@ -2994,6 +3699,25 @@
         ],
         "title": "BuyerReconfirmationRequest",
         "description": "Buyer response after seller remediation action."
+      },
+      "CaseStatusFilter": {
+        "type": "string",
+        "enum": [
+          "open",
+          "decided",
+          "all"
+        ],
+        "title": "CaseStatusFilter"
+      },
+      "CaseTrigger": {
+        "type": "string",
+        "enum": [
+          "receipt_timeout",
+          "buyer_not_fixed_twice",
+          "party_escalated",
+          "other_category"
+        ],
+        "title": "CaseTrigger"
       },
       "CollectionOutcome": {
         "type": "string",

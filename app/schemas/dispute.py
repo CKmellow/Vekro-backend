@@ -72,6 +72,12 @@ class AdminForceResolveRequest(BaseModel):
         str,
         StringConstraints(strip_whitespace=True, min_length=1),
     ] = Field(description="Required rationale for the admin decision.")
+    seller_share: Decimal | None = Field(
+        default=None,
+        ge=Decimal("0.01"),
+        le=Decimal("0.99"),
+        description="Split only: the seller's share of the escrow; the buyer gets the rest.",
+    )
 
 
 class AdminForceResolveResponse(BaseModel):

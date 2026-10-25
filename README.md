@@ -310,6 +310,8 @@ Migration notes:
    - Purpose: signed-in devices (a label from the User-Agent and a last-seen time; no IP addresses), and signing them out.
 - GET/PUT /me/notification-preferences
    - Purpose: a seller's in-app and SMS choice per category (payment received, delivery, returns, support). Support decisions always show in the app; buyers can't mute anything (one message carries the delivery code). Honoured by SMS delivery and the in-app list and count.
+- GET /seller/analytics?range=7d|30d|90d
+   - Purpose: the seller's scoreboard (S12): KPIs against the previous period (sales volume, orders, average order value, completion rate, dispute rate, time to dispatch), sales over time in EAT (weekly at 90 days), outcomes per week, dispute categories and top listings. Only the seller's own paid orders.
 - GET /public/orders/{key}
    - Purpose: what an SMS order link shows before the buyer verifies their phone.
    - `key` is the order id or reference; returns reference, item title, amount, a coarse state (unpaid, paid, closed) and the listing status. No names, phones or ids.

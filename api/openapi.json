@@ -3570,6 +3570,61 @@
           }
         }
       }
+    },
+    "/seller/analytics": {
+      "get": {
+        "tags": [
+          "Seller analytics"
+        ],
+        "summary": "The seller's analytics for 7, 30 or 90 days",
+        "description": "KPIs against the previous period of the same length, sales over time (EAT), outcomes per week, dispute categories and top listings. Only the seller's own paid orders.",
+        "operationId": "get_analytics_seller_analytics_get",
+        "parameters": [
+          {
+            "name": "range",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "7d",
+                "30d",
+                "90d"
+              ],
+              "type": "string",
+              "default": "30d",
+              "title": "Range"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SellerAnalyticsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Not a seller."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4752,6 +4807,76 @@
         ],
         "title": "AdminTransactionSearchResponse"
       },
+      "AnalyticsKpis": {
+        "properties": {
+          "sales_volume": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Sales Volume"
+          },
+          "orders": {
+            "type": "integer",
+            "title": "Orders"
+          },
+          "average_order_value": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Order Value"
+          },
+          "completion_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Rate",
+            "description": "0 to 1; null without closed orders."
+          },
+          "dispute_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispute Rate",
+            "description": "0 to 1; null without orders."
+          },
+          "average_dispatch_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Dispatch Seconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sales_volume",
+          "orders",
+          "average_order_value",
+          "completion_rate",
+          "dispute_rate",
+          "average_dispatch_seconds"
+        ],
+        "title": "AnalyticsKpis"
+      },
       "BuyerReconfirmationRequest": {
         "properties": {
           "accepted": {
@@ -5097,6 +5222,24 @@
         ],
         "title": "DisputeCaseTimelineResponse",
         "description": "Full dispute timeline detail for admin triage and decision-making."
+      },
+      "DisputeCategoryCount": {
+        "properties": {
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category",
+          "count"
+        ],
+        "title": "DisputeCategoryCount"
       },
       "DisputeStatus": {
         "type": "string",
@@ -6351,6 +6494,35 @@
         "title": "OtpWithholdRequest",
         "description": "Optional reason when the buyer rejects the item at the door."
       },
+      "OutcomeWeek": {
+        "properties": {
+          "week_start": {
+            "type": "string",
+            "format": "date",
+            "title": "Week Start"
+          },
+          "released": {
+            "type": "integer",
+            "title": "Released"
+          },
+          "refunded": {
+            "type": "integer",
+            "title": "Refunded"
+          },
+          "disputed": {
+            "type": "integer",
+            "title": "Disputed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "week_start",
+          "released",
+          "refunded",
+          "disputed"
+        ],
+        "title": "OutcomeWeek"
+      },
       "PasswordChange": {
         "properties": {
           "current_password": {
@@ -7063,6 +7235,107 @@
         ],
         "title": "RevokedResponse"
       },
+      "SalesPoint": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date",
+            "description": "EAT day, or the Monday of the week at 90 days."
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount"
+          },
+          "orders": {
+            "type": "integer",
+            "title": "Orders"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "amount",
+          "orders"
+        ],
+        "title": "SalesPoint"
+      },
+      "SellerAnalyticsResponse": {
+        "properties": {
+          "range_days": {
+            "type": "integer",
+            "title": "Range Days"
+          },
+          "completed_sales": {
+            "type": "integer",
+            "title": "Completed Sales",
+            "description": "All-time released orders; S12 unlocks at 5."
+          },
+          "current": {
+            "$ref": "#/components/schemas/AnalyticsKpis"
+          },
+          "previous": {
+            "$ref": "#/components/schemas/AnalyticsKpis",
+            "description": "The period of the same length just before."
+          },
+          "bucket": {
+            "type": "string",
+            "enum": [
+              "day",
+              "week"
+            ],
+            "title": "Bucket"
+          },
+          "sales_series": {
+            "items": {
+              "$ref": "#/components/schemas/SalesPoint"
+            },
+            "type": "array",
+            "title": "Sales Series"
+          },
+          "outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/OutcomeWeek"
+            },
+            "type": "array",
+            "title": "Outcomes"
+          },
+          "dispute_categories": {
+            "items": {
+              "$ref": "#/components/schemas/DisputeCategoryCount"
+            },
+            "type": "array",
+            "title": "Dispute Categories"
+          },
+          "top_listings": {
+            "items": {
+              "$ref": "#/components/schemas/TopListingRow"
+            },
+            "type": "array",
+            "title": "Top Listings"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Server Time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "range_days",
+          "completed_sales",
+          "current",
+          "previous",
+          "bucket",
+          "sales_series",
+          "outcomes",
+          "dispute_categories",
+          "top_listings",
+          "server_time"
+        ],
+        "title": "SellerAnalyticsResponse"
+      },
       "SellerPayoutResponse": {
         "properties": {
           "status": {
@@ -7391,6 +7664,60 @@
         ],
         "title": "TimelineEventResponse",
         "description": "One step in an order's history, in plain words."
+      },
+      "TopListingRow": {
+        "properties": {
+          "listing_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Listing Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "photo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Photo Url"
+          },
+          "orders": {
+            "type": "integer",
+            "title": "Orders"
+          },
+          "sales": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Sales"
+          },
+          "completion_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Rate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "listing_id",
+          "title",
+          "photo_url",
+          "orders",
+          "sales",
+          "completion_rate"
+        ],
+        "title": "TopListingRow"
       },
       "TransactionCreatedResponse": {
         "properties": {

@@ -179,3 +179,14 @@ def test_trigger_defaults_to_receipt_timeout_and_counts_today_in_eat(db, console
         None,
     )
     assert case_counters(db).decided_today in {0, 1}
+
+
+def test_timeline_has_no_seller_voice_or_duplicates(monkeypatch, db, console) -> None:
+    client = _client_as(monkeypatch, db, console["admin"])
+
+    timeline = client.get(f"/admin/cases/{console['disputes'][0].id}").json()["timeline"]
+
+    titles = [e["title"] for e in timeline]
+    assert "Functional issue opened" not in titles
+    assert titles.count("Sent to Vekro support") == 1
+    assert "You asked" not in str(timeline)

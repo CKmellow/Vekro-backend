@@ -619,3 +619,7 @@ Migration notes:
 - 2026-10-20: Milestone 20 E7 (#156): custody selection wired into `POST /transactions` behind `ECONFIRM_ENABLED`. eConfirm transactions get an eConfirm escrow and STK prompt and lock only when the poller confirms funding; the Daraja callback ignores them. `transactions.custody_provider` (migration `e2b7c4d91f08`, chained after the payment-prompt migration `b5e8f1c2a904`) is returned in `TransactionResponse` and `TransactionDetailResponse`. eConfirm transactions record payment prompts like the gateway path, and resend re-prompts through eConfirm.
 - 2026-10-20: Milestone 20 E6 (#151): fixture contract tests, shared conformance over the real transport, the eConfirm failure matrix, the opt-in live smoke (`pytest -m live -k econfirm`, KES 100 round trip behind an extra confirmation variable), and custody-honesty updates to this README, the demo script, the custody-tier doc, and the runbooks.
 - 2026-10-20: Issue [#164] `POST /transactions/payment-callback` is authenticated: with `PAYMENT_CALLBACK_SECRET` set, the `X-Payment-Callback-Secret` header must match (constant-time) or the request is rejected with 401 before the transaction is read; with no secret it is refused in production and stays open outside production for the simulated rail and frontend end-to-end tests.
+
+## Operator commands
+
+- `VEKRO_ADMIN_PASSWORD=... python -m app.cli create-admin --phone 07XXXXXXXX --name "Vekro Support"`: create a support admin, or promote an existing account. The password (12+ characters) comes from the environment, never a flag.

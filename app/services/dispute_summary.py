@@ -9,6 +9,16 @@ from sqlalchemy.orm import Session
 
 from app.models.dispute import AdminDecision, Dispute, DisputeStatus, SellerResolutionAction
 
+# A return case still in progress: neither resolved by a party or an admin, nor closed.
+OPEN_DISPUTE_STATUSES = frozenset(
+    {
+        DisputeStatus.OPEN,
+        DisputeStatus.BUYER_SENT_BACK,
+        DisputeStatus.RETURN_RECEIVED,
+        DisputeStatus.AWAITING_BUYER_RECONFIRMATION,
+    }
+)
+
 
 @dataclass(frozen=True)
 class DisputeSummary:

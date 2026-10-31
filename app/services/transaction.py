@@ -45,6 +45,7 @@ from app.services.deadlines import (
     RETURN_RECEIPT_WINDOW,
     RETURN_SEND_WINDOW,
 )
+from app.services.dispute_summary import OPEN_DISPUTE_STATUSES, latest_dispute
 from app.services.escrow_service import EscrowService
 from app.services.listing_content import listing_is_sold
 from app.services.payment import PaymentGateway, PaymentRequest, get_payment_gateway
@@ -2153,6 +2154,11 @@ def run_timeout_jobs(
     for transaction in dispute_due:
         transaction.status = TransactionStatus.RELEASED
         transaction.released_at = current_time
+        # The buyer never sent the item back, so the return case closes with the release.
+        dispute = latest_dispute(db, transaction.id)
+        if dispute is not None and dispute.status in OPEN_DISPUTE_STATUSES:
+            dispute.status = DisputeStatus.CANCELED
+            dispute.resolved_at = current_time
         EscrowService(db).queue_release_full(
             transaction,
             purpose=f"dispute-timeout-release:{transaction.id}",
@@ -2171,6 +2177,11 @@ def run_timeout_jobs(
 
     for transaction in seller_received_due:
         transaction.status = TransactionStatus.ESCALATED_ADMIN_REVIEW
+        # Admins resolve escalated cases from the dispute, so it must be escalated too.
+        dispute = latest_dispute(db, transaction.id)
+        if dispute is not None and dispute.status in OPEN_DISPUTE_STATUSES:
+            dispute.status = DisputeStatus.ESCALATED_ADMIN_REVIEW
+            dispute.escalated_at = current_time
         _create_seller_received_timeout_notifications(
             db,
             transaction=transaction,

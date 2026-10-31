@@ -623,3 +623,4 @@ Migration notes:
 ## Operator commands
 
 - `VEKRO_ADMIN_PASSWORD=... python -m app.cli create-admin --phone 07XXXXXXXX --name "Vekro Support"`: create a support admin, or promote an existing account. The password (12+ characters) comes from the environment, never a flag.
+- `python -m app.cli repair-return-cases [--apply]`: list return cases that the timeout jobs left stuck before #221 (the transaction escalated or released while its dispute stayed open). Without `--apply`, nothing changes. With it, each case is escalated or closed and recorded as `return_case_repaired` in the money audit. Any other mismatch is listed for review and never changed. See `docs/runbooks.md` RB-5.

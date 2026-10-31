@@ -164,3 +164,24 @@ STK was sent, and the transaction stays `awaiting_payment`.
    must then be done from the eConfirm dashboard.
 4. If none exists, leave the transaction to the payment timeout. Do **not**
    re-open it on eConfirm automatically, because there is no idempotency key.
+
+## RB-5: Stuck return cases (#221)
+
+**Meaning**: before #221, two timeouts moved the transaction without moving its dispute.
+
+- **Seller-received timeout.** The transaction went to `escalated_admin_review`, but the dispute
+  stayed `open`. Admins resolve cases from the dispute, so the case was missing from the
+  escalation queue, could not be resolved, and its money stayed held.
+- **Buyer-sent-back timeout.** The money was released, but the dispute stayed `open`.
+
+Both timeouts now move the dispute too (escalated, or `canceled` with `resolved_at`).
+
+**Steps**
+
+1. List the cases. This is a dry run and changes nothing:
+   `.venv/bin/python -m app.cli repair-return-cases`
+2. Fix them: `.venv/bin/python -m app.cli repair-return-cases --apply`. Each escalated case then
+   appears in the admin escalation queue and is resolved there as usual. Each repair writes a
+   `return_case_repaired` money audit event (`GET /admin/audit/money-events?action=return_case_repaired`).
+3. Cases listed as `review` (an open dispute behind a refunded or resolved transaction) are never
+   changed automatically. Look at them by hand.

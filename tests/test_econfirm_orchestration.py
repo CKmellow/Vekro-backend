@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 from app.db.base import Base
 from app.models.escrow import Escrow
+from app.models.ledger_entry import LedgerEntry
 from app.models.transaction import Transaction
 from app.services.custody.dto import CollectionResult, EscrowRecord
 from app.services.custody.econfirm_crypto import build_cipher
@@ -30,7 +31,9 @@ SETTINGS = SimpleNamespace(econfirm_code_encryption_key=KEY, econfirm_max_amount
 
 def _session() -> Session:
     engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine, tables=[Escrow.__table__, Transaction.__table__])
+    Base.metadata.create_all(
+        engine, tables=[Escrow.__table__, Transaction.__table__, LedgerEntry.__table__]
+    )
     return sessionmaker(bind=engine, expire_on_commit=False, class_=Session)()
 
 

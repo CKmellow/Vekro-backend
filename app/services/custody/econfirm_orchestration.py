@@ -42,6 +42,7 @@ from app.services.custody.selection import (
     PROVIDER_SIMULATED,
     effective_max_principal,
 )
+from app.services.ledger import post_escrow_funding
 
 _logger = logging.getLogger("app.custody.econfirm.orchestration")
 
@@ -268,8 +269,13 @@ def run_econfirm_funding_reconciliation(
         polled += 1
         result = collection_rail.get_funding_status(escrow.econfirm_transaction_id)
         if result.outcome == CollectionOutcome.SUCCEEDED:
-            escrow.funded_amount = escrow.amount_total
-            db.add(escrow)
+            # Ledger and funded_amount together, committed with the lock below (#222).
+            post_escrow_funding(
+                db,
+                escrow,
+                idempotency_key=f"econfirm-funding:{escrow.id}",
+                description="eConfirm custody funding",
+            )
             funded += 1
             record_money_audit_event(
                 db,

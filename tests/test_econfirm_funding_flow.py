@@ -20,6 +20,7 @@ from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
 from app.db.base import Base
 from app.models.escrow import Escrow
+from app.models.ledger_entry import LedgerEntry
 from app.models.listing import Listing
 from app.models.money_audit_event import MoneyAuditEvent
 from app.models.notification import Notification, NotificationEventType
@@ -87,6 +88,7 @@ def _session() -> Session:
             Transaction,
             Notification,
             Escrow,
+            LedgerEntry,
             MoneyAuditEvent,
             PaymentPrompt,
         )

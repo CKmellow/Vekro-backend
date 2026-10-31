@@ -44,3 +44,4 @@ htmlcov/
 
 # Alembic compiled files
 alembic/versions/*.pyc
+.hypothesis/

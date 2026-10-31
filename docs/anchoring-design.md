@@ -1,7 +1,7 @@
 # Anchoring design note and event inventory (M21 A1)
 
-Status: **proposal, awaiting maintainer approval.** No code changes follow from this note until it
-is approved. Section 8 lists the decisions needed.
+Status: **approved with changes on 2026-10-31.** Section 8 records each decision, and the sections
+it touches have been updated to match. Section 9 gives the delivery order.
 
 This note covers four things. It lists every fact on `main` (at `cb16c20`) that M21 must anchor. It
 names the single choke point where `record_anchor_event` will be called for each one. It fixes the
@@ -37,10 +37,11 @@ Main findings:
    gapless `seq` assigned by the batcher (section 5.5).
 4. **eConfirm funding never reaches the ledger.** The poller sets `escrows.funded_amount` directly,
    with no ledger posting. The Daraja-style payment callback locks a transaction with no funding
-   posting at all. The anchored facts for these paths are the money audit event and the transition,
-   not ledger rows (problem P5).
-5. **Pre-existing bug, outside M21:** the seller-received timeout escalates the transaction but
-   leaves the dispute `open`. No admin path can then resolve it, and the money stays held (section 7).
+   posting at all (problem P5). This is fixed in #222 before A3, so from then on these paths
+   produce anchored ledger rows like every other funding path.
+5. **Pre-existing bug:** the seller-received timeout escalates the transaction but leaves the
+   dispute `open`. No admin path can then resolve it, and the money stays held (section 7). This is
+   fixed in #221 before A3.
 
 ---
 
@@ -50,9 +51,10 @@ Main findings:
   database and are served to the transaction's parties.
 - The event row is written in the same DB transaction as the fact. Anything that involves the chain
   is asynchronous. With `ANCHOR_ENABLED=false`, events are still recorded and nothing is submitted.
-- M-Pesa, eConfirm and the simulated rail are unchanged. M21 adds no ledger postings, so money flows
-  behave identically. The only behaviour change is the extra `anchor_events` insert in each
-  transaction.
+- M-Pesa, eConfirm and the simulated rail are unchanged. The anchoring issues (A2–A7) add no ledger
+  postings, so money flows behave identically. Their only behaviour change is the extra
+  `anchor_events` insert in each transaction. The new funding postings come from #222, a separate
+  money fix that is reviewed and merged on its own.
 
 ---
 
@@ -103,10 +105,19 @@ When the audit table is missing (some unit tests build partial schemas), the fun
 without writing. The anchor helper follows the same rule: no source row means no event.
 
 LOOP and Pesapal `funding_confirmed` rows have no `transaction_id`, so their events go into the
-**global** chain (`transaction_id = NULL`). They are still anchored and covered by the full audit,
-but they do not appear in a single transaction's verification. Neither rail is enabled today. I do
-not propose resolving `provider_reference` to a transaction at write time, because it would put a
-derived value in a payload that is meant to be rebuilt from the source row.
+**global** chain (`transaction_id = NULL`). They are anchored and covered by the full audit. The
+source payload is not changed, because it is rebuilt from the source row and must not carry a
+derived value.
+
+**Linking event (D10).** When a global funding event is matched to a transaction, the matcher also
+records a `global_event_linked` event in that transaction's chain:
+
+- Matching happens when the event's `provider_reference` resolves through `collection_attempts` to
+  an escrow. The match is tried when the global event is written, and again by any later code that
+  binds the funding to an escrow.
+- The linking event's payload carries the global event's `leaf_hash` and its anchor-row `id`.
+- The transaction's verification then includes the global event and its proof, and the link itself
+  is anchored. Neither rail is enabled today, so this path is exercised by tests only.
 
 ### 3.3 Transaction status transitions (no table today)
 
@@ -186,6 +197,17 @@ Encoding rules (A2 implements them, and the golden vectors pin them):
 - Timestamps are UTC ISO-8601 truncated to seconds, with a `Z` suffix (`"2026-10-31T09:15:02Z"`).
 - UUIDs are lowercase with hyphens. Enum values are their stored string values. Absent optional
   values are `null`; keys are never omitted.
+- **Admin identities are never in a payload (D5).** Wherever an admin's UUID would appear
+  (`admin_decision.admin_id`, an admin `actor_id` in `money_audit` or `transaction_transition`, and
+  the backfill snapshot's decider), the payload carries
+  `admin_ref = hex(HMAC-SHA256(ANCHOR_ADMIN_REF_SECRET, utf8(lowercase admin uuid)))` instead,
+  under the key `admin_ref` or `actor_ref`. Buyer and seller UUIDs stay as they are.
+  - The admin-only full audit resolves a ref by computing the HMAC for each admin user.
+  - The source-row rebuild applies the same mapping, so a rebuilt `money_audit` payload still
+    matches byte for byte.
+  - `ANCHOR_ADMIN_REF_SECRET` is a comma-separated list, newest first, like
+    `ECONFIRM_CODE_ENCRYPTION_KEY`. New events use the first key, and the audit tries each key, so a
+    rotation never breaks old leaves.
 - Free text written by a party (dispute description, notes, escalation reason) is **not** copied
   into the payload. It is bound by `keccak256(utf8(text))` as `0x`-prefixed lowercase hex, or `null`
   when there is no text. The full audit can still detect an edited `disputes.description`, and
@@ -210,7 +232,7 @@ admin decisions), the stored payload is the record.
 // money_audit (one per row; source_table = money_audit_events)
 {"v":1,"type":"money_audit","transaction_id":"…"|null,"at":"…",        // at = occurred_at
  "audit_event_id":"…","action":"payout_release_queued","actor_type":"system","actor_id":null,
- "reason":"…"|null,"escrow_id":"…"|null,"attempt_id":"…"|null,"provider_reference":"…"|null,
+ "actor_ref":null,"reason":"…"|null,"escrow_id":"…"|null,"attempt_id":"…"|null,"provider_reference":"…"|null,
  "rail_name":"simulated"|null,"correlation_id":"txn=…|ref=…|rail=…",
  "amount":"500.00"|null,"currency":"KES"|null,"details":{…}}
 
@@ -223,7 +245,8 @@ admin decisions), the stored payload is the record.
 // transaction_transition (source = the log)
 {"v":1,"type":"transaction_transition","transaction_id":"…","at":"…",
  "from":"at_door_pending_inspection","to":"return_in_transit",
- "actor_type":"user"|"admin"|"system"|"provider","actor_id":"…"|null,"reason":"otp_withheld",
+ "actor_type":"user"|"admin"|"system"|"provider","actor_id":"…"|null,"actor_ref":"…"|null,
+ "reason":"otp_withheld",
  "door_rejection_reason":"damaged"|null}   // T7 only; null elsewhere
 
 // dispute_* (source = the log); common fields first, then per-type fields
@@ -242,18 +265,25 @@ admin decisions), the stored payload is the record.
 
 // admin_decision (source = the log)
 {"v":1,"type":"admin_decision","transaction_id":"…","at":"…","dispute_id":"…",
- "decision":"split","reason":"<admin reason, verbatim>","admin_id":"…",
+ "decision":"split","reason":"<admin reason, verbatim>","admin_ref":"<hmac hex>",
  "seller_share":"0.5000"|null,"release_amount":"250.00"|null,"refund_amount":"250.00"|null}
 
 // backfill_snapshot (backfill only, one per transaction; source_table = transactions)
 {"v":1,"type":"backfill_snapshot","transaction_id":"…","at":"<backfill time>","backfilled":true,
  "status":"released","payout_status":"succeeded","amount":"500.00","currency":"KES",
  "dispute":null | {"dispute_id":"…","status":"…","admin_decision":"…"|null,"admin_reason":"…"|null,
-                   "admin_id":"…"|null,"split_ratio":"0.5000"|null,
+                   "admin_ref":"…"|null,"split_ratio":"0.5000"|null,
                    "seller_resolution_action":"…"|null,"resolved_at":"…"|null}}
+
+// global_event_linked (D10; in the matched transaction's chain; source = the log)
+{"v":1,"type":"global_event_linked","transaction_id":"…","at":"…",
+ "global_event_id":12345,"global_leaf_hash":"0x…","escrow_id":"…","provider_reference":"…"}
 
 // Global events (transaction_id null): anchoring_registry_switch (key rotation, A7),
 // backfill_completed (marker written once by the backfill command).
+
+// actor_id / actor_ref rule (D5): for actor_type "admin", actor_id is null and actor_ref is the
+// HMAC ref; for every other actor type, actor_ref is null.
 ```
 
 Leaf: `keccak256(0x00 || salt || prev_event_hash || utf8(payload))`, as specified. The salt is 32
@@ -265,7 +295,7 @@ vectors still pin the canonical text, so the frontend can parse it and render va
 
 ---
 
-## 5. Proposed design for A3 and the parts of A5 it constrains
+## 5. Design for A3 and the parts of A5 it constrains
 
 ### 5.1 `anchor_events` columns
 
@@ -286,8 +316,8 @@ As in the brief, with one change to `seq` (5.5):
 
 ### 5.2 `record_anchor_event(...)`
 
-- It is a pure DB write: one SELECT for the previous leaf hash, then one INSERT, plus an advisory
-  lock (5.6). No network I/O, ever.
+- It is a pure DB write: a row lock on the transaction (5.6), one SELECT for the previous leaf
+  hash, then one INSERT. No network I/O, ever.
 - It does not swallow errors. It runs inside the money transaction by design: a failed insert in
   Postgres aborts the transaction, so swallowing the error would only hide a missing event. To keep
   this from failing a money operation, the serializers are pure functions with property tests, and
@@ -302,17 +332,28 @@ These are covered in 3.3 and 3.4. `transition_transaction` replaces each `transa
 The existing timestamp side-effects (`locked_at`, `released_at`, …) stay at the call sites so
 the diff stays readable.
 
-### 5.4 Immutability trigger
+### 5.4 Immutability triggers
 
-In Postgres, a `BEFORE UPDATE OR DELETE` row trigger and a `BEFORE TRUNCATE` statement trigger
-raise unless the update only moves `seq`, `batch_id` and `leaf_index` from NULL to a value, with
-every other column unchanged. SQLite gets an equivalent trigger, created through a
+**`anchor_events`.** In Postgres, a `BEFORE UPDATE OR DELETE` row trigger and a `BEFORE TRUNCATE`
+statement trigger raise unless the update only moves `seq`, `batch_id` and `leaf_index` from NULL
+to a value, with every other column unchanged. SQLite gets an equivalent trigger, created through a
 `DDL(...).execute_if(dialect=...)` listener on the table, so the 700+ SQLite tests exercise it too.
-The migration creates the Postgres version. Its downgrade drops the triggers, the function and the
-table, and the CI Postgres job checks that.
 
-`ledger_entries` and `money_audit_events` get no triggers in M21. Their tampering is caught by
-rebuilding payloads from those rows. Adding triggers there would be cheap defence in depth (D7).
+**`ledger_entries` and `money_audit_events` (D7).** A3's migration also adds no-UPDATE, no-DELETE
+and no-TRUNCATE triggers to both tables, with SQLite equivalents through the same DDL listener.
+
+- Before the migration lands, A3 first adds a test that proves no existing code path updates or
+  deletes those rows. The whole suite runs with the triggers installed on the SQLite test schema,
+  and a static check covers `delete()`/`update()` statements against the two models.
+- Deleting an escrow cascades to its `ledger_entries` (`ON DELETE CASCADE`). The trigger now blocks
+  that cascade, which is intended: there is no escrow-delete path in the app.
+- These triggers stop bugs and casual edits, not the database owner. The app role owns these tables
+  on Neon, so it can run `ALTER TABLE … DISABLE TRIGGER`, and a superuser can set
+  `session_replication_role = replica`. The tamper demo (A6) uses the first, and the chain is what
+  catches it.
+
+The migration's downgrade drops every trigger and function it created, then the table, and the CI
+Postgres job checks that.
 
 ### 5.5 Deviation: insert id versus anchored `seq`
 
@@ -324,7 +365,7 @@ The problem with a `bigserial seq`, in concrete terms:
 - A rolled-back money operation consumes a sequence value, which leaves a permanent gap. The full
   audit cannot tell that gap apart from a deleted event.
 
-Proposal:
+Design:
 
 - `id bigserial` is insert order.
 - The batcher holds `pg_advisory_xact_lock(<anchoring>)`, so only one batcher runs. It takes
@@ -336,17 +377,31 @@ Proposal:
   chain still exposes it, unless it was the transaction's latest event. That gap is part of the
   "window before anchoring" the threat model already concedes.
 
-### 5.6 Per-transaction hash chain under concurrency
+### 5.6 Per-transaction hash chain under concurrency (D1)
 
 `prev_event_hash` is the latest `leaf_hash` for the same `transaction_id`, or 32 zero bytes for the
-first event. Two concurrent writers could otherwise fork the chain. The helper takes
-`pg_advisory_xact_lock(hashtextextended(transaction_id, 0))` before reading the previous hash, so
-writers to one transaction serialize until commit. This is a no-op on SQLite, which has a single
-writer. A partial unique index on `(transaction_id, prev_event_hash)` is the backstop.
+first event. Without a lock, two concurrent writers could both read the same predecessor and fork
+the chain.
+
+- The helper first runs `SELECT … FROM transactions WHERE id = :id FOR UPDATE`, then reads the
+  previous hash and inserts. Writers to one transaction therefore serialize until commit.
+- For ledger events, the transaction is found through `escrows.transaction_id`.
+- Most flows have already updated the transaction row, so they already hold this lock, and the
+  `FOR UPDATE` adds no new lock order. The exceptions are the simulated provider postings and the
+  executor's ledger posting, which lock one transaction at a time.
+- The global chain (`transaction_id IS NULL`) has no row to lock, so it uses one fixed
+  `pg_advisory_xact_lock` key.
+- A partial unique index on `(transaction_id, prev_event_hash)` is the backstop. If a fork were
+  ever attempted, the second insert would fail instead of committing a forked chain.
+- SQLite ignores `FOR UPDATE`, and it has a single writer anyway. The **concurrency test** therefore
+  runs on Postgres. Two threads, each with its own session, record events on the same transaction
+  behind a barrier. The test asserts a single linear chain with no shared predecessor. It is marked
+  `postgres`, skipped unless `TEST_POSTGRES_URL` is set, and run in the CI job that already has
+  Postgres 16.
 
 Several events for one transaction inside one DB transaction (T7 writes 3 transitions, a refund
 queue audit row, and so on) chain correctly because the helper flushes each insert, so the next
-SELECT sees it. The global chain (`transaction_id IS NULL`) uses one fixed lock key.
+SELECT sees it.
 
 ### 5.7 What verifiers compare against current rows
 
@@ -354,12 +409,13 @@ Mutable rows are not anchored. The verifiers check them against the last anchore
 
 - `transactions.status` must equal the `to` of the last anchored transition, or the `status` of a
   later `backfill_snapshot` (as the brief requires).
-- `transactions.amount` must equal the `transaction_created` amount. This is a cheap extra check
-  (D5).
-- `disputes.admin_decision`, `split_ratio`, `admin_reason` and `decided_by_user_id` must match the
-  `admin_decision` event, when one exists.
+- `transactions.amount` must equal the `transaction_created` amount. This is a cheap extra check.
+- `disputes.admin_decision`, `split_ratio` and `admin_reason` must match the `admin_decision` event,
+  when one exists. `decided_by_user_id` is compared through its HMAC `admin_ref`. That check runs in
+  the admin-only full audit, because the customer-facing verifier never sees the admin UUID.
 - Full audit only: `escrows.funded_amount`, `released_amount` and `refunded_amount` must equal the
-  totals implied by anchored ledger rows and `econfirm_funding_confirmed` audit amounts (P4, P5).
+  totals implied by anchored ledger rows (P4). Once #222 lands, every funding path posts to the
+  ledger, so this check covers eConfirm and the default callback too.
 
 ### 5.8 Completeness enforcement (the A3 test)
 
@@ -388,8 +444,8 @@ Mutable rows are not anchored. The verifiers check them against the last anchore
 
 It does **not** reconstruct individual transitions from `notifications.transition_history`. Those
 payloads are per recipient, incomplete (the payment, dispatch, arrival and OTP-confirm
-transitions, T2 to T6, carry none) and mutable, so presenting them as attested history would be dishonest. The snapshot
-attests "this was the state when backfilled", which is all the backfill can truthfully claim.
+transitions, T2 to T6, carry none) and mutable, so presenting them as attested history would be
+dishonest. The snapshot attests "this was the state when backfilled", which is all the backfill can truthfully claim.
 
 Deployment: run the backfill right after the A3 migration. Live events recorded before it simply
 come earlier in their chains. The snapshot is then the newest fact, and its status equals the
@@ -401,9 +457,20 @@ current status, so the status check holds.
   int, bool, None, list and dict with ASCII keys. It is pinned by the golden vectors, which the JS
   side cross-checks with an independent implementation.
 - A5: `web3` 7.x for signing, nonce and fee handling, and receipts. It is added only in A5.
-- Contract (A4): I recommend a single immutable `anchorer` set in the constructor, with no owner.
+- Contract (A4): a single immutable `anchorer` set in the constructor, with no owner (D6, accepted).
   An owner adds nothing when rotation already means "deploy a new registry and record the
   switch-over" (A7 runbook), and it removes one key that could be lost (D6).
+
+### 5.11 Settings added by A3
+
+- `ANCHOR_ADMIN_REF_SECRET` (D5): a comma-separated list, newest first, each entry at least 32
+  characters. Startup validation refuses to start when it is missing or too short in production, or
+  whenever `ANCHOR_ENABLED=true`. Outside those cases, an empty value falls back to a fixed
+  development key, with a startup warning, so local setups and the test suite run unchanged. The
+  secret is added to `.env.example` and to the log redaction. Losing it does not break
+  verification. Only the admin-side resolution of refs is lost, so back it up with the other secrets.
+- `ANCHOR_STRICT_EVENTS` (5.8): `false` by default and `true` in the test suite.
+- The chain settings from the brief (`ANCHOR_ENABLED`, `ANCHOR_RPC_URL`, …) arrive in A5.
 
 ---
 
@@ -415,41 +482,52 @@ current status, so the status check holds.
 | P2 | `disputes.status`, `escalated_at`, `resolved_at`, `seller_resolution_action/notes`, `split_ratio` (reset to NULL, then set), `admin_decision`, `admin_reason`, `decided_by_user_id` | row rewritten through the case's life | no history exists | dispute events and the admin decision event become the record (3.4, 3.5) |
 | P3 | `disputes.evidence` JSONB | rewritten with `buyer_reconfirm_rejection_count`, `buyer_reconfirm_notes` (overwritten each round), `buyer_confirmed_resolved` / `seller_confirmed_resolved`, `escalation` | earlier reconfirm notes are lost today | captured per event (as hashes) from now on; `evidence` itself is not anchored |
 | P4 | `escrows.funded_amount`, `released_amount`, `refunded_amount` | running totals updated next to ledger postings | totals are derived | not anchored; the full audit cross-checks them (5.7) |
-| P5 | eConfirm funding | `funded_amount = amount_total` set with **no ledger posting**; the Daraja-style callback (T2) locks with no funding posting at all | for these paths the ledger is not the full money story | the anchored facts are the `econfirm_funding_confirmed` audit row and the T2/T3 transition. Adding a funding posting would change money behaviour, so it is out of scope (D8) |
+| P5 | eConfirm funding | `funded_amount = amount_total` set with **no ledger posting**; the Daraja-style callback (T2) locks with no funding posting at all | for these paths the ledger is not the full money story | fixed separately in #222, before A3: both paths post the balanced funding movement through `post_movement` in the same DB transaction, plus a dry-run repair command for existing rows (D8) |
 | P6 | `payout_attempts`, `collection_attempts` | `outcome`, `provider_reference`, snapshots; the simulated provider even overwrites `amount` and `idempotency_key` on an existing attempt | attempts are working state | not anchored; their meaningful outcomes are anchored through payout audit rows and ledger rows |
 | P7 | `EscrowLedger.post_movement` | commits mid-operation | ledger rows plus their events are atomic; the following audit row and total updates are a second commit | unchanged in M21; the full audit reports a ledger posting with no matching payout audit |
 | P8 | `transactions.custody_provider`, `escrows.custody_provider` | set to simulated after a definite eConfirm rejection | not a money fact | kept out of `transaction_created`; the eConfirm audit rows anchor the selection |
 | P9 | `notifications.payload.transition_history` | the only historical transition record today; per recipient, partial, and its row is mutable | cannot be trusted as a source | not used, including by the backfill (5.9) |
-| P10 | `disputes.status` drift | `buyer_sent_back` and `canceled` are never set; T9, T10, T18 and T19 change the transaction without moving the dispute status | anchored dispute events will show what happened, not the drifting column | no change in M21; see section 7 |
+| P10 | `disputes.status` drift | `buyer_sent_back` and `canceled` are never set; T9, T10, T18 and T19 change the transaction without moving the dispute status | anchored dispute events will show what happened, not the drifting column | the two timeouts that strand cases are fixed in #221 (section 7). The rest of the drift stays as is |
 
 ---
 
-## 7. Pre-existing bugs found (outside M21)
+## 7. Pre-existing bugs found (fixed in #221, before A3)
 
 1. **Seller-received timeout strands the case (money stuck).** T19 sets the transaction to
    `escalated_admin_review` but leaves the dispute `open`. Both `force_resolve_dispute_case` and the
    admin escalation queues (`dispute.list_escalated_disputes`, `admin_cases`) require
    `dispute.status == escalated_admin_review`. No admin can resolve the case, and the escrow is never
-   paid out or refunded. Proposed fix: T19 also sets the dispute to escalated with `escalated_at`.
-   This should be a separate issue and PR, merged before A3 so that A3's
-   `dispute_escalated` event matches the row.
+   paid out or refunded. Fix: T19 also sets the dispute to escalated with `escalated_at`. It is
+   merged before A3, so that A3's `dispute_escalated` event matches the row.
 2. **T18 (no send-back timeout) releases the money but leaves the dispute `open`.** The case shows
-   as open forever. Lower impact, and it can go in the same fix.
+   as open forever. Lower impact, fixed in the same PR.
+
+#221 also adds a regression test for both timeouts. It ships a repair command, dry-run by default,
+that lists every case stuck today and fixes it only with `--apply`.
 
 ---
 
-## 8. Decisions needed before A2
+## 8. Decisions (approved 2026-10-31)
 
-| # | Question | Recommendation |
+| # | Decision | Outcome |
 | --- | --- | --- |
-| D1 | Accept the `id` (insert order) plus batcher-assigned gapless `seq` deviation (5.5)? | Yes |
-| D2 | Route all 25 status writes through `transition_transaction`, with the strict `before_flush` guard in tests and the logged fallback in production (5.8)? | Yes |
-| D3 | Backfill as source rows plus a per-transaction `backfill_snapshot`, with no transitions reconstructed from notifications (5.9)? | Yes |
-| D4 | Party free text (dispute description, notes, escalation reason) as `keccak` only, with the admin reason verbatim? | Yes |
-| D5 | Should the admin's UUID (`admin_id`) appear in payloads served to the buyer and seller? The brief says to include the admin id. It identifies staff to customers, but the UUID carries no name. | Include it, as the brief says |
-| D6 | Contract: immutable `anchorer`, no `Ownable2Step` (5.10)? | Yes |
-| D7 | Add immutability triggers to `ledger_entries` and `money_audit_events` too? | Not in M21; note as future work |
-| D8 | Leave eConfirm funding without a ledger posting (P5)? | Yes for M21; file a follow-up if wanted |
-| D9 | File and fix the section 7 bugs as a separate issue before A3? | Yes |
-| D10 | LOOP/Pesapal `funding_confirmed` events in the global chain (3.2)? | Yes |
-| D11 | Backfill as `python -m app.cli anchor-backfill`, and the worker as `python -m app.jobs.anchoring run-once|run-loop` (no scheduler exists; the brief's entry point is kept)? | Yes |
+| D1 | `id` (insert order) plus batcher-assigned gapless `seq` (5.5) | **Accepted, with an addition:** `prev_event_hash` is computed while holding `SELECT … FOR UPDATE` on the transaction row, and a Postgres concurrency test covers it (5.6) |
+| D2 | All 25 status writes go through `transition_transaction`; strict `before_flush` guard in tests, logged fallback in production (5.8) | Accepted |
+| D3 | Backfill as source rows plus a per-transaction `backfill_snapshot`, with no transitions reconstructed from notifications (5.9) | Accepted |
+| D4 | Party free text as `keccak` only; admin reason verbatim | Accepted |
+| D5 | Admin UUID in customer-facing payloads | **Rejected.** Payloads carry `admin_ref = HMAC-SHA256(ANCHOR_ADMIN_REF_SECRET, admin_id)`. The admin-only full audit resolves it (section 4, 5.11) |
+| D6 | Contract: immutable `anchorer`, no `Ownable2Step` (5.10) | Accepted |
+| D7 | Immutability triggers on `ledger_entries` and `money_audit_events` | **Rejected, so the triggers are added.** They go in A3's migration, and the downgrade drops them. A test first proves that no existing path updates or deletes those rows (5.4) |
+| D8 | eConfirm funding and the default callback without a ledger posting | Accepted for M21's scope. Fixed in its own issue, #222, after #221 and before A3. It adds an ESCROW_HELD = `funded_amount` test on the simulated, eConfirm and default callback paths, plus a dry-run repair command |
+| D9 | Fix the section 7 bugs separately before A3 | Accepted, as #221. It adds regression tests for both timeouts and a dry-run repair command that lists stuck cases |
+| D10 | LOOP/Pesapal `funding_confirmed` events in the global chain (3.2) | **Accepted, with an addition:** a `global_event_linked` event in the matched transaction's chain references the global event's leaf hash |
+| D11 | `python -m app.cli anchor-backfill`; `python -m app.jobs.anchoring run-once\|run-loop` | Accepted |
+
+## 9. Delivery order
+
+1. #213 / PR #220: this note (merged first).
+2. #221: return-case timeout fix and stuck-case repair command.
+3. #222: missing funding ledger postings and repair command.
+4. #214 (A2): canonical encoding, keccak and Merkle library.
+5. #215 (A3): event log, write hooks, triggers on all three tables, backfill.
+6. #216 to #219 (A4 to A7), in order.

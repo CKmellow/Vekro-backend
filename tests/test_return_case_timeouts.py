@@ -23,6 +23,7 @@ from app.services.transaction import (
     report_functional_issue,
     run_timeout_jobs,
 )
+from app.services.transitions import transition_transaction
 from sqlalchemy import Table, select, text
 from sqlalchemy.orm import Session
 
@@ -112,7 +113,8 @@ def _stranded(db: Session, suffix: str, status: TransactionStatus) -> Dispute:
     buyer, _seller, _listing, transaction = _seed_transaction_context(
         db, serialized_listing=True, suffix=suffix
     )
-    transaction.status = status
+    # Recorded like any other transition: the strict anchor guard is on for this schema.
+    transition_transaction(db, transaction, status, actor_type="system", reason="test_setup")
     dispute = Dispute(
         id=uuid.uuid4(),
         transaction_id=transaction.id,

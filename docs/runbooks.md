@@ -75,7 +75,7 @@ Golden rule for all incidents: **never create a second payout for a purpose that
    - `rail_unavailable` / `rail_request_error`: follow RB-1, then rerun the executor.
    - Otherwise (timeout, pending, malformed): rerun the executor. It inquires with the **same** `provider_reference` and never sends a new payout.
 3. If the attempt stays UNKNOWN, look up `provider_reference` in the provider portal:
-   - **Provider shows paid**: escalate to an engineer. There is no admin API to force-close an attempt. The engineer must set the attempt to `succeeded`, post the ledger movement with idempotency key `outbox:<attempt_id>`, and insert a `money_audit_events` row with the reason and evidence.
+   - **Provider shows paid**: escalate to an engineer. There is no admin API to force-close an attempt. The engineer must set the attempt to `succeeded`, post the ledger movement with idempotency key `outbox:<attempt_id>`, and insert a `money_audit_events` row with the reason and evidence. Since M21, do both through `EscrowLedger.post_movement` and `record_money_audit_event`, never raw SQL: the services record the anchor events in the same DB transaction, and a row written by hand has none, so the anchoring audit reports it.
    - **Provider shows failed/never received**: escalate to an engineer to mark the attempt `failed_definite` with an audit row. Only after that can a new attempt be queued for the same purpose.
 4. Never retry by queuing a new purpose or editing `provider_reference`.
 
@@ -207,3 +207,29 @@ every funding path posts the balanced ESCROW_HELD / BUYER_CLEARING movement in t
 3. Escrows listed as `review` have more on the ledger than `funded_amount`, which means money was
    posted twice or `funded_amount` was edited. They are never changed automatically. Compare the
    ledger rows with the provider's records by hand.
+
+## RB-7: Anchor event backfill (M21)
+
+**When**: once, right after deploying the M21 migration (`f4c2a9e1b7d3`). From that deploy on,
+every ledger row, money audit row, status transition and dispute event is recorded in
+`anchor_events` in the same DB transaction as the fact itself. The backfill covers everything
+written before.
+
+**Steps**
+
+1. `.venv/bin/python -m app.cli anchor-backfill`. It anchors every ledger row, money audit row and
+   transaction that has no event yet, in original time order, with `"backfilled": true`. It then
+   records one `backfill_snapshot` of each transaction's current status and dispute fields, and a
+   global `backfill_completed` marker. It commits every 500 events.
+2. A second run refuses. `--resume` fills only rows that still have no event (for example after an
+   interrupted run) and adds fresh snapshots.
+
+**What it can and cannot claim**: status transitions and dispute events from before M21 were never
+recorded anywhere trustworthy, so none are reconstructed. A backfilled fact is attested from the
+moment of the backfill, not from when it happened.
+
+**Append-only tables**: the migration also makes `ledger_entries`, `money_audit_events` and
+`anchor_events` refuse UPDATE, DELETE and TRUNCATE. Engineer repairs therefore post compensating
+movements and write audit rows; they never edit rows. RB-2's "set the attempt to succeeded" step
+still works, because `payout_attempts` is not guarded. An escrow can no longer be deleted once it
+has ledger rows.

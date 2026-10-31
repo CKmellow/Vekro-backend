@@ -110,6 +110,13 @@ class EscrowService:
             amount=transaction.amount,
         )
 
+    @classmethod
+    def split_amounts(cls, amount: Decimal, split_ratio: Decimal) -> tuple[Decimal, Decimal]:
+        """(seller release, buyer refund) for a split; the refund takes the rounding remainder."""
+        ratio = cls._normalize_ratio(split_ratio)
+        release_amount = (amount * ratio).quantize(Decimal("0.01"))
+        return release_amount, (amount - release_amount).quantize(Decimal("0.01"))
+
     def queue_split_payout(
         self,
         transaction: Transaction,
@@ -123,9 +130,7 @@ class EscrowService:
                 "Current custody capabilities do not support split payout orchestration."
             )
 
-        ratio = self._normalize_ratio(split_ratio)
-        release_amount = (transaction.amount * ratio).quantize(Decimal("0.01"))
-        refund_amount = (transaction.amount - release_amount).quantize(Decimal("0.01"))
+        release_amount, refund_amount = self.split_amounts(transaction.amount, split_ratio)
 
         if release_amount <= Decimal("0.00") or refund_amount <= Decimal("0.00"):
             raise EscrowServiceError("Split payout amounts must both be greater than zero.")

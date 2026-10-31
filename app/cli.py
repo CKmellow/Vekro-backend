@@ -8,6 +8,8 @@ escalate or close them. Lists only by default.
 
 repair-funding-ledger: list funded escrows whose funding is missing from the ledger (#222); with
 --apply, post the missing movement. Lists only by default.
+
+anchor-backfill: create anchor events for history written before M21, once (docs/anchoring.md).
 """
 
 from __future__ import annotations
@@ -91,6 +93,23 @@ def repair_funding_ledger(*, apply: bool) -> int:
     return 0
 
 
+def anchor_backfill(*, resume: bool) -> int:
+    from app.services.anchoring.backfill import BackfillRefusedError, backfill_anchor_events
+
+    with _session() as db:
+        try:
+            result = backfill_anchor_events(db, resume=resume)
+        except BackfillRefusedError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+    print(
+        f"Backfilled {result.transactions_created} transaction(s), {result.ledger_entries} "
+        f"ledger row(s), {result.money_audit_events} audit row(s) and {result.snapshots} "
+        "snapshot(s). History before now is attested only from now."
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -105,12 +124,18 @@ def main(argv: list[str] | None = None) -> int:
         "repair-funding-ledger", help="List (or with --apply, post) unposted funding."
     )
     funding.add_argument("--apply", action="store_true")
+    backfill = commands.add_parser(
+        "anchor-backfill", help="Create anchor events for history written before M21."
+    )
+    backfill.add_argument("--resume", action="store_true")
     args = parser.parse_args(argv)
 
     if args.command == "repair-return-cases":
         return repair_return_cases(apply=args.apply)
     if args.command == "repair-funding-ledger":
         return repair_funding_ledger(apply=args.apply)
+    if args.command == "anchor-backfill":
+        return anchor_backfill(resume=args.resume)
 
     password = os.environ.get(PASSWORD_ENV, "")
     if not password:

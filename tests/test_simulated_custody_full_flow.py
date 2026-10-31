@@ -4,6 +4,7 @@ from decimal import Decimal
 
 import pytest
 from app.db.base import Base
+from app.models.anchor_event import AnchorEvent
 from app.models.collection_attempt import AttemptOutcome, CollectionAttempt
 from app.models.dispute import AdminDecision, Dispute, DisputeStatus
 from app.models.escrow import Escrow
@@ -16,6 +17,7 @@ from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User, UserRole
 from app.schemas.transaction import PaymentCallbackRequest
 from app.services import transaction as transaction_service
+from app.services.anchoring.recorder import record_transaction_created
 from app.services.custody.dto import FundingRequest, OpenEscrowRequest, PayoutRequest
 from app.services.custody.enums import CollectionOutcome, PayoutOutcome
 from app.services.custody.simulated_provider import SimulatedCustodyProvider
@@ -67,6 +69,7 @@ def _build_db_session() -> Session:
                 Notification.__table__,
                 Escrow.__table__,
                 LedgerEntry.__table__,
+                AnchorEvent.__table__,
             ],
         )
     finally:
@@ -235,6 +238,7 @@ def _seed_transaction_context(
     db.add(seller)
     db.add(listing)
     db.add(transaction)
+    record_transaction_created(db, transaction)  # as create_transaction does
     db.commit()
     db.refresh(transaction)
 

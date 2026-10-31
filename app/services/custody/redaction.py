@@ -23,6 +23,9 @@ _SENSITIVE_KEY_NAMES = frozenset(
         "secret",
         "password",
         "signature",
+        "anchoradminrefsecret",
+        "anchorprivatekey",
+        "privatekey",
     }
 )
 _PII_KEY_NAMES = frozenset({"phone", "phonenumber", "msisdn", "payerphone", "receiverphone"})

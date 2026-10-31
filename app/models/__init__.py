@@ -1,3 +1,4 @@
+from app.models.anchor_event import AnchorEvent
 from app.models.collection_attempt import AttemptOutcome, CollectionAttempt
 from app.models.dispute import (
     AdminDecision,
@@ -27,6 +28,7 @@ from app.models.user import User, UserRole
 from app.models.user_session import UserSession
 
 __all__ = [
+    "AnchorEvent",
     "User",
     "UserRole",
     "Listing",

@@ -115,7 +115,8 @@ records a `global_event_linked` event in that transaction's chain:
 - Matching happens when the event's `provider_reference` resolves through `collection_attempts` to
   an escrow. The match is tried when the global event is written, and again by any later code that
   binds the funding to an escrow.
-- The linking event's payload carries the global event's `leaf_hash` and its anchor-row `id`.
+- The linking event's payload carries the global event's `leaf_hash` and its source
+  `audit_event_id`. The anchor-row `id` is assigned only at flush, so it cannot be used.
 - The transaction's verification then includes the global event and its proof, and the link itself
   is anchored. Neither rail is enabled today, so this path is exercised by tests only.
 
@@ -400,8 +401,13 @@ the chain.
   Postgres 16.
 
 Several events for one transaction inside one DB transaction (T7 writes 3 transitions, a refund
-queue audit row, and so on) chain correctly because the helper flushes each insert, so the next
-SELECT sees it.
+queue audit row, and so on) chain correctly through a per-session chain-head cache. The first event
+on a chain reads the head under the lock, and later ones take it from the cache. So the helper
+never forces a flush and existing flush timing is unchanged. The cache is cleared on commit and on
+rollback, which is when the lock ends. The one flush the helper does make is for a transaction row
+that is still pending. Without ORM relationships, the unit of work would otherwise insert the event
+before its `transactions` row, and PostgreSQL enforces that foreign key. The SQLite suite does not,
+which is why the PostgreSQL tests cover the real order flow.
 
 ### 5.7 What verifiers compare against current rows
 
@@ -426,8 +432,11 @@ Mutable rows are not anchored. The verifiers check them against the last anchore
 - **Transitions:** a `before_flush` listener on the app's session factory inspects every dirty
   `Transaction` whose `status` history changed. It checks that the last pending transition event for
   that transaction has the new status as `to`.
-  - Strict mode (`ANCHOR_STRICT_EVENTS`, on for the whole test suite) raises, so all 777 existing
-    tests act as the completeness test, and a new code path that skips the helper fails CI.
+  - Strict mode (`ANCHOR_STRICT_EVENTS`, on for the whole test suite) raises. It applies wherever a
+    test schema includes `anchor_events`: the simulated full-flow and eConfirm funding-flow
+    fixtures (which the #221 and #222 tests reuse), `tests/test_anchor_events.py` and the PostgreSQL
+    flow. A static test also pins every write to its choke point (`LedgerEntry(` only in
+    `ledger.py`, `MoneyAuditEvent(` only in `audit.py`, status writes only in `transitions.py`).
   - In production it never raises. It logs an error and records a fallback transition with
     `actor_type="unknown"` and `reason="unrecorded_transition"`. History stays complete, and a
     money operation never fails because of a missed hook.
@@ -501,6 +510,10 @@ current status, so the status check holds.
    merged before A3, so that A3's `dispute_escalated` event matches the row.
 2. **T18 (no send-back timeout) releases the money but leaves the dispute `open`.** The case shows
    as open forever. Lower impact, fixed in the same PR.
+3. **Category `other` cannot be resolved (#227, found in A3).** `report_functional_issue` escalates
+   the dispute but leaves the transaction `disputed_functional`. Admin resolve refuses it, and the
+   buyer-sent-back timeout then releases the money to the seller. This is not fixed yet. The
+   anchored events record it as it happens: `dispute_escalated` with no matching transition.
 
 #221 also adds a regression test for both timeouts. It ships a repair command, dry-run by default,
 that lists every case stuck today and fixes it only with `--apply`.

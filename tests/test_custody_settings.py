@@ -239,6 +239,7 @@ def test_registry_fails_when_no_enabled_rails_are_available() -> None:
 def test_production_mode_can_enable_live_payout_rails() -> None:
     settings = _settings(
         environment="production",
+        anchor_admin_ref_secret="a" * 32,
         allow_live_payouts=True,
         session_cookie_secure=True,
         csrf_cookie_secure=True,
@@ -280,6 +281,7 @@ def test_tier_1_econfirm_payout_fails_closed_without_simulated_fallback() -> Non
 def test_tier_1_production_mode_can_enable_live_econfirm_payouts() -> None:
     settings = _settings(
         environment="production",
+        anchor_admin_ref_secret="a" * 32,
         allow_live_payouts=True,
         session_cookie_secure=True,
         csrf_cookie_secure=True,

@@ -80,6 +80,18 @@ class EscrowService:
         required = {"escrows", "payout_attempts", "users", "transactions"}
         return required.issubset(set(inspector.get_table_names()))
 
+    def ledger_ready(self) -> bool:
+        if not hasattr(self._db, "connection"):
+            return False
+
+        # Inspect through the session's own connection, so the open transaction is left alone.
+        inspector = inspect(self._db.connection())
+        return {"escrows", "ledger_entries"}.issubset(set(inspector.get_table_names()))
+
+    def escrow_for(self, transaction: Transaction) -> Escrow:
+        """The transaction's escrow, created (and flushed) if it does not exist yet."""
+        return self._ensure_escrow_for_transaction(transaction)
+
     def queue_release_full(self, transaction: Transaction, *, purpose: str) -> PayoutAttempt | None:
         return self._enqueue_payout_intent(
             transaction=transaction,

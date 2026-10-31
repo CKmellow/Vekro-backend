@@ -71,7 +71,7 @@ Golden rule for all incidents: **never create a second payout for a purpose that
 
 1. Read the audit event: note `provider_reference`, `rail_name`, `amount`, and `details.failure_code`.
 2. Branch on `failure_code`:
-   - `insufficient_funded_balance`: the rail accepted the payout, but the escrow has no recorded funding. Confirm the buyer's collection with the provider, record funding through the collection path (webhook or admin simulated force-complete in non-production), then rerun the executor. The ledger settles once.
+   - `insufficient_funded_balance`: the rail accepted the payout, but the escrow has no recorded funding. Confirm the buyer's collection with the provider, record funding through the collection path (webhook, the eConfirm poller, or in non-production the admin simulated force-complete or a simulated payment callback), then rerun the executor. The ledger settles once. In production the payment callback never records funding (#222, #224).
    - `rail_unavailable` / `rail_request_error`: follow RB-1, then rerun the executor.
    - Otherwise (timeout, pending, malformed): rerun the executor. It inquires with the **same** `provider_reference` and never sends a new payout.
 3. If the attempt stays UNKNOWN, look up `provider_reference` in the provider portal:
@@ -185,3 +185,25 @@ Both timeouts now move the dispute too (escalated, or `canceled` with `resolved_
    `return_case_repaired` money audit event (`GET /admin/audit/money-events?action=return_case_repaired`).
 3. Cases listed as `review` (an open dispute behind a refunded or resolved transaction) are never
    changed automatically. Look at them by hand.
+
+## RB-6: Funding missing from the ledger (#222)
+
+**Meaning**: for every funded escrow, the ESCROW_HELD debits must equal `escrows.funded_amount`.
+Before #222, the eConfirm funding poller set `funded_amount` without a ledger posting. Since #222,
+every funding path posts the balanced ESCROW_HELD / BUYER_CLEARING movement in the same commit:
+
+- the simulated provider and the admin simulated controls;
+- the eConfirm poller, with key `econfirm-funding:<escrow_id>`;
+- the payment callback, on the simulated rail outside production only, with key
+  `callback-funding:<transaction_id>`.
+
+**Steps**
+
+1. List the escrows that are out of step. This is a dry run and changes nothing:
+   `.venv/bin/python -m app.cli repair-funding-ledger`
+2. Post the missing movements: `.venv/bin/python -m app.cli repair-funding-ledger --apply`. Each
+   posting uses key `repair-funding:<escrow_id>`, so re-running is safe. Each writes a
+   `funding_ledger_repaired` money audit event.
+3. Escrows listed as `review` have more on the ledger than `funded_amount`, which means money was
+   posted twice or `funded_amount` was edited. They are never changed automatically. Compare the
+   ledger rows with the provider's records by hand.

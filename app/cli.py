@@ -5,6 +5,9 @@ from the VEKRO_ADMIN_PASSWORD environment variable, never a flag, so it stays ou
 
 repair-return-cases: list return cases the timeout jobs left stuck before #221; with --apply,
 escalate or close them. Lists only by default.
+
+repair-funding-ledger: list funded escrows whose funding is missing from the ledger (#222); with
+--apply, post the missing movement. Lists only by default.
 """
 
 from __future__ import annotations
@@ -67,6 +70,27 @@ def repair_return_cases(*, apply: bool) -> int:
     return 0
 
 
+def repair_funding_ledger(*, apply: bool) -> int:
+    from app.services.funding_ledger_repair import REVIEW
+    from app.services.funding_ledger_repair import repair_funding_ledger as repair
+
+    with _session() as db:
+        gaps = repair(db, apply=apply)
+    for gap in gaps:
+        print(
+            f"escrow={gap.escrow_id} transaction={gap.transaction_id} "
+            f"custody={gap.custody_provider} funded={gap.funded_amount} "
+            f"ledger={gap.ledger_funded} -> {gap.action}"
+        )
+    fixable = sum(1 for gap in gaps if gap.action != REVIEW)
+    if apply:
+        left = len(gaps) - fixable
+        print(f"Posted {fixable} missing funding movement(s); {left} left for review.")
+    else:
+        print(f"{len(gaps)} escrow(s) out of step; dry run, nothing changed. Re-run with --apply.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -77,10 +101,16 @@ def main(argv: list[str] | None = None) -> int:
         "repair-return-cases", help="List (or with --apply, fix) stuck return cases."
     )
     repair.add_argument("--apply", action="store_true")
+    funding = commands.add_parser(
+        "repair-funding-ledger", help="List (or with --apply, post) unposted funding."
+    )
+    funding.add_argument("--apply", action="store_true")
     args = parser.parse_args(argv)
 
     if args.command == "repair-return-cases":
         return repair_return_cases(apply=args.apply)
+    if args.command == "repair-funding-ledger":
+        return repair_funding_ledger(apply=args.apply)
 
     password = os.environ.get(PASSWORD_ENV, "")
     if not password:

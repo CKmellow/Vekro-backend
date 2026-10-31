@@ -6,9 +6,11 @@ from decimal import Decimal, InvalidOperation
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.escrow import Escrow
 from app.models.ledger_entry import LedgerEntry, LedgerEntrySide
 
 ESCROW_HELD_ACCOUNT = "ESCROW_HELD"
+BUYER_CLEARING_ACCOUNT = "BUYER_CLEARING"
 
 
 class EscrowLedgerError(Exception):
@@ -52,7 +54,9 @@ class EscrowLedger:
     def __init__(self, db: Session) -> None:
         self._db = db
 
-    def post_movement(self, movement: LedgerMovement) -> LedgerPostResult:
+    def post_movement(self, movement: LedgerMovement, *, commit: bool = True) -> LedgerPostResult:
+        """Post a balanced movement. ``commit=False`` only flushes, so the caller's commit makes the
+        posting atomic with the change it records."""
         idempotency_key = movement.idempotency_key.strip()
         if not idempotency_key:
             raise EscrowLedgerValidationError("idempotency_key is required.")
@@ -120,7 +124,10 @@ class EscrowLedger:
 
         self._db.add(debit_entry)
         self._db.add(credit_entry)
-        self._db.commit()
+        if commit:
+            self._db.commit()
+        else:
+            self._db.flush()
 
         return LedgerPostResult(
             escrow_id=movement.escrow_id,
@@ -184,3 +191,33 @@ class EscrowLedger:
                 credit_total += entry.amount
 
         return debit_total == credit_total
+
+
+def post_escrow_funding(
+    db: Session, escrow: Escrow, *, idempotency_key: str, description: str
+) -> bool:
+    """Record the escrow as fully funded: the ESCROW_HELD / BUYER_CLEARING movement for whatever is
+    not yet funded, and ``funded_amount``. Does not commit. False when nothing was posted (already
+    funded, or the key was used before)."""
+    amount = (escrow.amount_total - (escrow.funded_amount or Decimal("0.00"))).quantize(
+        Decimal("0.01")
+    )
+    if amount <= Decimal("0.00"):
+        return False
+    result = EscrowLedger(db).post_movement(
+        LedgerMovement(
+            escrow_id=escrow.id,
+            idempotency_key=idempotency_key,
+            amount=amount,
+            debit_account_code=ESCROW_HELD_ACCOUNT,
+            credit_account_code=BUYER_CLEARING_ACCOUNT,
+            description=description,
+            currency=escrow.currency,
+        ),
+        commit=False,
+    )
+    if result.created_entries != 2:
+        return False
+    escrow.funded_amount = escrow.amount_total
+    db.add(escrow)
+    return True

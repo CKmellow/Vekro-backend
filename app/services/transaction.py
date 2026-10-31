@@ -25,6 +25,7 @@ from app.schemas.transaction import (
     CreateTransactionRequest,
     PaymentCallbackRequest,
 )
+from app.services.audit import ACTOR_PROVIDER, record_money_audit_event
 from app.services.custody.econfirm_orchestration import (
     open_econfirm_escrow,
     request_econfirm_funding,
@@ -47,6 +48,7 @@ from app.services.deadlines import (
 )
 from app.services.dispute_summary import OPEN_DISPUTE_STATUSES, latest_dispute
 from app.services.escrow_service import EscrowService
+from app.services.ledger import post_escrow_funding
 from app.services.listing_content import listing_is_sold
 from app.services.payment import PaymentGateway, PaymentRequest, get_payment_gateway
 from app.services.payment_prompts import (
@@ -1088,6 +1090,40 @@ def _apply_withheld_return_refund_flow(
     return transition_history
 
 
+def _record_simulated_callback_funding(db: Session, transaction: Transaction, *, settings) -> None:
+    """Record the escrow as funded from a successful payment callback, in the lock's commit.
+
+    Only for simulated custody outside production: no provider confirms this callback, so in
+    production it never satisfies the payout executor's funded-balance guard (#222; real Daraja
+    confirmation is #224). Idempotent: an escrow that is already funded is left alone.
+    """
+    if (transaction.custody_provider or PROVIDER_SIMULATED) != PROVIDER_SIMULATED:
+        return
+    if (settings.environment or "").strip().lower() == "production":
+        return
+    service = EscrowService(db)
+    if not service.ledger_ready():
+        return
+    escrow = service.escrow_for(transaction)
+    if post_escrow_funding(
+        db,
+        escrow,
+        idempotency_key=f"callback-funding:{transaction.id}",
+        description="Simulated custody funding (payment callback)",
+    ):
+        record_money_audit_event(
+            db,
+            action="callback_funding_recorded",
+            actor_type=ACTOR_PROVIDER,
+            reason="Simulated payment callback outside production.",
+            transaction_id=transaction.id,
+            escrow_id=escrow.id,
+            rail_name=PROVIDER_SIMULATED,
+            amount=escrow.amount_total,
+            currency=escrow.currency,
+        )
+
+
 def confirm_payment_callback(
     db: Session,
     payload: PaymentCallbackRequest,
@@ -1161,6 +1197,7 @@ def confirm_payment_callback(
     transaction.status = TransactionStatus.LOCKED
     transaction.locked_at = datetime.now(UTC)
     resolve_open_prompt(db, transaction.id, result_code=0, now=transaction.locked_at)
+    _record_simulated_callback_funding(db, transaction, settings=get_settings())
     _create_locked_notifications(
         db,
         transaction=transaction,

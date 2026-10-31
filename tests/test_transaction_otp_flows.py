@@ -1732,6 +1732,8 @@ def test_timeout_jobs_apply_at_door_locked_and_hold_rules(monkeypatch) -> None:
         transactions=[at_door_txn, locked_txn, hold_txn, dispute_txn, seller_timeout_txn],
         listings=[listing],
     )
+    # No dispute rows here: the transaction-only behaviour is unchanged without one.
+    monkeypatch.setattr(transaction_service, "latest_dispute", lambda _db, _txn_id: None)
 
     monkeypatch.setattr(
         transaction_service,
@@ -1882,6 +1884,19 @@ def test_timeout_jobs_hold_auto_release_is_idempotent(monkeypatch) -> None:
     assert db.commit_count == 1
 
 
+def _open_dispute(transaction: Transaction) -> Dispute:
+    return Dispute(
+        id=uuid.uuid4(),
+        transaction_id=transaction.id,
+        opened_by_user_id=transaction.buyer_id,
+        dispute_type=DisputeType.FUNCTIONAL,
+        status=DisputeStatus.OPEN,
+        reason="not_working",
+        description="Broken.",
+        evidence={},
+    )
+
+
 def test_timeout_jobs_dispute_buyer_sent_back_auto_cancel_is_idempotent(monkeypatch) -> None:
     now = datetime.now(UTC)
     listing = _build_listing(serialized=True)
@@ -1892,8 +1907,10 @@ def test_timeout_jobs_dispute_buyer_sent_back_auto_cancel_is_idempotent(monkeypa
         status=TransactionStatus.DISPUTED_FUNCTIONAL,
     )
     dispute_txn.updated_at = now - timedelta(days=4)
+    dispute = _open_dispute(dispute_txn)
 
     db = _FakeDb(transactions=[dispute_txn], listings=[listing])
+    monkeypatch.setattr(transaction_service, "latest_dispute", lambda _db, _txn_id: dispute)
 
     monkeypatch.setattr(
         transaction_service,
@@ -1931,6 +1948,8 @@ def test_timeout_jobs_dispute_buyer_sent_back_auto_cancel_is_idempotent(monkeypa
     assert first.dispute_seller_received_timeout_count == 0
     assert second.dispute_seller_received_timeout_count == 0
     assert dispute_txn.status == TransactionStatus.RELEASED
+    assert dispute.status == DisputeStatus.CANCELED
+    assert dispute.resolved_at == now
     assert db.commit_count == 1
 
 
@@ -1944,8 +1963,10 @@ def test_timeout_jobs_seller_received_auto_escalate_is_idempotent(monkeypatch) -
         status=TransactionStatus.RETURN_IN_TRANSIT,
     )
     seller_timeout_txn.updated_at = now - timedelta(days=4)
+    dispute = _open_dispute(seller_timeout_txn)
 
     db = _FakeDb(transactions=[seller_timeout_txn], listings=[listing])
+    monkeypatch.setattr(transaction_service, "latest_dispute", lambda _db, _txn_id: dispute)
 
     monkeypatch.setattr(
         transaction_service,
@@ -1983,6 +2004,8 @@ def test_timeout_jobs_seller_received_auto_escalate_is_idempotent(monkeypatch) -
     assert first.dispute_seller_received_timeout_count == 1
     assert second.dispute_seller_received_timeout_count == 0
     assert seller_timeout_txn.status == TransactionStatus.ESCALATED_ADMIN_REVIEW
+    assert dispute.status == DisputeStatus.ESCALATED_ADMIN_REVIEW
+    assert dispute.escalated_at == now
     assert db.commit_count == 1
 
 

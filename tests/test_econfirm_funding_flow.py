@@ -19,6 +19,7 @@ import pytest
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
 from app.db.base import Base
+from app.models.anchor_event import AnchorEvent
 from app.models.escrow import Escrow
 from app.models.ledger_entry import LedgerEntry
 from app.models.listing import Listing
@@ -91,6 +92,7 @@ def _session() -> Session:
             LedgerEntry,
             MoneyAuditEvent,
             PaymentPrompt,
+            AnchorEvent,
         )
     ]
     try:

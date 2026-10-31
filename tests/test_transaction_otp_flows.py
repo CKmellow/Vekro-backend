@@ -1,6 +1,7 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -78,6 +79,10 @@ class _FakeDb:
 
     def add(self, obj) -> None:
         self.added.append(obj)
+
+    def execute(self, _statement: Any):
+        # No dispute rows behind these transactions.
+        return SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: None))
 
     def commit(self) -> None:
         self.committed = True

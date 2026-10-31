@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.immutability import install_guards
 
 
 class LedgerEntrySide(StrEnum):
@@ -57,3 +58,6 @@ class LedgerEntry(Base):
         nullable=False,
         default=lambda: datetime.now(UTC),
     )
+
+
+install_guards(LedgerEntry.__table__)  # append-only (M21 D7)

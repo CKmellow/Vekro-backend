@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.immutability import install_guards
 
 
 class MoneyAuditEvent(Base):
@@ -45,3 +46,6 @@ class MoneyAuditEvent(Base):
         default=dict,
         server_default=text("'{}'::jsonb"),
     )
+
+
+install_guards(MoneyAuditEvent.__table__)  # append-only (M21 D7)

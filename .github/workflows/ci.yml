@@ -118,3 +118,10 @@ jobs:
           alembic upgrade head
           alembic downgrade base
           alembic upgrade head
+
+      # Anchor-chain row locks, the append-only triggers and the real order flow on PostgreSQL.
+      - name: PostgreSQL-only tests
+        env:
+          TEST_POSTGRES_URL: postgresql+psycopg://vekro:vekro@localhost:5432/vekro
+          SECRET_KEY: ci-secret-key
+        run: pytest -q -m postgres

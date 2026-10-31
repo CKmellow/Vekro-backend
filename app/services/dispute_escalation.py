@@ -10,7 +10,10 @@ from app.models.dispute import DisputeStatus
 from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User
+from app.services.anchoring import payloads
+from app.services.audit import ACTOR_USER
 from app.services.dispute_summary import latest_dispute
+from app.services.transitions import record_dispute_event, transition_transaction
 
 audit_logger = logging.getLogger("app.transactions.audit")
 
@@ -56,9 +59,28 @@ def escalate_dispute(
 
     now = datetime.now(UTC)
     previous = transaction.status
-    transaction.status = TransactionStatus.ESCALATED_ADMIN_REVIEW
+    transition_transaction(
+        db,
+        transaction,
+        TransactionStatus.ESCALATED_ADMIN_REVIEW,
+        actor_type=ACTOR_USER,
+        actor_id=user.id,
+        reason="party_escalated",
+        at=now,
+    )
     dispute.status = DisputeStatus.ESCALATED_ADMIN_REVIEW
     dispute.escalated_at = now
+    record_dispute_event(
+        db,
+        dispute,
+        payloads.DISPUTE_ESCALATED,
+        actor_type=ACTOR_USER,
+        actor_id=user.id,
+        at=now,
+        by=role,
+        reason="party_escalated",
+        reason_text_keccak=payloads.free_text(reason),
+    )
     evidence = dict(dispute.evidence or {})
     evidence["escalation"] = {"by": role, "reason": reason.strip(), "at": now.isoformat()}
     dispute.evidence = evidence

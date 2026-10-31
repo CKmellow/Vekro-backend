@@ -140,6 +140,14 @@ class Settings(BaseSettings):
     # SECRET_KEY. Required when ECONFIRM_ENABLED=true.
     econfirm_code_encryption_key: str = ""
 
+    # M21 anchoring. HMAC key(s) for admin_ref in anchored payloads, so admin UUIDs never reach
+    # buyers or sellers (decision D5). Comma-separated, newest first; each 32+ characters.
+    # Required in production; elsewhere a fixed development key is used when blank.
+    anchor_admin_ref_secret: str = ""
+    # Raise (instead of logging and recording a fallback) when a status change or a ledger or
+    # audit row has no anchor event. On for the test suite (tests/conftest.py).
+    anchor_strict_events: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -303,6 +311,15 @@ class Settings(BaseSettings):
                 violations.append(
                     "ECONFIRM_CODE_ENCRYPTION_KEY must hold at least one valid Fernet key "
                     "when ECONFIRM_ENABLED=true"
+                )
+
+        if environment == "production":
+            from app.services.anchoring.admin_ref import is_valid_secret_config
+
+            if not is_valid_secret_config(self.anchor_admin_ref_secret):
+                violations.append(
+                    "ANCHOR_ADMIN_REF_SECRET must hold at least one key of 32+ characters "
+                    "in production"
                 )
 
         if self.allow_live_payouts and environment != "production":

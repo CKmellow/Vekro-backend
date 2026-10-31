@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models.escrow import Escrow
 from app.models.ledger_entry import LedgerEntry, LedgerEntrySide
+from app.services.anchoring.recorder import record_ledger_entry
 
 ESCROW_HELD_ACCOUNT = "ESCROW_HELD"
 BUYER_CLEARING_ACCOUNT = "BUYER_CLEARING"
@@ -97,6 +98,7 @@ class EscrowLedger:
         timestamp = datetime.now(UTC)
 
         debit_entry = LedgerEntry(
+            id=uuid.uuid4(),
             escrow_id=movement.escrow_id,
             entry_group_id=entry_group_id,
             idempotency_key=idempotency_key,
@@ -108,6 +110,7 @@ class EscrowLedger:
             created_at=timestamp,
         )
         credit_entry = LedgerEntry(
+            id=uuid.uuid4(),
             escrow_id=movement.escrow_id,
             entry_group_id=entry_group_id,
             idempotency_key=idempotency_key,
@@ -124,6 +127,9 @@ class EscrowLedger:
 
         self._db.add(debit_entry)
         self._db.add(credit_entry)
+        # One anchor event per row, in the same DB transaction as the rows (M21).
+        record_ledger_entry(self._db, debit_entry)
+        record_ledger_entry(self._db, credit_entry)
         if commit:
             self._db.commit()
         else:

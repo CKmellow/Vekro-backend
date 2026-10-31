@@ -25,7 +25,14 @@ from app.schemas.transaction import (
     CreateTransactionRequest,
     PaymentCallbackRequest,
 )
-from app.services.audit import ACTOR_PROVIDER, record_money_audit_event
+from app.services.anchoring import payloads
+from app.services.anchoring.recorder import record_transaction_created
+from app.services.audit import (
+    ACTOR_PROVIDER,
+    ACTOR_SYSTEM,
+    ACTOR_USER,
+    record_money_audit_event,
+)
 from app.services.custody.econfirm_orchestration import (
     open_econfirm_escrow,
     request_econfirm_funding,
@@ -56,6 +63,7 @@ from app.services.payment_prompts import (
     record_payment_prompt,
     resolve_open_prompt,
 )
+from app.services.transitions import record_dispute_event, transition_transaction
 
 audit_logger = logging.getLogger("app.transactions.audit")
 
@@ -312,6 +320,9 @@ def create_transaction(
     selection = _select_custody_for_new_transaction(db, settings=runtime_settings, amount=amount)
 
     transaction = Transaction(
+        # Set now, not at flush: the transaction_created event is built from them first.
+        id=uuid.uuid4(),
+        created_at=datetime.now(UTC),
         reference=_unique_transaction_reference(db),
         listing_id=listing.id,
         buyer_id=buyer.id,
@@ -321,6 +332,7 @@ def create_transaction(
         custody_provider=selection.provider,
     )
     db.add(transaction)
+    record_transaction_created(db, transaction)
     # Flush first so defaults/PKs are materialized before dependent notifications are built.
     db.flush()
     _create_transaction_created_notifications(db, transaction=transaction)
@@ -1051,11 +1063,13 @@ def _verify_delivery_otp(otp_code: str, otp_hash: str | None) -> bool:
 
 
 def _apply_withheld_return_refund_flow(
+    db: Session,
     transaction: Transaction,
     *,
     now: datetime,
     initiated_by: str,
     reason: str,
+    actor_id: uuid.UUID | None = None,
 ) -> list[dict[str, str]]:
     transition_history = [
         {
@@ -1081,9 +1095,22 @@ def _apply_withheld_return_refund_flow(
         },
     ]
 
-    transaction.status = TransactionStatus.RETURN_IN_TRANSIT
-    transaction.status = TransactionStatus.RETURNED_TO_SELLER
-    transaction.status = TransactionStatus.REFUNDED_BUYER
+    actor_type = ACTOR_USER if initiated_by == "buyer" else ACTOR_SYSTEM
+    for step in (
+        TransactionStatus.RETURN_IN_TRANSIT,
+        TransactionStatus.RETURNED_TO_SELLER,
+        TransactionStatus.REFUNDED_BUYER,
+    ):
+        transition_transaction(
+            db,
+            transaction,
+            step,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            reason=reason,
+            at=now,
+            door_rejection_reason=transaction.door_rejection_reason,
+        )
     transaction.refunded_at = now
     transaction.delivery_otp_hash = None
     transaction.otp_failed_attempts = 0
@@ -1194,7 +1221,13 @@ def confirm_payment_callback(
             detail="Callback ignored because transaction is not awaiting payment.",
         )
 
-    transaction.status = TransactionStatus.LOCKED
+    transition_transaction(
+        db,
+        transaction,
+        TransactionStatus.LOCKED,
+        actor_type=ACTOR_PROVIDER,
+        reason="payment_callback_confirmed",
+    )
     transaction.locked_at = datetime.now(UTC)
     resolve_open_prompt(db, transaction.id, result_code=0, now=transaction.locked_at)
     _record_simulated_callback_funding(db, transaction, settings=get_settings())
@@ -1246,7 +1279,13 @@ def lock_transaction_after_custody_funding(
     if transaction is None or transaction.status != TransactionStatus.AWAITING_PAYMENT:
         return False
 
-    transaction.status = TransactionStatus.LOCKED
+    transition_transaction(
+        db,
+        transaction,
+        TransactionStatus.LOCKED,
+        actor_type=ACTOR_SYSTEM,
+        reason="custody_funding_confirmed",
+    )
     transaction.locked_at = datetime.now(UTC)
     db.add(transaction)
     resolve_open_prompt(db, transaction.id, result_code=0, now=transaction.locked_at)
@@ -1287,7 +1326,14 @@ def dispatch_transaction(
             "Transaction must be in locked state before dispatch."
         )
 
-    transaction.status = TransactionStatus.OUT_FOR_DELIVERY
+    transition_transaction(
+        db,
+        transaction,
+        TransactionStatus.OUT_FOR_DELIVERY,
+        actor_type=ACTOR_USER,
+        actor_id=seller.id,
+        reason="seller_dispatched",
+    )
     transaction.dispatched_at = datetime.now(UTC)
     _create_dispatched_notifications(db, transaction=transaction)
     db.commit()
@@ -1327,7 +1373,14 @@ def mark_transaction_arrived(
 
     delivery_otp = _generate_delivery_otp()
 
-    transaction.status = TransactionStatus.AT_DOOR_PENDING_INSPECTION
+    transition_transaction(
+        db,
+        transaction,
+        TransactionStatus.AT_DOOR_PENDING_INSPECTION,
+        actor_type=ACTOR_USER,
+        actor_id=seller.id,
+        reason="seller_arrived",
+    )
     transaction.at_door_at = datetime.now(UTC)
     transaction.delivery_otp_hash = _hash_delivery_otp(delivery_otp)
     transaction.otp_failed_attempts = 0
@@ -1390,12 +1443,28 @@ def confirm_buyer_delivery_otp(
 
     transitioned_at = datetime.now(UTC)
     if listing.is_serialized:
-        transaction.status = TransactionStatus.HOLD_24H
+        transition_transaction(
+            db,
+            transaction,
+            TransactionStatus.HOLD_24H,
+            actor_type=ACTOR_USER,
+            actor_id=buyer.id,
+            reason="otp_confirmed",
+            at=transitioned_at,
+        )
         transaction.hold_started_at = transitioned_at
         transaction.released_at = None
         to_status = TransactionStatus.HOLD_24H.value
     else:
-        transaction.status = TransactionStatus.RELEASED
+        transition_transaction(
+            db,
+            transaction,
+            TransactionStatus.RELEASED,
+            actor_type=ACTOR_USER,
+            actor_id=buyer.id,
+            reason="otp_confirmed",
+            at=transitioned_at,
+        )
         transaction.released_at = transitioned_at
         transaction.hold_started_at = None
         to_status = TransactionStatus.RELEASED.value
@@ -1476,10 +1545,12 @@ def withhold_buyer_delivery_otp(
 
     now = datetime.now(UTC)
     transition_history = _apply_withheld_return_refund_flow(
+        db,
         transaction,
         now=now,
         initiated_by="buyer",
         reason="otp_withheld",
+        actor_id=buyer.id,
     )
     EscrowService(db).queue_refund_full(
         transaction,
@@ -1559,8 +1630,39 @@ def report_functional_issue(
         escalated_at=now if dispute_status == DisputeStatus.ESCALATED_ADMIN_REVIEW else None,
     )
 
-    transaction.status = TransactionStatus.DISPUTED_FUNCTIONAL
+    transition_transaction(
+        db,
+        transaction,
+        TransactionStatus.DISPUTED_FUNCTIONAL,
+        actor_type=ACTOR_USER,
+        actor_id=buyer.id,
+        reason="functional_issue_reported",
+        at=now,
+    )
     db.add(dispute)
+    record_dispute_event(
+        db,
+        dispute,
+        payloads.DISPUTE_OPENED,
+        actor_type=ACTOR_USER,
+        actor_id=buyer.id,
+        at=now,
+        dispute_type=dispute.dispute_type.value,
+        category=normalized_category,
+        route=route,
+        description_keccak=payloads.free_text(dispute.description),
+    )
+    if dispute_status == DisputeStatus.ESCALATED_ADMIN_REVIEW:
+        record_dispute_event(
+            db,
+            dispute,
+            payloads.DISPUTE_ESCALATED,
+            actor_type=ACTOR_SYSTEM,
+            at=now,
+            by="system",
+            reason="other_category",
+            reason_text_keccak=None,
+        )
     _create_dispute_opened_notifications(
         db,
         transaction=transaction,
@@ -1607,7 +1709,25 @@ def mark_buyer_sent_back(
         )
 
     now = datetime.now(UTC)
-    transaction.status = TransactionStatus.RETURN_IN_TRANSIT
+    transition_transaction(
+        db,
+        transaction,
+        TransactionStatus.RETURN_IN_TRANSIT,
+        actor_type=ACTOR_USER,
+        actor_id=buyer.id,
+        reason="buyer_sent_back",
+        at=now,
+    )
+    sent_back = latest_dispute(db, transaction.id)
+    if sent_back is not None:
+        record_dispute_event(
+            db,
+            sent_back,
+            payloads.DISPUTE_RETURN_SENT,
+            actor_type=ACTOR_USER,
+            actor_id=buyer.id,
+            at=now,
+        )
     _create_dispute_buyer_sent_back_notifications(
         db,
         transaction=transaction,
@@ -1651,7 +1771,25 @@ def mark_seller_received(
         )
 
     now = datetime.now(UTC)
-    transaction.status = TransactionStatus.RETURN_RECEIVED
+    transition_transaction(
+        db,
+        transaction,
+        TransactionStatus.RETURN_RECEIVED,
+        actor_type=ACTOR_USER,
+        actor_id=seller.id,
+        reason="seller_received",
+        at=now,
+    )
+    received = latest_dispute(db, transaction.id)
+    if received is not None:
+        record_dispute_event(
+            db,
+            received,
+            payloads.DISPUTE_RETURN_RECEIVED,
+            actor_type=ACTOR_USER,
+            actor_id=seller.id,
+            at=now,
+        )
     _create_seller_received_notifications(
         db,
         transaction=transaction,
@@ -1714,14 +1852,30 @@ def apply_seller_resolution_action(
 
     now = datetime.now(UTC)
     if selected_action == SellerResolutionAction.REFUND_ISSUED:
-        transaction.status = TransactionStatus.REFUNDED_BUYER
+        transition_transaction(
+            db,
+            transaction,
+            TransactionStatus.REFUNDED_BUYER,
+            actor_type=ACTOR_USER,
+            actor_id=seller.id,
+            reason=f"seller_resolution_{selected_action.value}",
+            at=now,
+        )
         transaction.refunded_at = now
         EscrowService(db).queue_refund_full(
             transaction,
             purpose=f"seller-refund:{transaction.id}",
         )
     else:
-        transaction.status = TransactionStatus.AWAITING_BUYER_RECONFIRMATION
+        transition_transaction(
+            db,
+            transaction,
+            TransactionStatus.AWAITING_BUYER_RECONFIRMATION,
+            actor_type=ACTOR_USER,
+            actor_id=seller.id,
+            reason=f"seller_resolution_{selected_action.value}",
+            at=now,
+        )
 
     dispute = (
         db.execute(
@@ -1741,6 +1895,16 @@ def apply_seller_resolution_action(
             dispute.resolved_at = now
         else:
             dispute.status = DisputeStatus.AWAITING_BUYER_RECONFIRMATION
+        record_dispute_event(
+            db,
+            dispute,
+            payloads.DISPUTE_SELLER_RESOLUTION,
+            actor_type=ACTOR_USER,
+            actor_id=seller.id,
+            at=now,
+            action=selected_action.value,
+            notes_keccak=payloads.free_text(notes),
+        )
 
     _create_seller_resolution_notifications(
         db,
@@ -1802,7 +1966,15 @@ def submit_buyer_reconfirmation(
     now = datetime.now(UTC)
     prior_rejections = _get_reconfirm_rejection_count(dispute)
     if accepted:
-        transaction.status = TransactionStatus.RESOLVED_RELEASE
+        transition_transaction(
+            db,
+            transaction,
+            TransactionStatus.RESOLVED_RELEASE,
+            actor_type=ACTOR_USER,
+            actor_id=buyer.id,
+            reason="buyer_reconfirmed_accepted",
+            at=now,
+        )
         transaction.released_at = now
         EscrowService(db).queue_release_full(
             transaction,
@@ -1812,12 +1984,28 @@ def submit_buyer_reconfirmation(
             dispute.status = DisputeStatus.RESOLVED_RELEASE
             dispute.resolved_at = now
     elif prior_rejections < BUYER_RECONFIRMATION_RETRY_LIMIT:
-        transaction.status = TransactionStatus.RETURN_RECEIVED
+        transition_transaction(
+            db,
+            transaction,
+            TransactionStatus.RETURN_RECEIVED,
+            actor_type=ACTOR_USER,
+            actor_id=buyer.id,
+            reason="buyer_reconfirmed_rejected",
+            at=now,
+        )
         if dispute is not None:
             _set_reconfirm_rejection_count(dispute, prior_rejections + 1)
             dispute.status = DisputeStatus.RETURN_RECEIVED
     else:
-        transaction.status = TransactionStatus.ESCALATED_ADMIN_REVIEW
+        transition_transaction(
+            db,
+            transaction,
+            TransactionStatus.ESCALATED_ADMIN_REVIEW,
+            actor_type=ACTOR_USER,
+            actor_id=buyer.id,
+            reason="reconfirm_retry_limit",
+            at=now,
+        )
         if dispute is not None:
             _set_reconfirm_rejection_count(dispute, prior_rejections + 1)
             dispute.status = DisputeStatus.ESCALATED_ADMIN_REVIEW
@@ -1828,6 +2016,30 @@ def submit_buyer_reconfirmation(
         evidence = dict(dispute.evidence or {})
         evidence["buyer_reconfirm_notes"] = notes.strip()
         dispute.evidence = evidence
+
+    if dispute is not None:
+        record_dispute_event(
+            db,
+            dispute,
+            payloads.DISPUTE_BUYER_RECONFIRMATION,
+            actor_type=ACTOR_USER,
+            actor_id=buyer.id,
+            at=now,
+            accepted=accepted,
+            rejection_count=_get_reconfirm_rejection_count(dispute),
+            notes_keccak=payloads.free_text(notes),
+        )
+        if dispute.status == DisputeStatus.ESCALATED_ADMIN_REVIEW:
+            record_dispute_event(
+                db,
+                dispute,
+                payloads.DISPUTE_ESCALATED,
+                actor_type=ACTOR_SYSTEM,
+                at=now,
+                by="system",
+                reason="reconfirm_retry_limit",
+                reason_text_keccak=None,
+            )
 
     _create_buyer_reconfirmation_notifications(
         db,
@@ -1902,6 +2114,18 @@ def submit_buyer_resolution_confirmation(
     if closed:
         dispute.resolved_at = dispute.resolved_at or now
 
+    record_dispute_event(
+        db,
+        dispute,
+        payloads.DISPUTE_RESOLUTION_CONFIRMED,
+        actor_type=ACTOR_USER,
+        actor_id=buyer.id,
+        at=now,
+        party="buyer",
+        buyer_confirmed=True,
+        seller_confirmed=seller_confirmed,
+        closed=closed,
+    )
     _create_mutual_confirmation_notifications(
         db,
         transaction=transaction,
@@ -1975,6 +2199,18 @@ def submit_seller_resolution_confirmation(
     if closed:
         dispute.resolved_at = dispute.resolved_at or now
 
+    record_dispute_event(
+        db,
+        dispute,
+        payloads.DISPUTE_RESOLUTION_CONFIRMED,
+        actor_type=ACTOR_USER,
+        actor_id=seller.id,
+        at=now,
+        party="seller",
+        buyer_confirmed=buyer_confirmed,
+        seller_confirmed=True,
+        closed=closed,
+    )
     _create_mutual_confirmation_notifications(
         db,
         transaction=transaction,
@@ -2104,6 +2340,7 @@ def run_timeout_jobs(
 
     for transaction in at_door_due:
         transition_history = _apply_withheld_return_refund_flow(
+            db,
             transaction,
             now=current_time,
             initiated_by="system",
@@ -2136,7 +2373,14 @@ def run_timeout_jobs(
                 "reason": "locked_no_dispatch_timeout_48h",
             }
         ]
-        transaction.status = TransactionStatus.REFUNDED_BUYER
+        transition_transaction(
+            db,
+            transaction,
+            TransactionStatus.REFUNDED_BUYER,
+            actor_type=ACTOR_SYSTEM,
+            reason="locked_no_dispatch_timeout_48h",
+            at=current_time,
+        )
         transaction.refunded_at = current_time
         transaction.delivery_otp_hash = None
         transaction.otp_failed_attempts = 0
@@ -2167,7 +2411,14 @@ def run_timeout_jobs(
                 "reason": "hold_24h_auto_release_24h",
             }
         ]
-        transaction.status = TransactionStatus.RELEASED
+        transition_transaction(
+            db,
+            transaction,
+            TransactionStatus.RELEASED,
+            actor_type=ACTOR_SYSTEM,
+            reason="hold_24h_auto_release_24h",
+            at=current_time,
+        )
         transaction.released_at = current_time
         transaction.delivery_otp_hash = None
         transaction.otp_failed_attempts = 0
@@ -2189,13 +2440,28 @@ def run_timeout_jobs(
         )
 
     for transaction in dispute_due:
-        transaction.status = TransactionStatus.RELEASED
+        transition_transaction(
+            db,
+            transaction,
+            TransactionStatus.RELEASED,
+            actor_type=ACTOR_SYSTEM,
+            reason="dispute_buyer_sent_back_timeout_3d",
+            at=current_time,
+        )
         transaction.released_at = current_time
         # The buyer never sent the item back, so the return case closes with the release.
         dispute = latest_dispute(db, transaction.id)
         if dispute is not None and dispute.status in OPEN_DISPUTE_STATUSES:
             dispute.status = DisputeStatus.CANCELED
             dispute.resolved_at = current_time
+            record_dispute_event(
+                db,
+                dispute,
+                payloads.DISPUTE_AUTO_CLOSED,
+                actor_type=ACTOR_SYSTEM,
+                at=current_time,
+                reason="dispute_buyer_sent_back_timeout_3d",
+            )
         EscrowService(db).queue_release_full(
             transaction,
             purpose=f"dispute-timeout-release:{transaction.id}",
@@ -2213,12 +2479,29 @@ def run_timeout_jobs(
         )
 
     for transaction in seller_received_due:
-        transaction.status = TransactionStatus.ESCALATED_ADMIN_REVIEW
+        transition_transaction(
+            db,
+            transaction,
+            TransactionStatus.ESCALATED_ADMIN_REVIEW,
+            actor_type=ACTOR_SYSTEM,
+            reason="seller_received_timeout_3d",
+            at=current_time,
+        )
         # Admins resolve escalated cases from the dispute, so it must be escalated too.
         dispute = latest_dispute(db, transaction.id)
         if dispute is not None and dispute.status in OPEN_DISPUTE_STATUSES:
             dispute.status = DisputeStatus.ESCALATED_ADMIN_REVIEW
             dispute.escalated_at = current_time
+            record_dispute_event(
+                db,
+                dispute,
+                payloads.DISPUTE_ESCALATED,
+                actor_type=ACTOR_SYSTEM,
+                at=current_time,
+                by="system",
+                reason="seller_received_timeout_3d",
+                reason_text_keccak=None,
+            )
         _create_seller_received_timeout_notifications(
             db,
             transaction=transaction,

@@ -11,6 +11,7 @@ from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import Transaction, TransactionStatus
 from app.services.audit import ACTOR_ADMIN, record_money_audit_event
 from app.services.escrow_service import EscrowService, SplitPayoutUnsupportedError
+from app.services.transitions import record_admin_decision, transition_transaction
 
 
 class DisputeCaseNotFoundError(Exception):
@@ -253,8 +254,19 @@ def force_resolve_dispute_case(
     transaction.refunded_at = None
     dispute.split_ratio = None
 
+    release_amount: Decimal | None = None
+    refund_amount: Decimal | None = None
     if decision == AdminDecision.REFUND:
-        transaction.status = TransactionStatus.RESOLVED_REFUND
+        refund_amount = transaction.amount
+        transition_transaction(
+            db,
+            transaction,
+            TransactionStatus.RESOLVED_REFUND,
+            actor_type=ACTOR_ADMIN,
+            actor_id=actor_id,
+            reason="admin_decision",
+            at=now,
+        )
         transaction.refunded_at = now
         dispute.status = DisputeStatus.RESOLVED_REFUND
         escrow_service.queue_refund_full(
@@ -262,7 +274,16 @@ def force_resolve_dispute_case(
             purpose=f"admin-refund:{dispute.id}",
         )
     elif decision == AdminDecision.RELEASE:
-        transaction.status = TransactionStatus.RESOLVED_RELEASE
+        release_amount = transaction.amount
+        transition_transaction(
+            db,
+            transaction,
+            TransactionStatus.RESOLVED_RELEASE,
+            actor_type=ACTOR_ADMIN,
+            actor_id=actor_id,
+            reason="admin_decision",
+            at=now,
+        )
         transaction.released_at = now
         dispute.status = DisputeStatus.RESOLVED_RELEASE
         escrow_service.queue_release_full(
@@ -282,7 +303,16 @@ def force_resolve_dispute_case(
         except SplitPayoutUnsupportedError as exc:
             raise DisputeSplitPayoutUnsupportedError(str(exc)) from exc
 
-        transaction.status = TransactionStatus.RESOLVED_SPLIT
+        release_amount, refund_amount = EscrowService.split_amounts(transaction.amount, split_ratio)
+        transition_transaction(
+            db,
+            transaction,
+            TransactionStatus.RESOLVED_SPLIT,
+            actor_type=ACTOR_ADMIN,
+            actor_id=actor_id,
+            reason="admin_decision",
+            at=now,
+        )
         transaction.released_at = now
         transaction.refunded_at = now
         dispute.status = DisputeStatus.RESOLVED_SPLIT
@@ -292,6 +322,17 @@ def force_resolve_dispute_case(
     dispute.admin_reason = normalized_reason
     dispute.decided_by_user_id = actor_id
     dispute.resolved_at = now
+    record_admin_decision(
+        db,
+        dispute,
+        decision=decision.value,
+        reason=normalized_reason,
+        admin_id=actor_id,
+        seller_share=dispute.split_ratio,
+        release_amount=release_amount,
+        refund_amount=refund_amount,
+        at=now,
+    )
 
     record_money_audit_event(
         db,

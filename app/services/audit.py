@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models.money_audit_event import MoneyAuditEvent
+from app.services.anchoring.recorder import record_money_audit
 
 ACTOR_USER = "user"
 ACTOR_ADMIN = "admin"
@@ -96,9 +97,10 @@ def record_money_audit_event(
         currency=currency,
         details=details or {},
     )
-    if occurred_at is not None:
-        event.occurred_at = occurred_at
+    # Set now, not at flush: the anchor payload is built from it straight away.
+    event.occurred_at = occurred_at or datetime.now(UTC)
     db.add(event)
+    record_money_audit(db, event)
     return event
 
 

@@ -11,3 +11,5 @@ black
 pytest
 httpx2
 cryptography>=43,<46
+pycryptodome>=3.20,<4
+hypothesis>=6.100,<7

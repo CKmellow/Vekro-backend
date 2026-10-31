@@ -1,0 +1,776 @@
+{
+  "description": "Vekro M21 anchoring golden vectors. Bytes are 0x-prefixed lowercase hex. See docs/anchoring-design.md and docs/frontend-verification-contract.md.",
+  "version": 1,
+  "algorithms": {
+    "hash": "keccak256 (Ethereum, not SHA3-256)",
+    "payload": "RFC 8785 JSON Canonicalization Scheme; no floats; money as 2-place strings",
+    "leaf": "keccak256(0x00 || salt[32] || prev_event_hash[32] || utf8(payload))",
+    "node": "keccak256(0x01 || left[32] || right[32])",
+    "tree": "RFC 6962: root(1 leaf) = the leaf; otherwise split at k = largest power of two < n; root = node(root(first k), root(rest)); the last node is never duplicated",
+    "proof": "steps from the leaf upwards; side = where the sibling sits; left: h = node(sibling, h); right: h = node(h, sibling). The sides must also match the leaf index for a tree of the on-chain leaf count."
+  },
+  "keccak": [
+    {
+      "input_hex": "0x",
+      "hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+    },
+    {
+      "input_hex": "0x76656b726f",
+      "hash": "0xc8588733c5c4eab1afe07639ee10a6eda09cb05369237cc2e607aa396fd15daf"
+    }
+  ],
+  "canonical": [
+    {
+      "name": "key order",
+      "value": {
+        "b": 1,
+        "a": 2,
+        "A": 3,
+        "aa": 4,
+        "_": 5
+      },
+      "canonical": "{\"A\":3,\"_\":5,\"a\":2,\"aa\":4,\"b\":1}"
+    },
+    {
+      "name": "utf-16 key order (not code point order)",
+      "value": {
+        "￿": 1,
+        "😀": 2,
+        "é": 3
+      },
+      "canonical": "{\"é\":3,\"😀\":2,\"￿\":1}"
+    },
+    {
+      "name": "escapes",
+      "value": {
+        "s": "quote \" backslash \\ tab \t newline \n cr \r bs \b ff \f"
+      },
+      "canonical": "{\"s\":\"quote \\\" backslash \\\\ tab \\t newline \\n cr \\r bs \\b ff \\f\"}"
+    },
+    {
+      "name": "control characters as lowercase \\u00xx",
+      "value": {
+        "s": "\u0000\u0001\u001f"
+      },
+      "canonical": "{\"s\":\"\\u0000\\u0001\\u001f\"}"
+    },
+    {
+      "name": "non-ascii stays literal",
+      "value": {
+        "s": "é 😀     «тест»"
+      },
+      "canonical": "{\"s\":\"é 😀     «тест»\"}"
+    },
+    {
+      "name": "nested and empty",
+      "value": {
+        "z": [],
+        "y": {},
+        "x": [
+          {
+            "b": null,
+            "a": [
+              true,
+              false
+            ]
+          }
+        ]
+      },
+      "canonical": "{\"x\":[{\"a\":[true,false],\"b\":null}],\"y\":{},\"z\":[]}"
+    },
+    {
+      "name": "integers",
+      "value": {
+        "n": [
+          0,
+          -1,
+          9007199254740991,
+          -9007199254740991
+        ]
+      },
+      "canonical": "{\"n\":[0,-1,9007199254740991,-9007199254740991]}"
+    },
+    {
+      "name": "money is a string",
+      "value": {
+        "amount": "1500.00",
+        "ratio": "0.5000"
+      },
+      "canonical": "{\"amount\":\"1500.00\",\"ratio\":\"0.5000\"}"
+    }
+  ],
+  "events": [
+    {
+      "index": 0,
+      "event_type": "transaction_created",
+      "payload": "{\"amount\":\"500.00\",\"at\":\"2026-10-31T09:00:00Z\",\"buyer_id\":\"11111111-2222-4333-8444-555555555555\",\"currency\":\"KES\",\"listing_id\":\"22222222-3333-4444-8555-666666666666\",\"reference\":\"VK-7K3P9Q\",\"seller_id\":\"66666666-7777-4888-9999-aaaaaaaaaaaa\",\"transaction_id\":\"5b0e6c1e-1f6a-4b8e-9c2d-3f4a5b6c7d8e\",\"type\":\"transaction_created\",\"v\":1}",
+      "salt": "0xcb181c23e133f32ba362d4f2435702add1ebb3a59d4a06d089d72e6a4ba3f24e",
+      "prev_event_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "leaf_hash": "0xc5bad269e75bba49ed24b2a00393f6710da51fe60e33630a7d86e2ebaceff1fd"
+    },
+    {
+      "index": 1,
+      "event_type": "transaction_transition",
+      "payload": "{\"actor_id\":null,\"actor_ref\":null,\"actor_type\":\"provider\",\"at\":\"2026-10-31T09:01:30Z\",\"door_rejection_reason\":null,\"from\":\"awaiting_payment\",\"reason\":\"payment_callback_confirmed\",\"to\":\"locked\",\"transaction_id\":\"5b0e6c1e-1f6a-4b8e-9c2d-3f4a5b6c7d8e\",\"type\":\"transaction_transition\",\"v\":1}",
+      "salt": "0x3adc7e5f0b3eaae01a6a188fe05249a4d7a3115c713908e7dea53735580ac1b5",
+      "prev_event_hash": "0xc5bad269e75bba49ed24b2a00393f6710da51fe60e33630a7d86e2ebaceff1fd",
+      "leaf_hash": "0xce72f325a1d18cf8518e958dd16dee1e443e87f894c9699b86ee00b7d484623c"
+    },
+    {
+      "index": 2,
+      "event_type": "ledger_entry",
+      "payload": "{\"account_code\":\"ESCROW_HELD\",\"amount\":\"500.00\",\"at\":\"2026-10-31T09:01:30Z\",\"currency\":\"KES\",\"description\":\"Simulated custody funding (payment callback)\",\"entry_group_id\":\"44444444-5555-4666-8777-888888888888\",\"escrow_id\":\"0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a\",\"idempotency_key\":\"callback-funding:5b0e6c1e-1f6a-4b8e-9c2d-3f4a5b6c7d8e\",\"ledger_entry_id\":\"33333333-4444-4555-8666-777777777777\",\"side\":\"debit\",\"transaction_id\":\"5b0e6c1e-1f6a-4b8e-9c2d-3f4a5b6c7d8e\",\"type\":\"ledger_entry\",\"v\":1}",
+      "salt": "0xbba3903ab54ea6b031cf79c49bbd3d625ffb364953a04b65ff0a0a80463a70db",
+      "prev_event_hash": "0xce72f325a1d18cf8518e958dd16dee1e443e87f894c9699b86ee00b7d484623c",
+      "leaf_hash": "0x179c74461699dd8b4e769b30cbd276db958ee096ef43f8487fadf4b7423f9048"
+    },
+    {
+      "index": 3,
+      "event_type": "dispute_opened",
+      "payload": "{\"actor_id\":\"11111111-2222-4333-8444-555555555555\",\"actor_ref\":null,\"actor_type\":\"user\",\"at\":\"2026-10-31T10:00:00Z\",\"category\":\"not_working\",\"description_keccak\":\"0xce83dd62308dbcc6db0b138d4ac9b3f42526d6dfa1ff4378809ed63f20bf4086\",\"dispute_id\":\"bbbbbbbb-cccc-4ddd-8eee-ffffffffffff\",\"dispute_type\":\"functional\",\"route\":\"seller_resolution\",\"transaction_id\":\"5b0e6c1e-1f6a-4b8e-9c2d-3f4a5b6c7d8e\",\"type\":\"dispute_opened\",\"v\":1}",
+      "salt": "0x8407325308d46d9e36e9dcca36f14bd7492e0eb8d9ef5cf472bce46e28599647",
+      "prev_event_hash": "0x179c74461699dd8b4e769b30cbd276db958ee096ef43f8487fadf4b7423f9048",
+      "leaf_hash": "0xe801e3996047a837536caf20c6d5456fae0464a4ccad934ec86873cdf66fa145"
+    },
+    {
+      "index": 4,
+      "event_type": "dispute_escalated",
+      "payload": "{\"actor_id\":\"66666666-7777-4888-9999-aaaaaaaaaaaa\",\"actor_ref\":null,\"actor_type\":\"user\",\"at\":\"2026-10-31T11:00:00Z\",\"by\":\"seller\",\"dispute_id\":\"bbbbbbbb-cccc-4ddd-8eee-ffffffffffff\",\"reason\":\"party_escalated\",\"reason_text_keccak\":\"0xa281ec8ff820b8092424271da9b13051b60d18397815e58b3279796d06dcd65d\",\"transaction_id\":\"5b0e6c1e-1f6a-4b8e-9c2d-3f4a5b6c7d8e\",\"type\":\"dispute_escalated\",\"v\":1}",
+      "salt": "0xc980c6b1c2167115f5381dd77e289ff8a01f0e9fa024c3536f574484cd0cf4bd",
+      "prev_event_hash": "0xe801e3996047a837536caf20c6d5456fae0464a4ccad934ec86873cdf66fa145",
+      "leaf_hash": "0xc915a51cb2de9958c1263856df0554133f505b203ddfc54e0c2f0573c4c58b00"
+    },
+    {
+      "index": 5,
+      "event_type": "admin_decision",
+      "payload": "{\"admin_ref\":\"e387d0a95540708d9e4954960a7dbc9583cb36738bfd4f762a792e277f05b4f5\",\"at\":\"2026-10-31T12:00:00Z\",\"decision\":\"split\",\"dispute_id\":\"bbbbbbbb-cccc-4ddd-8eee-ffffffffffff\",\"reason\":\"Evidence supports a partial refund.\\tBoth parties agreed.\",\"refund_amount\":\"200.00\",\"release_amount\":\"300.00\",\"seller_share\":\"0.6000\",\"transaction_id\":\"5b0e6c1e-1f6a-4b8e-9c2d-3f4a5b6c7d8e\",\"type\":\"admin_decision\",\"v\":1}",
+      "salt": "0x09411daa4db573662890a5fab6d5fc9cb0a27ec88d770a60a0b531f796dabad7",
+      "prev_event_hash": "0xc915a51cb2de9958c1263856df0554133f505b203ddfc54e0c2f0573c4c58b00",
+      "leaf_hash": "0xdb3cf99d75011cc542d20ec270c743641cedbe66fc1601779445407bc6b75b54"
+    },
+    {
+      "index": 6,
+      "event_type": "money_audit",
+      "payload": "{\"action\":\"payout_release_queued\",\"actor_id\":null,\"actor_ref\":\"e387d0a95540708d9e4954960a7dbc9583cb36738bfd4f762a792e277f05b4f5\",\"actor_type\":\"admin\",\"amount\":\"300.00\",\"at\":\"2026-10-31T12:00:00Z\",\"attempt_id\":\"77777777-8888-4999-8aaa-bbbbbbbbbbbb\",\"audit_event_id\":\"55555555-6666-4777-8888-999999999999\",\"correlation_id\":\"txn=5b0e6c1e-1f6a-4b8e-9c2d-3f4a5b6c7d8e|ref=-|rail=simulated\",\"currency\":\"KES\",\"details\":{\"purpose\":\"admin-split-release:bbbbbbbb-cccc-4ddd-8eee-ffffffffffff\"},\"escrow_id\":\"0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a\",\"provider_reference\":null,\"rail_name\":\"simulated\",\"reason\":\"Evidence supports a partial refund.\",\"transaction_id\":\"5b0e6c1e-1f6a-4b8e-9c2d-3f4a5b6c7d8e\",\"type\":\"money_audit\",\"v\":1}",
+      "salt": "0x77a715f7b2c3f7752894305f3c85ee3062db453f145ab4a236e5a94d0992166c",
+      "prev_event_hash": "0xdb3cf99d75011cc542d20ec270c743641cedbe66fc1601779445407bc6b75b54",
+      "leaf_hash": "0xf12745d23fd65aa891c9fe58e21d69d785798589e01ce4aca1187d01bf936c8c"
+    },
+    {
+      "index": 7,
+      "event_type": "transaction_transition",
+      "payload": "{\"actor_id\":null,\"actor_ref\":\"e387d0a95540708d9e4954960a7dbc9583cb36738bfd4f762a792e277f05b4f5\",\"actor_type\":\"admin\",\"at\":\"2026-10-31T12:00:00Z\",\"door_rejection_reason\":null,\"from\":\"escalated_admin_review\",\"reason\":\"admin_decision\",\"to\":\"resolved_split\",\"transaction_id\":\"5b0e6c1e-1f6a-4b8e-9c2d-3f4a5b6c7d8e\",\"type\":\"transaction_transition\",\"v\":1}",
+      "salt": "0xf0af4ae4b0b991d1388f0b5d00cfce7c3104bd4e65156fcafc74324cb4a60bd5",
+      "prev_event_hash": "0xf12745d23fd65aa891c9fe58e21d69d785798589e01ce4aca1187d01bf936c8c",
+      "leaf_hash": "0x882d1964e75ceca9a8d9c1d6ab1b9b421833ad618ac12c8d767c4ed7002a0645"
+    }
+  ],
+  "trees": [
+    {
+      "size": 1,
+      "leaves": [
+        "0xc5bad269e75bba49ed24b2a00393f6710da51fe60e33630a7d86e2ebaceff1fd"
+      ],
+      "root": "0xc5bad269e75bba49ed24b2a00393f6710da51fe60e33630a7d86e2ebaceff1fd",
+      "proofs": [
+        {
+          "index": 0,
+          "proof": []
+        }
+      ]
+    },
+    {
+      "size": 2,
+      "leaves": [
+        "0xc5bad269e75bba49ed24b2a00393f6710da51fe60e33630a7d86e2ebaceff1fd",
+        "0xce72f325a1d18cf8518e958dd16dee1e443e87f894c9699b86ee00b7d484623c"
+      ],
+      "root": "0x4e487afb5a65eb9de5b0f41ec70048f23f4a0c3aa0c574d89253dcf34d831289",
+      "proofs": [
+        {
+          "index": 0,
+          "proof": [
+            {
+              "sibling": "0xce72f325a1d18cf8518e958dd16dee1e443e87f894c9699b86ee00b7d484623c",
+              "side": "right"
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "proof": [
+            {
+              "sibling": "0xc5bad269e75bba49ed24b2a00393f6710da51fe60e33630a7d86e2ebaceff1fd",
+              "side": "left"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "size": 3,
+      "leaves": [
+        "0xc5bad269e75bba49ed24b2a00393f6710da51fe60e33630a7d86e2ebaceff1fd",
+        "0xce72f325a1d18cf8518e958dd16dee1e443e87f894c9699b86ee00b7d484623c",
+        "0x179c74461699dd8b4e769b30cbd276db958ee096ef43f8487fadf4b7423f9048"
+      ],
+      "root": "0x5c435cf92b3ebd24a78aa0b8f9a6320e728f35ea506eafddb7238547c634c48d",
+      "proofs": [
+        {
+          "index": 0,
+          "proof": [
+            {
+              "sibling": "0xce72f325a1d18cf8518e958dd16dee1e443e87f894c9699b86ee00b7d484623c",
+              "side": "right"
+            },
+            {
+              "sibling": "0x179c74461699dd8b4e769b30cbd276db958ee096ef43f8487fadf4b7423f9048",
+              "side": "right"
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "proof": [
+            {
+              "sibling": "0xc5bad269e75bba49ed24b2a00393f6710da51fe60e33630a7d86e2ebaceff1fd",
+              "side": "left"
+            },
+            {
+              "sibling": "0x179c74461699dd8b4e769b30cbd276db958ee096ef43f8487fadf4b7423f9048",
+              "side": "right"
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "proof": [
+            {
+              "sibling": "0x4e487afb5a65eb9de5b0f41ec70048f23f4a0c3aa0c574d89253dcf34d831289",
+              "side": "left"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "size": 4,
+      "leaves": [
+        "0xc5bad269e75bba49ed24b2a00393f6710da51fe60e33630a7d86e2ebaceff1fd",
+        "0xce72f325a1d18cf8518e958dd16dee1e443e87f894c9699b86ee00b7d484623c",
+        "0x179c74461699dd8b4e769b30cbd276db958ee096ef43f8487fadf4b7423f9048",
+        "0xe801e3996047a837536caf20c6d5456fae0464a4ccad934ec86873cdf66fa145"
+      ],
+      "root": "0x75c42587e9a644590757e54aadc8152c2d1ffdeb5641f36a500c97239af0f267",
+      "proofs": [
+        {
+          "index": 0,
+          "proof": [
+            {
+              "sibling": "0xce72f325a1d18cf8518e958dd16dee1e443e87f894c9699b86ee00b7d484623c",
+              "side": "right"
+            },
+            {
+              "sibling": "0x59d5f602131b2aa4bd20b1ead86d3fe2d963c18e822d78e195369cb636e31a33",
+              "side": "right"
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "proof": [
+            {
+              "sibling": "0xc5bad269e75bba49ed24b2a00393f6710da51fe60e33630a7d86e2ebaceff1fd",
+              "side": "left"
+            },
+            {
+              "sibling": "0x59d5f602131b2aa4bd20b1ead86d3fe2d963c18e822d78e195369cb636e31a33",
+              "side": "right"
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "proof": [
+            {
+              "sibling": "0xe801e3996047a837536caf20c6d5456fae0464a4ccad934ec86873cdf66fa145",
+              "side": "right"
+            },
+            {
+              "sibling": "0x4e487afb5a65eb9de5b0f41ec70048f23f4a0c3aa0c574d89253dcf34d831289",
+              "side": "left"
+            }
+          ]
+        },
+        {
+          "index": 3,
+          "proof": [
+            {
+              "sibling": "0x179c74461699dd8b4e769b30cbd276db958ee096ef43f8487fadf4b7423f9048",
+              "side": "left"
+            },
+            {
+              "sibling": "0x4e487afb5a65eb9de5b0f41ec70048f23f4a0c3aa0c574d89253dcf34d831289",
+              "side": "left"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "size": 5,
+      "leaves": [
+        "0xc5bad269e75bba49ed24b2a00393f6710da51fe60e33630a7d86e2ebaceff1fd",
+        "0xce72f325a1d18cf8518e958dd16dee1e443e87f894c9699b86ee00b7d484623c",
+        "0x179c74461699dd8b4e769b30cbd276db958ee096ef43f8487fadf4b7423f9048",
+        "0xe801e3996047a837536caf20c6d5456fae0464a4ccad934ec86873cdf66fa145",
+        "0xc915a51cb2de9958c1263856df0554133f505b203ddfc54e0c2f0573c4c58b00"
+      ],
+      "root": "0xa9bbdc69cad46448a35f3ede7ab692a130734ff4e604660121f57a05da6acb84",
+      "proofs": [
+        {
+          "index": 0,
+          "proof": [
+            {
+              "sibling": "0xce72f325a1d18cf8518e958dd16dee1e443e87f894c9699b86ee00b7d484623c",
+              "side": "right"
+            },
+            {
+              "sibling": "0x59d5f602131b2aa4bd20b1ead86d3fe2d963c18e822d78e195369cb636e31a33",
+              "side": "right"
+            },
+            {
+              "sibling": "0xc915a51cb2de9958c1263856df0554133f505b203ddfc54e0c2f0573c4c58b00",
+              "side": "right"
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "proof": [
+            {
+              "sibling": "0xc5bad269e75bba49ed24b2a00393f6710da51fe60e33630a7d86e2ebaceff1fd",
+              "side": "left"
+            },
+            {
+              "sibling": "0x59d5f602131b2aa4bd20b1ead86d3fe2d963c18e822d78e195369cb636e31a33",
+              "side": "right"
+            },
+            {
+              "sibling": "0xc915a51cb2de9958c1263856df0554133f505b203ddfc54e0c2f0573c4c58b00",
+              "side": "right"
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "proof": [
+            {
+              "sibling": "0xe801e3996047a837536caf20c6d5456fae0464a4ccad934ec86873cdf66fa145",
+              "side": "right"
+            },
+            {
+              "sibling": "0x4e487afb5a65eb9de5b0f41ec70048f23f4a0c3aa0c574d89253dcf34d831289",
+              "side": "left"
+            },
+            {
+              "sibling": "0xc915a51cb2de9958c1263856df0554133f505b203ddfc54e0c2f0573c4c58b00",
+              "side": "right"
+            }
+          ]
+        },
+        {
+          "index": 3,
+          "proof": [
+            {
+              "sibling": "0x179c74461699dd8b4e769b30cbd276db958ee096ef43f8487fadf4b7423f9048",
+              "side": "left"
+            },
+            {
+              "sibling": "0x4e487afb5a65eb9de5b0f41ec70048f23f4a0c3aa0c574d89253dcf34d831289",
+              "side": "left"
+            },
+            {
+              "sibling": "0xc915a51cb2de9958c1263856df0554133f505b203ddfc54e0c2f0573c4c58b00",
+              "side": "right"
+            }
+          ]
+        },
+        {
+          "index": 4,
+          "proof": [
+            {
+              "sibling": "0x75c42587e9a644590757e54aadc8152c2d1ffdeb5641f36a500c97239af0f267",
+              "side": "left"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "size": 7,
+      "leaves": [
+        "0xc5bad269e75bba49ed24b2a00393f6710da51fe60e33630a7d86e2ebaceff1fd",
+        "0xce72f325a1d18cf8518e958dd16dee1e443e87f894c9699b86ee00b7d484623c",
+        "0x179c74461699dd8b4e769b30cbd276db958ee096ef43f8487fadf4b7423f9048",
+        "0xe801e3996047a837536caf20c6d5456fae0464a4ccad934ec86873cdf66fa145",
+        "0xc915a51cb2de9958c1263856df0554133f505b203ddfc54e0c2f0573c4c58b00",
+        "0xdb3cf99d75011cc542d20ec270c743641cedbe66fc1601779445407bc6b75b54",
+        "0xf12745d23fd65aa891c9fe58e21d69d785798589e01ce4aca1187d01bf936c8c"
+      ],
+      "root": "0xef8f379f39ecf9bed6283b4de80c002c75bd44b63f613c558bd60312065d8e4b",
+      "proofs": [
+        {
+          "index": 0,
+          "proof": [
+            {
+              "sibling": "0xce72f325a1d18cf8518e958dd16dee1e443e87f894c9699b86ee00b7d484623c",
+              "side": "right"
+            },
+            {
+              "sibling": "0x59d5f602131b2aa4bd20b1ead86d3fe2d963c18e822d78e195369cb636e31a33",
+              "side": "right"
+            },
+            {
+              "sibling": "0xd7bccda425276629caa98a71467bc8119cc3c9794d6184c6047c86099da830b4",
+              "side": "right"
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "proof": [
+            {
+              "sibling": "0xc5bad269e75bba49ed24b2a00393f6710da51fe60e33630a7d86e2ebaceff1fd",
+              "side": "left"
+            },
+            {
+              "sibling": "0x59d5f602131b2aa4bd20b1ead86d3fe2d963c18e822d78e195369cb636e31a33",
+              "side": "right"
+            },
+            {
+              "sibling": "0xd7bccda425276629caa98a71467bc8119cc3c9794d6184c6047c86099da830b4",
+              "side": "right"
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "proof": [
+            {
+              "sibling": "0xe801e3996047a837536caf20c6d5456fae0464a4ccad934ec86873cdf66fa145",
+              "side": "right"
+            },
+            {
+              "sibling": "0x4e487afb5a65eb9de5b0f41ec70048f23f4a0c3aa0c574d89253dcf34d831289",
+              "side": "left"
+            },
+            {
+              "sibling": "0xd7bccda425276629caa98a71467bc8119cc3c9794d6184c6047c86099da830b4",
+              "side": "right"
+            }
+          ]
+        },
+        {
+          "index": 3,
+          "proof": [
+            {
+              "sibling": "0x179c74461699dd8b4e769b30cbd276db958ee096ef43f8487fadf4b7423f9048",
+              "side": "left"
+            },
+            {
+              "sibling": "0x4e487afb5a65eb9de5b0f41ec70048f23f4a0c3aa0c574d89253dcf34d831289",
+              "side": "left"
+            },
+            {
+              "sibling": "0xd7bccda425276629caa98a71467bc8119cc3c9794d6184c6047c86099da830b4",
+              "side": "right"
+            }
+          ]
+        },
+        {
+          "index": 4,
+          "proof": [
+            {
+              "sibling": "0xdb3cf99d75011cc542d20ec270c743641cedbe66fc1601779445407bc6b75b54",
+              "side": "right"
+            },
+            {
+              "sibling": "0xf12745d23fd65aa891c9fe58e21d69d785798589e01ce4aca1187d01bf936c8c",
+              "side": "right"
+            },
+            {
+              "sibling": "0x75c42587e9a644590757e54aadc8152c2d1ffdeb5641f36a500c97239af0f267",
+              "side": "left"
+            }
+          ]
+        },
+        {
+          "index": 5,
+          "proof": [
+            {
+              "sibling": "0xc915a51cb2de9958c1263856df0554133f505b203ddfc54e0c2f0573c4c58b00",
+              "side": "left"
+            },
+            {
+              "sibling": "0xf12745d23fd65aa891c9fe58e21d69d785798589e01ce4aca1187d01bf936c8c",
+              "side": "right"
+            },
+            {
+              "sibling": "0x75c42587e9a644590757e54aadc8152c2d1ffdeb5641f36a500c97239af0f267",
+              "side": "left"
+            }
+          ]
+        },
+        {
+          "index": 6,
+          "proof": [
+            {
+              "sibling": "0xd9f685cd8d1b71e7b6e34aa1113e9ab848a1b6124810074325e7b82401e62b42",
+              "side": "left"
+            },
+            {
+              "sibling": "0x75c42587e9a644590757e54aadc8152c2d1ffdeb5641f36a500c97239af0f267",
+              "side": "left"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "size": 8,
+      "leaves": [
+        "0xc5bad269e75bba49ed24b2a00393f6710da51fe60e33630a7d86e2ebaceff1fd",
+        "0xce72f325a1d18cf8518e958dd16dee1e443e87f894c9699b86ee00b7d484623c",
+        "0x179c74461699dd8b4e769b30cbd276db958ee096ef43f8487fadf4b7423f9048",
+        "0xe801e3996047a837536caf20c6d5456fae0464a4ccad934ec86873cdf66fa145",
+        "0xc915a51cb2de9958c1263856df0554133f505b203ddfc54e0c2f0573c4c58b00",
+        "0xdb3cf99d75011cc542d20ec270c743641cedbe66fc1601779445407bc6b75b54",
+        "0xf12745d23fd65aa891c9fe58e21d69d785798589e01ce4aca1187d01bf936c8c",
+        "0x882d1964e75ceca9a8d9c1d6ab1b9b421833ad618ac12c8d767c4ed7002a0645"
+      ],
+      "root": "0xd8ceaa4387176e8ab3d175677cd770df65296cb1e496a3432a0ce9d05d380394",
+      "proofs": [
+        {
+          "index": 0,
+          "proof": [
+            {
+              "sibling": "0xce72f325a1d18cf8518e958dd16dee1e443e87f894c9699b86ee00b7d484623c",
+              "side": "right"
+            },
+            {
+              "sibling": "0x59d5f602131b2aa4bd20b1ead86d3fe2d963c18e822d78e195369cb636e31a33",
+              "side": "right"
+            },
+            {
+              "sibling": "0x88c4319a2b01ff963458b7dc6f9db2623b67717de7ef9d69253c64181d8f1d46",
+              "side": "right"
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "proof": [
+            {
+              "sibling": "0xc5bad269e75bba49ed24b2a00393f6710da51fe60e33630a7d86e2ebaceff1fd",
+              "side": "left"
+            },
+            {
+              "sibling": "0x59d5f602131b2aa4bd20b1ead86d3fe2d963c18e822d78e195369cb636e31a33",
+              "side": "right"
+            },
+            {
+              "sibling": "0x88c4319a2b01ff963458b7dc6f9db2623b67717de7ef9d69253c64181d8f1d46",
+              "side": "right"
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "proof": [
+            {
+              "sibling": "0xe801e3996047a837536caf20c6d5456fae0464a4ccad934ec86873cdf66fa145",
+              "side": "right"
+            },
+            {
+              "sibling": "0x4e487afb5a65eb9de5b0f41ec70048f23f4a0c3aa0c574d89253dcf34d831289",
+              "side": "left"
+            },
+            {
+              "sibling": "0x88c4319a2b01ff963458b7dc6f9db2623b67717de7ef9d69253c64181d8f1d46",
+              "side": "right"
+            }
+          ]
+        },
+        {
+          "index": 3,
+          "proof": [
+            {
+              "sibling": "0x179c74461699dd8b4e769b30cbd276db958ee096ef43f8487fadf4b7423f9048",
+              "side": "left"
+            },
+            {
+              "sibling": "0x4e487afb5a65eb9de5b0f41ec70048f23f4a0c3aa0c574d89253dcf34d831289",
+              "side": "left"
+            },
+            {
+              "sibling": "0x88c4319a2b01ff963458b7dc6f9db2623b67717de7ef9d69253c64181d8f1d46",
+              "side": "right"
+            }
+          ]
+        },
+        {
+          "index": 4,
+          "proof": [
+            {
+              "sibling": "0xdb3cf99d75011cc542d20ec270c743641cedbe66fc1601779445407bc6b75b54",
+              "side": "right"
+            },
+            {
+              "sibling": "0x296b4b4864369db4928b67376ce5cec95843ad72d25a0c2af0a1f6e5994abac5",
+              "side": "right"
+            },
+            {
+              "sibling": "0x75c42587e9a644590757e54aadc8152c2d1ffdeb5641f36a500c97239af0f267",
+              "side": "left"
+            }
+          ]
+        },
+        {
+          "index": 5,
+          "proof": [
+            {
+              "sibling": "0xc915a51cb2de9958c1263856df0554133f505b203ddfc54e0c2f0573c4c58b00",
+              "side": "left"
+            },
+            {
+              "sibling": "0x296b4b4864369db4928b67376ce5cec95843ad72d25a0c2af0a1f6e5994abac5",
+              "side": "right"
+            },
+            {
+              "sibling": "0x75c42587e9a644590757e54aadc8152c2d1ffdeb5641f36a500c97239af0f267",
+              "side": "left"
+            }
+          ]
+        },
+        {
+          "index": 6,
+          "proof": [
+            {
+              "sibling": "0x882d1964e75ceca9a8d9c1d6ab1b9b421833ad618ac12c8d767c4ed7002a0645",
+              "side": "right"
+            },
+            {
+              "sibling": "0xd9f685cd8d1b71e7b6e34aa1113e9ab848a1b6124810074325e7b82401e62b42",
+              "side": "left"
+            },
+            {
+              "sibling": "0x75c42587e9a644590757e54aadc8152c2d1ffdeb5641f36a500c97239af0f267",
+              "side": "left"
+            }
+          ]
+        },
+        {
+          "index": 7,
+          "proof": [
+            {
+              "sibling": "0xf12745d23fd65aa891c9fe58e21d69d785798589e01ce4aca1187d01bf936c8c",
+              "side": "left"
+            },
+            {
+              "sibling": "0xd9f685cd8d1b71e7b6e34aa1113e9ab848a1b6124810074325e7b82401e62b42",
+              "side": "left"
+            },
+            {
+              "sibling": "0x75c42587e9a644590757e54aadc8152c2d1ffdeb5641f36a500c97239af0f267",
+              "side": "left"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "must_fail": [
+    {
+      "name": "payload amount edited",
+      "leaf": "0x68781321010201904fb1efb61ea340d0ac4e63a08565fa2b5fc1284c28d63979",
+      "payload": "{\"account_code\":\"ESCROW_HELD\",\"amount\":\"5000.00\",\"at\":\"2026-10-31T09:01:30Z\",\"currency\":\"KES\",\"description\":\"Simulated custody funding (payment callback)\",\"entry_group_id\":\"44444444-5555-4666-8777-888888888888\",\"escrow_id\":\"0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a\",\"idempotency_key\":\"callback-funding:5b0e6c1e-1f6a-4b8e-9c2d-3f4a5b6c7d8e\",\"ledger_entry_id\":\"33333333-4444-4555-8666-777777777777\",\"side\":\"debit\",\"transaction_id\":\"5b0e6c1e-1f6a-4b8e-9c2d-3f4a5b6c7d8e\",\"type\":\"ledger_entry\",\"v\":1}",
+      "index": 2,
+      "size": 5,
+      "proof": [
+        {
+          "sibling": "0xe801e3996047a837536caf20c6d5456fae0464a4ccad934ec86873cdf66fa145",
+          "side": "right"
+        },
+        {
+          "sibling": "0x4e487afb5a65eb9de5b0f41ec70048f23f4a0c3aa0c574d89253dcf34d831289",
+          "side": "left"
+        },
+        {
+          "sibling": "0xc915a51cb2de9958c1263856df0554133f505b203ddfc54e0c2f0573c4c58b00",
+          "side": "right"
+        }
+      ],
+      "root": "0xa9bbdc69cad46448a35f3ede7ab692a130734ff4e604660121f57a05da6acb84"
+    },
+    {
+      "name": "proof side flipped",
+      "leaf": "0x179c74461699dd8b4e769b30cbd276db958ee096ef43f8487fadf4b7423f9048",
+      "index": 2,
+      "size": 5,
+      "proof": [
+        {
+          "sibling": "0xe801e3996047a837536caf20c6d5456fae0464a4ccad934ec86873cdf66fa145",
+          "side": "left"
+        },
+        {
+          "sibling": "0x4e487afb5a65eb9de5b0f41ec70048f23f4a0c3aa0c574d89253dcf34d831289",
+          "side": "left"
+        },
+        {
+          "sibling": "0xc915a51cb2de9958c1263856df0554133f505b203ddfc54e0c2f0573c4c58b00",
+          "side": "right"
+        }
+      ],
+      "root": "0xa9bbdc69cad46448a35f3ede7ab692a130734ff4e604660121f57a05da6acb84"
+    },
+    {
+      "name": "valid proof claimed for another index",
+      "leaf": "0x179c74461699dd8b4e769b30cbd276db958ee096ef43f8487fadf4b7423f9048",
+      "index": 3,
+      "size": 5,
+      "proof": [
+        {
+          "sibling": "0xe801e3996047a837536caf20c6d5456fae0464a4ccad934ec86873cdf66fa145",
+          "side": "right"
+        },
+        {
+          "sibling": "0x4e487afb5a65eb9de5b0f41ec70048f23f4a0c3aa0c574d89253dcf34d831289",
+          "side": "left"
+        },
+        {
+          "sibling": "0xc915a51cb2de9958c1263856df0554133f505b203ddfc54e0c2f0573c4c58b00",
+          "side": "right"
+        }
+      ],
+      "root": "0xa9bbdc69cad46448a35f3ede7ab692a130734ff4e604660121f57a05da6acb84"
+    },
+    {
+      "name": "duplicated last leaf (CVE-2012-2459 shape) gives a different root",
+      "leaf": "0x179c74461699dd8b4e769b30cbd276db958ee096ef43f8487fadf4b7423f9048",
+      "index": 2,
+      "size": 4,
+      "proof": [
+        {
+          "sibling": "0x179c74461699dd8b4e769b30cbd276db958ee096ef43f8487fadf4b7423f9048",
+          "side": "right"
+        },
+        {
+          "sibling": "0x4e487afb5a65eb9de5b0f41ec70048f23f4a0c3aa0c574d89253dcf34d831289",
+          "side": "left"
+        }
+      ],
+      "root": "0x5c435cf92b3ebd24a78aa0b8f9a6320e728f35ea506eafddb7238547c634c48d"
+    }
+  ]
+}

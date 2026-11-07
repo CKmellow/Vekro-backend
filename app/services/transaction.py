@@ -1663,6 +1663,16 @@ def report_functional_issue(
             reason="other_category",
             reason_text_keccak=None,
         )
+        # The transaction follows the dispute to support (#227): otherwise no admin can resolve
+        # it and the buyer-sent-back timeout releases the money to the seller.
+        transition_transaction(
+            db,
+            transaction,
+            TransactionStatus.ESCALATED_ADMIN_REVIEW,
+            actor_type=ACTOR_SYSTEM,
+            reason="other_category",
+            at=now,
+        )
     _create_dispute_opened_notifications(
         db,
         transaction=transaction,
@@ -1676,8 +1686,9 @@ def report_functional_issue(
 
     audit_logger.info(
         "transaction_transition transaction_id=%s from_status=hold_24h "
-        "to_status=disputed_functional buyer_id=%s category=%s route=%s",
+        "to_status=%s buyer_id=%s category=%s route=%s",
         transaction.id,
+        transaction.status.value,
         buyer.id,
         normalized_category,
         route,

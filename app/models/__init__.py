@@ -1,3 +1,4 @@
+from app.models.anchor_batch import AnchorBatch, AnchorBatchStatus
 from app.models.anchor_event import AnchorEvent
 from app.models.collection_attempt import AttemptOutcome, CollectionAttempt
 from app.models.dispute import (
@@ -28,6 +29,8 @@ from app.models.user import User, UserRole
 from app.models.user_session import UserSession
 
 __all__ = [
+    "AnchorBatch",
+    "AnchorBatchStatus",
     "AnchorEvent",
     "User",
     "UserRole",

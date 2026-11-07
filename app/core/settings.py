@@ -2,7 +2,7 @@ from decimal import Decimal
 from functools import lru_cache
 from typing import Any, Literal
 
-from pydantic import ValidationError, field_validator, model_validator
+from pydantic import SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SUPPORTED_CUSTODY_RAILS = frozenset({"simulated", "loop", "pesapal", "intasend", "econfirm"})
@@ -147,6 +147,22 @@ class Settings(BaseSettings):
     # Raise (instead of logging and recording a fallback) when a status change or a ledger or
     # audit row has no anchor event. On for the test suite (tests/conftest.py).
     anchor_strict_events: bool = False
+    # M21 A5: the batcher and submitter (python -m app.jobs.anchoring). With anchoring disabled,
+    # events are still recorded and nothing is sent to a chain.
+    anchor_enabled: bool = False
+    anchor_rpc_url: str = ""
+    # 31337 Anvil, 84532 Base Sepolia, 8453 Base.
+    anchor_chain_id: int = 31337
+    anchor_registry_address: str = ""
+    # The anchorer's key (0x + 64 hex). Never logged; only its address is ever shown.
+    anchor_private_key: SecretStr = SecretStr("")
+    anchor_max_batch_size: int = 1000
+    anchor_min_confirmations: int = 2
+    anchor_poll_interval_seconds: float = 30.0
+    anchor_fee_bump_after_seconds: int = 120
+    anchor_max_fee_per_gas_gwei: Decimal = Decimal("5")
+    anchor_retry_backoff_seconds: int = 60
+    anchor_rpc_timeout_seconds: float = 10.0
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -313,14 +329,19 @@ class Settings(BaseSettings):
                     "when ECONFIRM_ENABLED=true"
                 )
 
-        if environment == "production":
+        if environment == "production" or self.anchor_enabled:
             from app.services.anchoring.admin_ref import is_valid_secret_config
 
             if not is_valid_secret_config(self.anchor_admin_ref_secret):
                 violations.append(
                     "ANCHOR_ADMIN_REF_SECRET must hold at least one key of 32+ characters "
-                    "in production"
+                    "in production and whenever ANCHOR_ENABLED=true"
                 )
+
+        if self.anchor_enabled:
+            from app.services.anchoring.chain_config import anchor_config_violations
+
+            violations.extend(anchor_config_violations(self, environment=environment))
 
         if self.allow_live_payouts and environment != "production":
             violations.append("ALLOW_LIVE_PAYOUTS=true requires ENVIRONMENT=production")

@@ -2719,6 +2719,106 @@
         }
       }
     },
+    "/transactions/{transaction_id}/verification": {
+      "get": {
+        "tags": [
+          "Verification"
+        ],
+        "summary": "Verification data for an order (buyer, seller or admin)",
+        "description": "Everything needed to check the order's tamper-evident record independently: each event's canonical payload, salt, hashes and Merkle proof in chain order, and the live status and amount. Data only: the verdict is the verifier's, after reading each batch root from the AnchorRegistry. See docs/frontend-verification-contract.md.",
+        "operationId": "get_transaction_verification_transactions__transaction_id__verification_get",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionVerificationResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "404": {
+            "description": "Transaction not found, or the caller is not a party to it."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/anchoring/batches/{batch_id}": {
+      "get": {
+        "tags": [
+          "Verification"
+        ],
+        "summary": "An anchored batch (public)",
+        "description": "A batch's root, sequence range, status and anchoring transaction. No personal data. Rate-limited per client.",
+        "operationId": "get_public_batch_anchoring_batches__batch_id__get",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicBatchResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such batch."
+          },
+          "429": {
+            "description": "Too many lookups. See Retry-After."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/simulated-custody/collections/force-complete": {
       "post": {
         "tags": [
@@ -5829,6 +5929,77 @@
         "title": "EscalationQueueItemResponse",
         "description": "Admin queue item for escalated disputes awaiting review."
       },
+      "EventAnchorResponse": {
+        "properties": {
+          "batch_id": {
+            "type": "integer",
+            "title": "Batch Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq",
+            "description": "Gapless global position of the event."
+          },
+          "leaf_index": {
+            "type": "integer",
+            "title": "Leaf Index"
+          },
+          "leaf_count": {
+            "type": "integer",
+            "title": "Leaf Count"
+          },
+          "batch_root": {
+            "type": "string",
+            "title": "Batch Root",
+            "description": "Vekro's copy of the batch root. A verifier reads the root from the registry."
+          },
+          "batch_status": {
+            "type": "string",
+            "title": "Batch Status"
+          },
+          "tx_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tx Hash"
+          },
+          "block_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Block Number"
+          },
+          "proof": {
+            "items": {
+              "$ref": "#/components/schemas/ProofStepResponse"
+            },
+            "type": "array",
+            "title": "Proof",
+            "description": "RFC 6962 inclusion proof, leaf upwards."
+          }
+        },
+        "type": "object",
+        "required": [
+          "batch_id",
+          "seq",
+          "leaf_index",
+          "leaf_count",
+          "batch_root",
+          "batch_status",
+          "proof"
+        ],
+        "title": "EventAnchorResponse"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -7218,6 +7389,128 @@
         "title": "PhoneCodeVerifyRequest",
         "description": "Verify the SMS code and open a buyer session."
       },
+      "ProofStepResponse": {
+        "properties": {
+          "sibling": {
+            "type": "string",
+            "title": "Sibling",
+            "description": "0x-prefixed 32-byte sibling hash."
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right"
+            ],
+            "title": "Side",
+            "description": "Where the sibling sits."
+          }
+        },
+        "type": "object",
+        "required": [
+          "sibling",
+          "side"
+        ],
+        "title": "ProofStepResponse"
+      },
+      "PublicBatchResponse": {
+        "properties": {
+          "batch_id": {
+            "type": "integer",
+            "title": "Batch Id"
+          },
+          "root": {
+            "type": "string",
+            "title": "Root"
+          },
+          "prev_root": {
+            "type": "string",
+            "title": "Prev Root"
+          },
+          "first_seq": {
+            "type": "integer",
+            "title": "First Seq"
+          },
+          "last_seq": {
+            "type": "integer",
+            "title": "Last Seq"
+          },
+          "leaf_count": {
+            "type": "integer",
+            "title": "Leaf Count"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "tx_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tx Hash"
+          },
+          "block_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Block Number"
+          },
+          "confirmed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed At"
+          },
+          "chain_id": {
+            "type": "integer",
+            "title": "Chain Id"
+          },
+          "network": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Network"
+          },
+          "registry_address": {
+            "type": "string",
+            "title": "Registry Address"
+          }
+        },
+        "type": "object",
+        "required": [
+          "batch_id",
+          "root",
+          "prev_root",
+          "first_seq",
+          "last_seq",
+          "leaf_count",
+          "status",
+          "chain_id",
+          "registry_address"
+        ],
+        "title": "PublicBatchResponse"
+      },
       "PublicOrderSummary": {
         "properties": {
           "reference": {
@@ -8581,6 +8874,61 @@
         "title": "TransactionSummaryResponse",
         "description": "One row of the caller's order list."
       },
+      "TransactionVerificationResponse": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "transaction_id": {
+            "type": "string",
+            "title": "Transaction Id"
+          },
+          "reference": {
+            "type": "string",
+            "title": "Reference"
+          },
+          "chain": {
+            "$ref": "#/components/schemas/VerificationChainResponse"
+          },
+          "current": {
+            "$ref": "#/components/schemas/VerificationCurrentResponse"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/VerificationEventResponse"
+            },
+            "type": "array",
+            "title": "Events",
+            "description": "The order's chain, oldest first."
+          },
+          "linked_events": {
+            "items": {
+              "$ref": "#/components/schemas/VerificationEventResponse"
+            },
+            "type": "array",
+            "title": "Linked Events",
+            "description": "Provider events from the global chain that this order's chain links to."
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Server Time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "transaction_id",
+          "reference",
+          "chain",
+          "current",
+          "events",
+          "linked_events",
+          "server_time"
+        ],
+        "title": "TransactionVerificationResponse"
+      },
       "UnreadCountResponse": {
         "properties": {
           "unread_count": {
@@ -8750,6 +9098,119 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VerificationChainResponse": {
+        "properties": {
+          "chain_id": {
+            "type": "integer",
+            "title": "Chain Id"
+          },
+          "network": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Network"
+          },
+          "registry_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registry Address",
+            "description": "Informational. Verifiers use the registry address they were built with."
+          }
+        },
+        "type": "object",
+        "required": [
+          "chain_id"
+        ],
+        "title": "VerificationChainResponse"
+      },
+      "VerificationCurrentResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Live transaction status, to compare with the last event."
+          },
+          "amount": {
+            "type": "string",
+            "title": "Amount",
+            "description": "Live amount as a 2-place decimal string."
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "amount"
+        ],
+        "title": "VerificationCurrentResponse"
+      },
+      "VerificationEventResponse": {
+        "properties": {
+          "event_type": {
+            "type": "string",
+            "title": "Event Type"
+          },
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          },
+          "payload": {
+            "type": "string",
+            "title": "Payload",
+            "description": "Canonical JSON (RFC 8785), exactly as hashed."
+          },
+          "salt": {
+            "type": "string",
+            "title": "Salt"
+          },
+          "prev_event_hash": {
+            "type": "string",
+            "title": "Prev Event Hash"
+          },
+          "leaf_hash": {
+            "type": "string",
+            "title": "Leaf Hash",
+            "description": "keccak256(0x00 || salt || prev_event_hash || payload)."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "anchor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventAnchorResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null while the event waits for a batch."
+          }
+        },
+        "type": "object",
+        "required": [
+          "event_type",
+          "schema_version",
+          "payload",
+          "salt",
+          "prev_event_hash",
+          "leaf_hash",
+          "created_at"
+        ],
+        "title": "VerificationEventResponse"
       }
     }
   }

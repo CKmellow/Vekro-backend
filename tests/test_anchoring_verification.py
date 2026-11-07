@@ -3,6 +3,7 @@ the tamper demo. Every verdict is covered, including the case only the full audi
 
 import json
 from collections.abc import Iterator
+from types import SimpleNamespace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -322,16 +323,12 @@ def test_the_tamper_demo_refuses_without_the_flag_and_in_production(anchored, mo
     args = ["change-status", "--reference", transaction.reference]
     assert demo_tamper.main(args, session=lambda: db) == 2
 
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    monkeypatch.setenv("ANCHOR_ADMIN_REF_SECRET", "z" * 40)
-    monkeypatch.setenv("PAYMENT_CALLBACK_SECRET", "callback-secret-value")
-    monkeypatch.setenv("SESSION_COOKIE_SECURE", "true")
-    monkeypatch.setenv("CSRF_COOKIE_SECURE", "true")
-    get_settings.cache_clear()
-    try:
-        assert demo_tamper.main([*args, demo_tamper.CONFIRM_FLAG], session=lambda: db) == 2
-    finally:
-        get_settings.cache_clear()
+    import app.core.settings as settings_module
+
+    monkeypatch.setattr(
+        settings_module, "get_settings", lambda: SimpleNamespace(environment="production")
+    )
+    assert demo_tamper.main([*args, demo_tamper.CONFIRM_FLAG], session=lambda: db) == 2
     db.expire_all()
     status = db.execute(
         select(Transaction.status).where(Transaction.id == transaction.id)

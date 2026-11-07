@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -15,6 +17,13 @@ from app.models.notification import Notification, NotificationEventType
 from app.models.payout_attempt import PayoutAttempt
 from app.models.transaction import Transaction, TransactionPayoutStatus, TransactionStatus
 from app.models.user import User, UserRole
+from app.services.anchoring.chain import build_registry_client
+from app.services.anchoring.payout_gate import HALTED as PAYOUT_GATE_HALTED
+from app.services.anchoring.payout_gate import (
+    GateDecision,
+    check_payout_gate,
+    destination_ref,
+)
 from app.services.audit import ACTOR_SYSTEM, record_money_audit_event
 from app.services.custody.dto import PayoutRequest, PayoutResult
 from app.services.custody.enums import PayoutOutcome
@@ -25,6 +34,8 @@ from app.services.custody.rail_breaker import (
 )
 from app.services.custody.registry import CustodyRegistry, build_custody_registry
 from app.services.ledger import ESCROW_HELD_ACCOUNT, EscrowLedger, LedgerMovement
+
+logger = logging.getLogger("app.escrow.payouts")
 
 
 class EscrowServiceError(Exception):
@@ -314,7 +325,12 @@ class EscrowService:
             rail_name=rail_name,
             amount=payout_amount,
             currency=escrow.currency,
-            details={"purpose": normalized_purpose},
+            details={
+                "purpose": normalized_purpose,
+                # Binds the destination into the anchored authorisation (#230) without exposing
+                # the phone to the parties who can read this payload.
+                "destination_ref": destination_ref(destination_phone),
+            },
         )
 
         transaction.payout_status = TransactionPayoutStatus.PENDING
@@ -448,12 +464,15 @@ def run_payout_executor_once(
     *,
     batch_size: int = 25,
     now: datetime | None = None,
+    anchor_root_of: Callable[[int], bytes] | None = None,
 ) -> PayoutExecutorRunResult:
     service = EscrowService(db)
     if not service.outbox_ready() or batch_size <= 0:
         return PayoutExecutorRunResult(0, 0, 0, 0, 0)
 
     current_time = now or datetime.now(UTC)
+    settings = get_settings()
+    gate_root_of = anchor_root_of
     claimed = list(
         db.execute(
             select(PayoutAttempt)
@@ -505,6 +524,21 @@ def run_payout_executor_once(
                 transaction=transaction,
                 payout_kind=payout_kind,
             )
+
+        if settings.anchor_gate_payouts and not attempt.provider_reference:
+            if gate_root_of is None:
+                gate_root_of = build_registry_client(settings, with_key=False).root_of
+            decision = check_payout_gate(
+                db,
+                attempt,
+                transaction_id=str(transaction.id),
+                destination_phone=destination_phone,
+                root_of=gate_root_of,
+            )
+            if not decision.allowed:
+                _hold_for_anchor(db, attempt, transaction, decision, kind=payout_kind)
+                unknown += 1
+                continue
 
         try:
             rail = service.registry.get_payout_rail(attempt.rail_name)
@@ -804,6 +838,40 @@ def run_payout_reconciliation(
         unknown_alerts=unknown_alerts,
         mismatch_alerts=mismatch_alerts,
     )
+
+
+def _hold_for_anchor(
+    db: Session,
+    attempt: PayoutAttempt,
+    transaction: Transaction,
+    decision: GateDecision,
+    *,
+    kind: str,
+) -> None:
+    """Keep the attempt queued without calling the rail (#230). A halt is audited once."""
+    newly_halted = decision.code == PAYOUT_GATE_HALTED and attempt.failure_code != decision.code
+    attempt.failure_code = decision.code
+    attempt.failure_reason = (decision.detail or "")[:255]
+    db.add(attempt)
+    if newly_halted:
+        record_money_audit_event(
+            db,
+            action=f"payout_{kind}_halted_anchor_mismatch",
+            actor_type=ACTOR_SYSTEM,
+            reason=attempt.failure_reason,
+            transaction_id=transaction.id,
+            escrow_id=attempt.escrow_id,
+            attempt_id=attempt.id,
+            rail_name=attempt.rail_name,
+            amount=attempt.amount,
+            currency=attempt.currency,
+        )
+        logger.critical(
+            "payout_halted_anchor_mismatch attempt_id=%s transaction_id=%s reason=%s",
+            attempt.id,
+            transaction.id,
+            attempt.failure_reason,
+        )
 
 
 def _audit_payout_attempt(

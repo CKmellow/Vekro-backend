@@ -163,6 +163,9 @@ class Settings(BaseSettings):
     anchor_max_fee_per_gas_gwei: Decimal = Decimal("5")
     anchor_retry_backoff_seconds: int = 60
     anchor_rpc_timeout_seconds: float = 10.0
+    # M21 A8: no payout reaches a rail until its queued authorisation is anchored and its proof
+    # matches the registry root (app/services/anchoring/payout_gate.py). Needs ANCHOR_ENABLED.
+    anchor_gate_payouts: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -342,6 +345,14 @@ class Settings(BaseSettings):
             from app.services.anchoring.chain_config import anchor_config_violations
 
             violations.extend(anchor_config_violations(self, environment=environment))
+            if environment == "production" and not self.anchor_gate_payouts:
+                violations.append(
+                    "ANCHOR_GATE_PAYOUTS=true is required with ANCHOR_ENABLED=true in production"
+                )
+        elif self.anchor_gate_payouts:
+            violations.append(
+                "ANCHOR_GATE_PAYOUTS=true needs ANCHOR_ENABLED=true (payouts would wait forever)"
+            )
 
         if self.allow_live_payouts and environment != "production":
             violations.append("ALLOW_LIVE_PAYOUTS=true requires ENVIRONMENT=production")

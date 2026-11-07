@@ -10,6 +10,9 @@ repair-funding-ledger: list funded escrows whose funding is missing from the led
 --apply, post the missing movement. Lists only by default.
 
 anchor-backfill: create anchor events for history written before M21, once (docs/anchoring.md).
+
+anchor-sales-backfill: record track-record events for completed sales from before M21 A9.
+Idempotent.
 """
 
 from __future__ import annotations
@@ -110,6 +113,15 @@ def anchor_backfill(*, resume: bool) -> int:
     return 0
 
 
+def anchor_sales_backfill() -> int:
+    from app.services.anchoring.track_record import backfill_seller_sales
+
+    with _session() as db:
+        recorded = backfill_seller_sales(db)
+    print(f"Recorded {recorded} completed sale(s) for the sellers' track records.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -128,6 +140,9 @@ def main(argv: list[str] | None = None) -> int:
         "anchor-backfill", help="Create anchor events for history written before M21."
     )
     backfill.add_argument("--resume", action="store_true")
+    commands.add_parser(
+        "anchor-sales-backfill", help="Record completed sales for the sellers' track records."
+    )
     args = parser.parse_args(argv)
 
     if args.command == "repair-return-cases":
@@ -136,6 +151,8 @@ def main(argv: list[str] | None = None) -> int:
         return repair_funding_ledger(apply=args.apply)
     if args.command == "anchor-backfill":
         return anchor_backfill(resume=args.resume)
+    if args.command == "anchor-sales-backfill":
+        return anchor_sales_backfill()
 
     password = os.environ.get(PASSWORD_ENV, "")
     if not password:

@@ -49,6 +49,8 @@ GLOBAL_CHAIN_LOCK_KEY = 0x76656B726F2D616E
 LEDGER_TABLE = LedgerEntry.__tablename__
 AUDIT_TABLE = MoneyAuditEvent.__tablename__
 TRANSACTIONS_TABLE = Transaction.__tablename__
+# Source key of seller_sale_completed events: one per transaction, at most (A9).
+SELLER_SALES_SOURCE = "seller_sales"
 
 
 class AnchorCompletenessError(RuntimeError):
@@ -147,6 +149,35 @@ def record_transaction_created(db: Session, transaction: Transaction) -> AnchorE
         source_id=str(transaction.id),
     )
     return anchor
+
+
+def record_seller_sale(
+    db: Session, transaction: Transaction, *, outcome: str, at: datetime, backfilled: bool = False
+) -> AnchorEvent | None:
+    """A completed sale in the global chain (A9), recorded once per transaction."""
+    if not anchoring_ready(db):
+        return None
+    key = (SELLER_SALES_SOURCE, str(transaction.id))
+    if key in db.info.get(_SOURCES_KEY, set()):
+        return None
+    with db.no_autoflush:
+        exists = db.execute(
+            select(AnchorEvent.id).where(
+                AnchorEvent.source_table == key[0], AnchorEvent.source_id == key[1]
+            )
+        ).first()
+    if exists is not None:
+        return None
+    return record_anchor_event(
+        db,
+        event_type=payloads.SELLER_SALE_COMPLETED,
+        transaction_id=None,
+        payload=payloads.seller_sale_payload(
+            transaction, outcome=outcome, at=at, backfilled=backfilled
+        ),
+        source_table=key[0],
+        source_id=key[1],
+    )
 
 
 def note_status(db: Any, transaction_id: uuid.UUID, status_value: str) -> None:

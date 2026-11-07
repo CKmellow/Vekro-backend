@@ -120,3 +120,18 @@ class PublicBatchResponse(BaseModel):
     chain_id: int
     network: str | None = None
     registry_address: str
+
+
+class SellerTrackRecordResponse(BaseModel):
+    seller_id: str
+    chain: VerificationChainResponse
+    completed_sales: int = Field(description="Completed sales in Vekro's records (unverified).")
+    recorded_sales: int = Field(description="Of those, how many have a track-record event.")
+    sales: list[VerificationEventResponse] = Field(
+        description=(
+            "Newest first, at most 200: each sale's public payload (seller, outcome, amount band, "
+            "unlinkable sale_ref) with its proof. Count as verified only the sales whose proof "
+            "matches the registry root and whose payload names this seller."
+        )
+    )
+    server_time: datetime

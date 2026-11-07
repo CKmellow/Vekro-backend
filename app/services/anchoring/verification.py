@@ -47,7 +47,7 @@ def build_transaction_verification(
         if event.event_type == payloads.GLOBAL_EVENT_LINKED
     ]
     linked = _global_events_by_leaf(db, linked_hashes)
-    trees = _BatchTrees(db)
+    trees = BatchTrees(db)
     return {
         "version": BUNDLE_VERSION,
         "transaction_id": str(transaction.id),
@@ -61,8 +61,8 @@ def build_transaction_verification(
             "status": transaction.status.value,
             "amount": payloads.money(transaction.amount),
         },
-        "events": [_event(event, trees) for event in events],
-        "linked_events": [_event(event, trees) for event in linked],
+        "events": [event_view(event, trees) for event in events],
+        "linked_events": [event_view(event, trees) for event in linked],
         "server_time": datetime.now(UTC),
     }
 
@@ -79,7 +79,7 @@ def _global_events_by_leaf(db: Session, leaf_hashes: list[str]) -> list[AnchorEv
     return list(rows)
 
 
-def _event(event: AnchorEvent, trees: _BatchTrees) -> dict[str, Any]:
+def event_view(event: AnchorEvent, trees: BatchTrees) -> dict[str, Any]:
     return {
         "event_type": event.event_type,
         "schema_version": event.schema_version,
@@ -92,7 +92,7 @@ def _event(event: AnchorEvent, trees: _BatchTrees) -> dict[str, Any]:
     }
 
 
-class _BatchTrees:
+class BatchTrees:
     """Builds each batch's Merkle tree once per request."""
 
     def __init__(self, db: Session) -> None:

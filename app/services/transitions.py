@@ -17,7 +17,11 @@ from sqlalchemy.orm import Session
 from app.models.dispute import Dispute
 from app.models.transaction import Transaction, TransactionStatus
 from app.services.anchoring import payloads
-from app.services.anchoring.recorder import note_status, record_anchor_event
+from app.services.anchoring.recorder import note_status, record_anchor_event, record_seller_sale
+
+# A completed sale for the seller's public track record (A9); the same set the public seller
+# summary counts as completed sales.
+SALE_STATUSES = frozenset({TransactionStatus.RELEASED, TransactionStatus.RESOLVED_RELEASE})
 
 
 def transition_transaction(
@@ -33,6 +37,7 @@ def transition_transaction(
 ) -> None:
     previous = transaction.status
     transaction.status = to
+    when = at or datetime.now(UTC)
     record_transition(
         db,
         transaction.id,
@@ -41,9 +46,11 @@ def transition_transaction(
         actor_type=actor_type,
         actor_id=actor_id,
         reason=reason,
-        at=at,
+        at=when,
         door_rejection_reason=door_rejection_reason,
     )
+    if to in SALE_STATUSES:
+        record_seller_sale(db, transaction, outcome=to.value, at=when)
 
 
 def record_transition(

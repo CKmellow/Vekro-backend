@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -34,3 +35,78 @@ class AnchoringStatusResponse(BaseModel):
     unanchored_events: int = Field(description="Recorded events not yet in a batch.")
     oldest_unanchored_at: datetime | None = None
     server_time: datetime
+
+
+class ProofStepResponse(BaseModel):
+    sibling: str = Field(description="0x-prefixed 32-byte sibling hash.")
+    side: Literal["left", "right"] = Field(description="Where the sibling sits.")
+
+
+class EventAnchorResponse(BaseModel):
+    batch_id: int
+    seq: int = Field(description="Gapless global position of the event.")
+    leaf_index: int
+    leaf_count: int
+    batch_root: str = Field(
+        description="Vekro's copy of the batch root. A verifier reads the root from the registry."
+    )
+    batch_status: str
+    tx_hash: str | None = None
+    block_number: int | None = None
+    proof: list[ProofStepResponse] = Field(description="RFC 6962 inclusion proof, leaf upwards.")
+
+
+class VerificationEventResponse(BaseModel):
+    event_type: str
+    schema_version: int
+    payload: str = Field(description="Canonical JSON (RFC 8785), exactly as hashed.")
+    salt: str
+    prev_event_hash: str
+    leaf_hash: str = Field(description="keccak256(0x00 || salt || prev_event_hash || payload).")
+    created_at: datetime
+    anchor: EventAnchorResponse | None = Field(
+        default=None, description="Null while the event waits for a batch."
+    )
+
+
+class VerificationChainResponse(BaseModel):
+    chain_id: int
+    network: str | None = None
+    registry_address: str | None = Field(
+        default=None,
+        description="Informational. Verifiers use the registry address they were built with.",
+    )
+
+
+class VerificationCurrentResponse(BaseModel):
+    status: str = Field(description="Live transaction status, to compare with the last event.")
+    amount: str = Field(description="Live amount as a 2-place decimal string.")
+
+
+class TransactionVerificationResponse(BaseModel):
+    version: int
+    transaction_id: str
+    reference: str
+    chain: VerificationChainResponse
+    current: VerificationCurrentResponse
+    events: list[VerificationEventResponse] = Field(description="The order's chain, oldest first.")
+    linked_events: list[VerificationEventResponse] = Field(
+        description="Provider events from the global chain that this order's chain links to."
+    )
+    server_time: datetime
+
+
+class PublicBatchResponse(BaseModel):
+    batch_id: int
+    root: str
+    prev_root: str
+    first_seq: int
+    last_seq: int
+    leaf_count: int
+    status: str
+    tx_hash: str | None = None
+    block_number: int | None = None
+    confirmed_at: datetime | None = None
+    chain_id: int
+    network: str | None = None
+    registry_address: str

@@ -29,6 +29,7 @@ from app.routers.seller_analytics import router as seller_analytics_router
 from app.routers.seller_profile import router as seller_profile_router
 from app.routers.simulated_custody_admin import router as simulated_custody_admin_router
 from app.routers.transactions import router as transactions_router
+from app.routers.verification import router as verification_router
 from app.services.auth import is_valid_csrf_for_session, resolve_active_session
 from app.services.custody.registry import build_custody_registry
 
@@ -205,6 +206,7 @@ app.include_router(admin_search_router)
 app.include_router(rail_health_admin_router)
 app.include_router(money_audit_admin_router)
 app.include_router(anchoring_admin_router)
+app.include_router(verification_router)
 app.include_router(simulated_custody_admin_router)
 app.include_router(loop_webhooks_router)
 app.include_router(pesapal_webhooks_router)

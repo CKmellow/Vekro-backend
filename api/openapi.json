@@ -2691,6 +2691,34 @@
         }
       }
     },
+    "/admin/anchoring/status": {
+      "get": {
+        "tags": [
+          "Admin Anchoring"
+        ],
+        "summary": "Anchoring worker status (admin only)",
+        "description": "Whether anchoring is enabled, the chain and registry, the last confirmed batch, the batch in flight, how many recorded events still wait for a batch, and whether anchoring has halted because the chain disagreed with the database. Never shows the anchoring key.",
+        "operationId": "admin_anchoring_status_admin_anchoring_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnchoringStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not an admin."
+          }
+        }
+      }
+    },
     "/admin/simulated-custody/collections/force-complete": {
       "post": {
         "tags": [
@@ -4876,6 +4904,229 @@
           "average_dispatch_seconds"
         ],
         "title": "AnalyticsKpis"
+      },
+      "AnchorBatchSummary": {
+        "properties": {
+          "batch_id": {
+            "type": "integer",
+            "title": "Batch Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "built, submitted, confirmed, failed_retryable or halted."
+          },
+          "root": {
+            "type": "string",
+            "title": "Root",
+            "description": "0x-prefixed keccak Merkle root."
+          },
+          "first_seq": {
+            "type": "integer",
+            "title": "First Seq"
+          },
+          "last_seq": {
+            "type": "integer",
+            "title": "Last Seq"
+          },
+          "leaf_count": {
+            "type": "integer",
+            "title": "Leaf Count"
+          },
+          "tx_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tx Hash",
+            "description": "Latest anchoring transaction hash."
+          },
+          "attempts": {
+            "type": "integer",
+            "title": "Attempts"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "block_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Block Number"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          },
+          "confirmed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "batch_id",
+          "status",
+          "root",
+          "first_seq",
+          "last_seq",
+          "leaf_count",
+          "attempts"
+        ],
+        "title": "AnchorBatchSummary"
+      },
+      "AnchoringStatusResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "description": "Whether the worker is allowed to submit (ANCHOR_ENABLED)."
+          },
+          "chain_id": {
+            "type": "integer",
+            "title": "Chain Id"
+          },
+          "network": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Network",
+            "description": "anvil, base-sepolia or base."
+          },
+          "registry_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registry Address"
+          },
+          "anchorer_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anchorer Address",
+            "description": "Address of the anchoring key. The key itself is never shown."
+          },
+          "halted": {
+            "type": "boolean",
+            "title": "Halted",
+            "description": "A batch disagreed with the chain; anchoring has stopped."
+          },
+          "halt_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Halt Reason"
+          },
+          "last_confirmed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnchorBatchSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "in_flight": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnchorBatchSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confirmed_batches": {
+            "type": "integer",
+            "title": "Confirmed Batches"
+          },
+          "unanchored_events": {
+            "type": "integer",
+            "title": "Unanchored Events",
+            "description": "Recorded events not yet in a batch."
+          },
+          "oldest_unanchored_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Unanchored At"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Server Time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "chain_id",
+          "halted",
+          "confirmed_batches",
+          "unanchored_events",
+          "server_time"
+        ],
+        "title": "AnchoringStatusResponse"
       },
       "BuyerReconfirmationRequest": {
         "properties": {

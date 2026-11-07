@@ -13,6 +13,7 @@ from app.db.session import _get_session_factory
 from app.routers.account import router as account_router
 from app.routers.admin_cases import router as admin_cases_router
 from app.routers.admin_search import router as admin_search_router
+from app.routers.anchoring_admin import router as anchoring_admin_router
 from app.routers.auth import router as auth_router
 from app.routers.disputes import router as disputes_router
 from app.routers.health import router as health_router
@@ -203,6 +204,7 @@ app.include_router(admin_cases_router)
 app.include_router(admin_search_router)
 app.include_router(rail_health_admin_router)
 app.include_router(money_audit_admin_router)
+app.include_router(anchoring_admin_router)
 app.include_router(simulated_custody_admin_router)
 app.include_router(loop_webhooks_router)
 app.include_router(pesapal_webhooks_router)

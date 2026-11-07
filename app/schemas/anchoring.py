@@ -34,6 +34,16 @@ class AnchoringStatusResponse(BaseModel):
     confirmed_batches: int
     unanchored_events: int = Field(description="Recorded events not yet in a batch.")
     oldest_unanchored_at: datetime | None = None
+    payouts_gated: bool = Field(
+        description="Payouts wait for their authorisation to be anchored (ANCHOR_GATE_PAYOUTS)."
+    )
+    payouts_waiting_for_anchor: int = Field(
+        description="Queued payouts held until their authorisation is anchored or readable."
+    )
+    oldest_payout_waiting_since: datetime | None = None
+    payouts_halted: int = Field(
+        description="Payouts stopped because they disagree with their anchored authorisation."
+    )
     server_time: datetime
 
 

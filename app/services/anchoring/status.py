@@ -6,14 +6,17 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
 from sqlalchemy.orm import Session
 
 from app.models.anchor_batch import IN_FLIGHT_STATUSES, AnchorBatch, AnchorBatchStatus
+from app.models.collection_attempt import AttemptOutcome
+from app.models.payout_attempt import PayoutAttempt
 from app.schemas.anchoring import AnchorBatchSummary, AnchoringStatusResponse
 from app.services.anchoring.batcher import unbatched_summary
 from app.services.anchoring.canonical import hex32
 from app.services.anchoring.chain_config import SUPPORTED_CHAINS, secret_value
+from app.services.anchoring.payout_gate import GATE_CODES, HALTED
 
 
 @lru_cache(maxsize=4)
@@ -59,6 +62,7 @@ def anchoring_status(db: Session, settings: Any) -> AnchoringStatusResponse:
         select(func.count(AnchorBatch.id)).where(AnchorBatch.status == AnchorBatchStatus.CONFIRMED)
     ).scalar_one()
     unanchored, oldest = unbatched_summary(db)
+    waiting, waiting_since, halted_payouts = _gated_payouts(db)
     return AnchoringStatusResponse(
         enabled=settings.anchor_enabled,
         chain_id=settings.anchor_chain_id,
@@ -72,5 +76,32 @@ def anchoring_status(db: Session, settings: Any) -> AnchoringStatusResponse:
         confirmed_batches=int(confirmed_count),
         unanchored_events=unanchored,
         oldest_unanchored_at=oldest,
+        payouts_gated=settings.anchor_gate_payouts,
+        payouts_waiting_for_anchor=waiting,
+        oldest_payout_waiting_since=waiting_since,
+        payouts_halted=halted_payouts,
         server_time=datetime.now(UTC),
     )
+
+
+def _gated_payouts(db: Session) -> tuple[int, datetime | None, int]:
+    if not inspect(db.connection()).has_table(PayoutAttempt.__tablename__):
+        return 0, None, 0
+    open_attempts = (
+        select(PayoutAttempt.failure_code, func.count(), func.min(PayoutAttempt.created_at))
+        .where(
+            PayoutAttempt.outcome == AttemptOutcome.UNKNOWN,
+            PayoutAttempt.failure_code.in_(GATE_CODES),
+        )
+        .group_by(PayoutAttempt.failure_code)
+    )
+    waiting, since, halted = 0, None, 0
+    for code, count, oldest in db.execute(open_attempts).tuples():
+        if code == HALTED:
+            halted += int(count)
+            continue
+        waiting += int(count)
+        if oldest is not None:
+            oldest = oldest if oldest.tzinfo else oldest.replace(tzinfo=UTC)
+            since = oldest if since is None else min(since, oldest)
+    return waiting, since, halted

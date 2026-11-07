@@ -5211,6 +5211,33 @@
             ],
             "title": "Oldest Unanchored At"
           },
+          "payouts_gated": {
+            "type": "boolean",
+            "title": "Payouts Gated",
+            "description": "Payouts wait for their authorisation to be anchored (ANCHOR_GATE_PAYOUTS)."
+          },
+          "payouts_waiting_for_anchor": {
+            "type": "integer",
+            "title": "Payouts Waiting For Anchor",
+            "description": "Queued payouts held until their authorisation is anchored or readable."
+          },
+          "oldest_payout_waiting_since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Payout Waiting Since"
+          },
+          "payouts_halted": {
+            "type": "integer",
+            "title": "Payouts Halted",
+            "description": "Payouts stopped because they disagree with their anchored authorisation."
+          },
           "server_time": {
             "type": "string",
             "format": "date-time",
@@ -5224,6 +5251,9 @@
           "halted",
           "confirmed_batches",
           "unanchored_events",
+          "payouts_gated",
+          "payouts_waiting_for_anchor",
+          "payouts_halted",
           "server_time"
         ],
         "title": "AnchoringStatusResponse"

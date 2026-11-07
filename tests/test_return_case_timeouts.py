@@ -10,7 +10,7 @@ from app.db.base import Base
 from app.models.dispute import AdminDecision, Dispute, DisputeStatus, DisputeType
 from app.models.money_audit_event import MoneyAuditEvent
 from app.models.payout_attempt import PayoutAttempt
-from app.models.transaction import TransactionStatus
+from app.models.transaction import Transaction, TransactionStatus
 from app.services import transaction as transaction_service
 from app.services.dispute import force_resolve_dispute_case, list_escalated_disputes
 from app.services.return_case_repair import repair_stranded_return_cases
@@ -168,3 +168,72 @@ def test_repair_command_is_a_dry_run_without_apply(monkeypatch, capsys) -> None:
     out = capsys.readouterr().out
     assert "-> escalate" in out and "dry run, nothing changed" in out
     assert stuck.status == DisputeStatus.OPEN
+
+
+def _held_serialized_order(db: Session, monkeypatch, suffix: str):
+    buyer, seller, _listing, transaction = _seed_transaction_context(
+        db, serialized_listing=True, suffix=suffix
+    )
+    confirm_payment_callback(db, payload=_build_callback_payload(transaction.id))
+    dispatch_transaction(db, transaction_id=transaction.id, seller=seller)
+    monkeypatch.setattr(transaction_service, "_generate_delivery_otp", lambda: "111222")
+    mark_transaction_arrived(db, transaction_id=transaction.id, seller=seller)
+    confirm_buyer_delivery_otp(db, transaction_id=transaction.id, buyer=buyer, otp_code="111222")
+    return buyer, transaction
+
+
+def test_other_category_escalates_the_transaction_so_an_admin_can_resolve_it(monkeypatch) -> None:
+    """#227: "other" used to leave the transaction disputed_functional, so admin resolve refused
+    it and the buyer-sent-back timeout released the money to the seller."""
+    db = _db_with_audit()
+    buyer, transaction = _held_serialized_order(db, monkeypatch, "71")
+    report_functional_issue(
+        db,
+        transaction_id=transaction.id,
+        buyer=buyer,
+        category="other",
+        description="Something odd that fits no category.",
+    )
+    dispute = db.execute(select(Dispute)).scalars().one()
+    assert transaction.status == TransactionStatus.ESCALATED_ADMIN_REVIEW
+    assert dispute.status == DisputeStatus.ESCALATED_ADMIN_REVIEW
+
+    result = run_timeout_jobs(db, now=datetime.now(UTC) + LATER)
+    assert result.dispute_buyer_sent_back_timeout_count == 0
+    assert transaction.status == TransactionStatus.ESCALATED_ADMIN_REVIEW
+    assert db.execute(select(PayoutAttempt)).scalars().all() == []
+
+    resolved = force_resolve_dispute_case(
+        db, dispute.id, decision=AdminDecision.REFUND, reason="Item not as described."
+    )
+    assert resolved.transaction_status == TransactionStatus.RESOLVED_REFUND
+
+
+def _escalated_other(db: Session, suffix: str, status: TransactionStatus) -> Dispute:
+    dispute = _stranded(db, suffix, status)
+    dispute.status = DisputeStatus.ESCALATED_ADMIN_REVIEW
+    dispute.reason = "other"
+    db.commit()
+    return dispute
+
+
+def test_repair_escalates_other_cases_left_disputed_functional() -> None:
+    db = _db_with_audit()
+    stuck = _escalated_other(db, "81", TransactionStatus.DISPUTED_FUNCTIONAL)
+    released = _escalated_other(db, "82", TransactionStatus.RELEASED)
+    _escalated_other(db, "83", TransactionStatus.ESCALATED_ADMIN_REVIEW)  # healthy
+
+    listed = repair_stranded_return_cases(db, apply=False)
+    assert {(c.dispute_id, c.action) for c in listed} == {
+        (stuck.id, "escalate_transaction"),
+        (released.id, "review"),
+    }
+    assert db.execute(select(MoneyAuditEvent)).scalars().all() == []
+
+    repair_stranded_return_cases(db, apply=True)
+    order = db.get(Transaction, stuck.transaction_id)
+    assert order is not None and order.status == TransactionStatus.ESCALATED_ADMIN_REVIEW
+    audit = db.execute(select(MoneyAuditEvent)).scalars().one()
+    assert audit.details["to"] == "escalated_admin_review"
+    assert stuck.id in [item.dispute_id for item in list_escalated_disputes(db)]
+    assert [c.action for c in repair_stranded_return_cases(db, apply=False)] == ["review"]

@@ -942,7 +942,8 @@ def test_service_report_functional_issue_routes_other_to_admin_escalation() -> N
         evidence={"notes": "Happens after warmup."},
     )
 
-    assert disputed.status == TransactionStatus.DISPUTED_FUNCTIONAL
+    # #227: the transaction follows the dispute to support, so an admin can resolve it.
+    assert disputed.status == TransactionStatus.ESCALATED_ADMIN_REVIEW
 
     disputes = [item for item in db.added if isinstance(item, Dispute)]
     assert len(disputes) == 1

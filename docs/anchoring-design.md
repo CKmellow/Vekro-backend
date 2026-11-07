@@ -512,8 +512,9 @@ current status, so the status check holds.
    as open forever. Lower impact, fixed in the same PR.
 3. **Category `other` cannot be resolved (#227, found in A3).** `report_functional_issue` escalates
    the dispute but leaves the transaction `disputed_functional`. Admin resolve refuses it, and the
-   buyer-sent-back timeout then releases the money to the seller. This is not fixed yet. The
-   anchored events record it as it happens: `dispute_escalated` with no matching transition.
+   buyer-sent-back timeout then releases the money to the seller. Fixed in #227: the
+   transaction now moves to `escalated_admin_review` with the dispute, and `repair-return-cases` escalates
+   cases left behind.
 
 #221 also adds a regression test for both timeouts. It ships a repair command, dry-run by default,
 that lists every case stuck today and fixes it only with `--apply`.

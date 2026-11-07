@@ -3,9 +3,9 @@ the tamper demo. Every verdict is covered, including the case only the full audi
 
 import json
 from collections.abc import Iterator
-from types import SimpleNamespace
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest

@@ -45,3 +45,8 @@ htmlcov/
 # Alembic compiled files
 alembic/versions/*.pyc
 .hypothesis/
+
+# Foundry build output
+contracts/out/
+contracts/cache/
+contracts/broadcast/

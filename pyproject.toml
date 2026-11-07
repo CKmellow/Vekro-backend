@@ -1,12 +1,13 @@
 [tool.black]
 line-length = 100
 target-version = ["py312"]
+extend-exclude = "contracts/lib"
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
 src = ["app", "alembic"]
-exclude = ["alembic/versions"]
+exclude = ["alembic/versions", "contracts/lib"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]

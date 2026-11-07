@@ -125,3 +125,33 @@ jobs:
           TEST_POSTGRES_URL: postgresql+psycopg://vekro:vekro@localhost:5432/vekro
           SECRET_KEY: ci-secret-key
         run: pytest -q -m postgres
+
+  contracts:
+    name: Contracts (Foundry)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
+
+      - name: Format check
+        working-directory: contracts
+        run: forge fmt --check
+
+      - name: Build and test (unit, fuzz, invariant)
+        working-directory: contracts
+        run: forge test -vv
+
+      # The backend loads abi/AnchorRegistry.json; it must match the compiled contract.
+      - name: Committed ABI matches the build
+        working-directory: contracts
+        run: |
+          jq '.abi' out/AnchorRegistry.sol/AnchorRegistry.json > /tmp/abi.json
+          diff -u abi/AnchorRegistry.json /tmp/abi.json

@@ -1,0 +1,699 @@
+{
+  "description": "Vekro liabilities Merkle sum tree (backend #259, docs/anchoring.md). Byte-identical copy in the frontend. Regenerate with python -m tests.sum_tree_vectors.",
+  "version": 1,
+  "algorithms": {
+    "order_commit": "keccak256(utf8(\"vekro-liability-order:\" + lowercase uuid))",
+    "leaf": "keccak256(0x00 || salt || order_commit || uint64_be(amount_cents))",
+    "node": "keccak256(0x01 || left.hash || uint64_be(left.sum) || right.hash || uint64_be(right.sum)); sum = left.sum + right.sum",
+    "range": "every amount and sum is a whole number in 0..2**64-1, else invalid",
+    "shape": "RFC 6962: split at the largest power of two smaller than n",
+    "proof": "from the leaf up; side is where the sibling sits"
+  },
+  "order_commit": [
+    {
+      "transaction_id": "5b0e6c1e-1f6a-4b8e-9c2d-3f4a5b6c7d8e",
+      "order_commit": "0xe2547b2ffc04a47f61f589f041c02b65a3223589903c0bf96c2d79f031ad3adc"
+    },
+    {
+      "transaction_id": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+      "order_commit": "0xc7c56f64c866783caeafe2636b431a1d3bdd572c76ada7faaf3df94b596fef99"
+    }
+  ],
+  "trees": [
+    {
+      "size": 1,
+      "leaves": [
+        {
+          "salt": "0x710b0a8f1e85a0a4356ae743ef19ce254f94d8cd4efa249364a97c77ae770613",
+          "order_commit": "0xe2547b2ffc04a47f61f589f041c02b65a3223589903c0bf96c2d79f031ad3adc",
+          "amount_cents": "650000",
+          "hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52"
+        }
+      ],
+      "root": {
+        "hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52",
+        "sum": "650000"
+      },
+      "proofs": [
+        []
+      ]
+    },
+    {
+      "size": 2,
+      "leaves": [
+        {
+          "salt": "0x710b0a8f1e85a0a4356ae743ef19ce254f94d8cd4efa249364a97c77ae770613",
+          "order_commit": "0xe2547b2ffc04a47f61f589f041c02b65a3223589903c0bf96c2d79f031ad3adc",
+          "amount_cents": "650000",
+          "hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52"
+        },
+        {
+          "salt": "0x3b4604eea8a319cdfd1d125a9e615816bb2df5ed70f673147925c5321c5306a5",
+          "order_commit": "0xc7c56f64c866783caeafe2636b431a1d3bdd572c76ada7faaf3df94b596fef99",
+          "amount_cents": "1",
+          "hash": "0x49c71727f9a046c5b47386ad1d39108aa5f22ba0d1a9100cb8e20727973d9dc7"
+        }
+      ],
+      "root": {
+        "hash": "0x96a804725131c5b68262a86e8be95a492bef23c2c43cd0c555e987b7584b9da3",
+        "sum": "650001"
+      },
+      "proofs": [
+        [
+          {
+            "sibling_hash": "0x49c71727f9a046c5b47386ad1d39108aa5f22ba0d1a9100cb8e20727973d9dc7",
+            "sibling_sum": "1",
+            "side": "right"
+          }
+        ],
+        [
+          {
+            "sibling_hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52",
+            "sibling_sum": "650000",
+            "side": "left"
+          }
+        ]
+      ]
+    },
+    {
+      "size": 3,
+      "leaves": [
+        {
+          "salt": "0x710b0a8f1e85a0a4356ae743ef19ce254f94d8cd4efa249364a97c77ae770613",
+          "order_commit": "0xe2547b2ffc04a47f61f589f041c02b65a3223589903c0bf96c2d79f031ad3adc",
+          "amount_cents": "650000",
+          "hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52"
+        },
+        {
+          "salt": "0x3b4604eea8a319cdfd1d125a9e615816bb2df5ed70f673147925c5321c5306a5",
+          "order_commit": "0xc7c56f64c866783caeafe2636b431a1d3bdd572c76ada7faaf3df94b596fef99",
+          "amount_cents": "1",
+          "hash": "0x49c71727f9a046c5b47386ad1d39108aa5f22ba0d1a9100cb8e20727973d9dc7"
+        },
+        {
+          "salt": "0x15a0a6192558f1e31ae36d5bab588f56c8e9b5be6c0fd19adce43fd52eb2aea9",
+          "order_commit": "0xec606eedf131f662f21471bfb314518256a9d5f211434cdf7c5e43b644380e04",
+          "amount_cents": "2400000",
+          "hash": "0x871f99446c205417bf5c23b81d18a0a00549c3e9bec2fd524f2a6b8fd07fd43e"
+        }
+      ],
+      "root": {
+        "hash": "0x8b985d8a7d066459b6932a98ab51d41e612445a6e172eff693000837f3821bc2",
+        "sum": "3050001"
+      },
+      "proofs": [
+        [
+          {
+            "sibling_hash": "0x49c71727f9a046c5b47386ad1d39108aa5f22ba0d1a9100cb8e20727973d9dc7",
+            "sibling_sum": "1",
+            "side": "right"
+          },
+          {
+            "sibling_hash": "0x871f99446c205417bf5c23b81d18a0a00549c3e9bec2fd524f2a6b8fd07fd43e",
+            "sibling_sum": "2400000",
+            "side": "right"
+          }
+        ],
+        [
+          {
+            "sibling_hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52",
+            "sibling_sum": "650000",
+            "side": "left"
+          },
+          {
+            "sibling_hash": "0x871f99446c205417bf5c23b81d18a0a00549c3e9bec2fd524f2a6b8fd07fd43e",
+            "sibling_sum": "2400000",
+            "side": "right"
+          }
+        ],
+        [
+          {
+            "sibling_hash": "0x96a804725131c5b68262a86e8be95a492bef23c2c43cd0c555e987b7584b9da3",
+            "sibling_sum": "650001",
+            "side": "left"
+          }
+        ]
+      ]
+    },
+    {
+      "size": 4,
+      "leaves": [
+        {
+          "salt": "0x710b0a8f1e85a0a4356ae743ef19ce254f94d8cd4efa249364a97c77ae770613",
+          "order_commit": "0xe2547b2ffc04a47f61f589f041c02b65a3223589903c0bf96c2d79f031ad3adc",
+          "amount_cents": "650000",
+          "hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52"
+        },
+        {
+          "salt": "0x3b4604eea8a319cdfd1d125a9e615816bb2df5ed70f673147925c5321c5306a5",
+          "order_commit": "0xc7c56f64c866783caeafe2636b431a1d3bdd572c76ada7faaf3df94b596fef99",
+          "amount_cents": "1",
+          "hash": "0x49c71727f9a046c5b47386ad1d39108aa5f22ba0d1a9100cb8e20727973d9dc7"
+        },
+        {
+          "salt": "0x15a0a6192558f1e31ae36d5bab588f56c8e9b5be6c0fd19adce43fd52eb2aea9",
+          "order_commit": "0xec606eedf131f662f21471bfb314518256a9d5f211434cdf7c5e43b644380e04",
+          "amount_cents": "2400000",
+          "hash": "0x871f99446c205417bf5c23b81d18a0a00549c3e9bec2fd524f2a6b8fd07fd43e"
+        },
+        {
+          "salt": "0x0f0fc3aae213aae0ba218e61aa116e5cb3149ed2914489a33a636232637c2a91",
+          "order_commit": "0x11b35eb639f175e81fa938c62593caf3e89f0275c2ec996ee9262259e6bc0b27",
+          "amount_cents": "0",
+          "hash": "0xf238642f6a3e91b7bdc5d29ea934ad2650c9946a78bec8ce43e4ca980ab33b7a"
+        }
+      ],
+      "root": {
+        "hash": "0x0c1947265a41ee75f094ea2df3a6cea016e49be8d9f6370d98a04654875eae51",
+        "sum": "3050001"
+      },
+      "proofs": [
+        [
+          {
+            "sibling_hash": "0x49c71727f9a046c5b47386ad1d39108aa5f22ba0d1a9100cb8e20727973d9dc7",
+            "sibling_sum": "1",
+            "side": "right"
+          },
+          {
+            "sibling_hash": "0x27a6a1c7c09d0aaa0d14ccacc48290a49ae1e75e0b6ff096c2529265547bebe1",
+            "sibling_sum": "2400000",
+            "side": "right"
+          }
+        ],
+        [
+          {
+            "sibling_hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52",
+            "sibling_sum": "650000",
+            "side": "left"
+          },
+          {
+            "sibling_hash": "0x27a6a1c7c09d0aaa0d14ccacc48290a49ae1e75e0b6ff096c2529265547bebe1",
+            "sibling_sum": "2400000",
+            "side": "right"
+          }
+        ],
+        [
+          {
+            "sibling_hash": "0xf238642f6a3e91b7bdc5d29ea934ad2650c9946a78bec8ce43e4ca980ab33b7a",
+            "sibling_sum": "0",
+            "side": "right"
+          },
+          {
+            "sibling_hash": "0x96a804725131c5b68262a86e8be95a492bef23c2c43cd0c555e987b7584b9da3",
+            "sibling_sum": "650001",
+            "side": "left"
+          }
+        ],
+        [
+          {
+            "sibling_hash": "0x871f99446c205417bf5c23b81d18a0a00549c3e9bec2fd524f2a6b8fd07fd43e",
+            "sibling_sum": "2400000",
+            "side": "left"
+          },
+          {
+            "sibling_hash": "0x96a804725131c5b68262a86e8be95a492bef23c2c43cd0c555e987b7584b9da3",
+            "sibling_sum": "650001",
+            "side": "left"
+          }
+        ]
+      ]
+    },
+    {
+      "size": 5,
+      "leaves": [
+        {
+          "salt": "0x710b0a8f1e85a0a4356ae743ef19ce254f94d8cd4efa249364a97c77ae770613",
+          "order_commit": "0xe2547b2ffc04a47f61f589f041c02b65a3223589903c0bf96c2d79f031ad3adc",
+          "amount_cents": "650000",
+          "hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52"
+        },
+        {
+          "salt": "0x3b4604eea8a319cdfd1d125a9e615816bb2df5ed70f673147925c5321c5306a5",
+          "order_commit": "0xc7c56f64c866783caeafe2636b431a1d3bdd572c76ada7faaf3df94b596fef99",
+          "amount_cents": "1",
+          "hash": "0x49c71727f9a046c5b47386ad1d39108aa5f22ba0d1a9100cb8e20727973d9dc7"
+        },
+        {
+          "salt": "0x15a0a6192558f1e31ae36d5bab588f56c8e9b5be6c0fd19adce43fd52eb2aea9",
+          "order_commit": "0xec606eedf131f662f21471bfb314518256a9d5f211434cdf7c5e43b644380e04",
+          "amount_cents": "2400000",
+          "hash": "0x871f99446c205417bf5c23b81d18a0a00549c3e9bec2fd524f2a6b8fd07fd43e"
+        },
+        {
+          "salt": "0x0f0fc3aae213aae0ba218e61aa116e5cb3149ed2914489a33a636232637c2a91",
+          "order_commit": "0x11b35eb639f175e81fa938c62593caf3e89f0275c2ec996ee9262259e6bc0b27",
+          "amount_cents": "0",
+          "hash": "0xf238642f6a3e91b7bdc5d29ea934ad2650c9946a78bec8ce43e4ca980ab33b7a"
+        },
+        {
+          "salt": "0x70f413d42b1a0cc7d3fa45dc6a48fe5556f8f0213c58b014c7f211c65db646e9",
+          "order_commit": "0x4d6cbe005750bbe640c90e0cf42e0cb7504223448fb1c28fbeee5f08f0710a8d",
+          "amount_cents": "99999999",
+          "hash": "0x2ec29927dcc39a2bf602d4d91392e66e24663927c4d133b9eb2617384dd3c6b0"
+        }
+      ],
+      "root": {
+        "hash": "0x7f04836436eb73b3fffea908aa31548f986bf7185a960b101303d5aee74cf0e3",
+        "sum": "103050000"
+      },
+      "proofs": [
+        [
+          {
+            "sibling_hash": "0x49c71727f9a046c5b47386ad1d39108aa5f22ba0d1a9100cb8e20727973d9dc7",
+            "sibling_sum": "1",
+            "side": "right"
+          },
+          {
+            "sibling_hash": "0x27a6a1c7c09d0aaa0d14ccacc48290a49ae1e75e0b6ff096c2529265547bebe1",
+            "sibling_sum": "2400000",
+            "side": "right"
+          },
+          {
+            "sibling_hash": "0x2ec29927dcc39a2bf602d4d91392e66e24663927c4d133b9eb2617384dd3c6b0",
+            "sibling_sum": "99999999",
+            "side": "right"
+          }
+        ],
+        [
+          {
+            "sibling_hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52",
+            "sibling_sum": "650000",
+            "side": "left"
+          },
+          {
+            "sibling_hash": "0x27a6a1c7c09d0aaa0d14ccacc48290a49ae1e75e0b6ff096c2529265547bebe1",
+            "sibling_sum": "2400000",
+            "side": "right"
+          },
+          {
+            "sibling_hash": "0x2ec29927dcc39a2bf602d4d91392e66e24663927c4d133b9eb2617384dd3c6b0",
+            "sibling_sum": "99999999",
+            "side": "right"
+          }
+        ],
+        [
+          {
+            "sibling_hash": "0xf238642f6a3e91b7bdc5d29ea934ad2650c9946a78bec8ce43e4ca980ab33b7a",
+            "sibling_sum": "0",
+            "side": "right"
+          },
+          {
+            "sibling_hash": "0x96a804725131c5b68262a86e8be95a492bef23c2c43cd0c555e987b7584b9da3",
+            "sibling_sum": "650001",
+            "side": "left"
+          },
+          {
+            "sibling_hash": "0x2ec29927dcc39a2bf602d4d91392e66e24663927c4d133b9eb2617384dd3c6b0",
+            "sibling_sum": "99999999",
+            "side": "right"
+          }
+        ],
+        [
+          {
+            "sibling_hash": "0x871f99446c205417bf5c23b81d18a0a00549c3e9bec2fd524f2a6b8fd07fd43e",
+            "sibling_sum": "2400000",
+            "side": "left"
+          },
+          {
+            "sibling_hash": "0x96a804725131c5b68262a86e8be95a492bef23c2c43cd0c555e987b7584b9da3",
+            "sibling_sum": "650001",
+            "side": "left"
+          },
+          {
+            "sibling_hash": "0x2ec29927dcc39a2bf602d4d91392e66e24663927c4d133b9eb2617384dd3c6b0",
+            "sibling_sum": "99999999",
+            "side": "right"
+          }
+        ],
+        [
+          {
+            "sibling_hash": "0x0c1947265a41ee75f094ea2df3a6cea016e49be8d9f6370d98a04654875eae51",
+            "sibling_sum": "3050001",
+            "side": "left"
+          }
+        ]
+      ]
+    },
+    {
+      "size": 7,
+      "leaves": [
+        {
+          "salt": "0x710b0a8f1e85a0a4356ae743ef19ce254f94d8cd4efa249364a97c77ae770613",
+          "order_commit": "0xe2547b2ffc04a47f61f589f041c02b65a3223589903c0bf96c2d79f031ad3adc",
+          "amount_cents": "650000",
+          "hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52"
+        },
+        {
+          "salt": "0x3b4604eea8a319cdfd1d125a9e615816bb2df5ed70f673147925c5321c5306a5",
+          "order_commit": "0xc7c56f64c866783caeafe2636b431a1d3bdd572c76ada7faaf3df94b596fef99",
+          "amount_cents": "1",
+          "hash": "0x49c71727f9a046c5b47386ad1d39108aa5f22ba0d1a9100cb8e20727973d9dc7"
+        },
+        {
+          "salt": "0x15a0a6192558f1e31ae36d5bab588f56c8e9b5be6c0fd19adce43fd52eb2aea9",
+          "order_commit": "0xec606eedf131f662f21471bfb314518256a9d5f211434cdf7c5e43b644380e04",
+          "amount_cents": "2400000",
+          "hash": "0x871f99446c205417bf5c23b81d18a0a00549c3e9bec2fd524f2a6b8fd07fd43e"
+        },
+        {
+          "salt": "0x0f0fc3aae213aae0ba218e61aa116e5cb3149ed2914489a33a636232637c2a91",
+          "order_commit": "0x11b35eb639f175e81fa938c62593caf3e89f0275c2ec996ee9262259e6bc0b27",
+          "amount_cents": "0",
+          "hash": "0xf238642f6a3e91b7bdc5d29ea934ad2650c9946a78bec8ce43e4ca980ab33b7a"
+        },
+        {
+          "salt": "0x70f413d42b1a0cc7d3fa45dc6a48fe5556f8f0213c58b014c7f211c65db646e9",
+          "order_commit": "0x4d6cbe005750bbe640c90e0cf42e0cb7504223448fb1c28fbeee5f08f0710a8d",
+          "amount_cents": "99999999",
+          "hash": "0x2ec29927dcc39a2bf602d4d91392e66e24663927c4d133b9eb2617384dd3c6b0"
+        },
+        {
+          "salt": "0x6a40aa0055c6e1c0dd0606313a1cf6f727e8c1950af74c2b1b741c5442fcd7de",
+          "order_commit": "0xc0900fa9bad8dac0e9add149df6e631d22801bc886876a90500588a87a92e713",
+          "amount_cents": "320000",
+          "hash": "0xb67e944bb49b06c1bc64e324b83aeaddb7bdc7cf1ae234e44eb82a927acddcac"
+        },
+        {
+          "salt": "0xd886dd3706726820d024e39abd623cb2d8e24445ee9a64d52a884694883f7561",
+          "order_commit": "0x1755b7ea817eaaa90dc46c427d519a7abf2c8b161901020c621c3c1fe9027ee2",
+          "amount_cents": "5200000",
+          "hash": "0xda8d4819be8d5370d33ae6b4968c38e3baff11439974b27781add8a9a3f3682e"
+        }
+      ],
+      "root": {
+        "hash": "0xea060774f2aff68b0109104942488e7e7449b15c53f07fbc49d34ab708b6d5ae",
+        "sum": "108570000"
+      },
+      "proofs": [
+        [
+          {
+            "sibling_hash": "0x49c71727f9a046c5b47386ad1d39108aa5f22ba0d1a9100cb8e20727973d9dc7",
+            "sibling_sum": "1",
+            "side": "right"
+          },
+          {
+            "sibling_hash": "0x27a6a1c7c09d0aaa0d14ccacc48290a49ae1e75e0b6ff096c2529265547bebe1",
+            "sibling_sum": "2400000",
+            "side": "right"
+          },
+          {
+            "sibling_hash": "0xa07b47a8e4410f8de3c94f4ed3fd03855ee9a474ceb0f81575bb3195978b5a1d",
+            "sibling_sum": "105519999",
+            "side": "right"
+          }
+        ],
+        [
+          {
+            "sibling_hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52",
+            "sibling_sum": "650000",
+            "side": "left"
+          },
+          {
+            "sibling_hash": "0x27a6a1c7c09d0aaa0d14ccacc48290a49ae1e75e0b6ff096c2529265547bebe1",
+            "sibling_sum": "2400000",
+            "side": "right"
+          },
+          {
+            "sibling_hash": "0xa07b47a8e4410f8de3c94f4ed3fd03855ee9a474ceb0f81575bb3195978b5a1d",
+            "sibling_sum": "105519999",
+            "side": "right"
+          }
+        ],
+        [
+          {
+            "sibling_hash": "0xf238642f6a3e91b7bdc5d29ea934ad2650c9946a78bec8ce43e4ca980ab33b7a",
+            "sibling_sum": "0",
+            "side": "right"
+          },
+          {
+            "sibling_hash": "0x96a804725131c5b68262a86e8be95a492bef23c2c43cd0c555e987b7584b9da3",
+            "sibling_sum": "650001",
+            "side": "left"
+          },
+          {
+            "sibling_hash": "0xa07b47a8e4410f8de3c94f4ed3fd03855ee9a474ceb0f81575bb3195978b5a1d",
+            "sibling_sum": "105519999",
+            "side": "right"
+          }
+        ],
+        [
+          {
+            "sibling_hash": "0x871f99446c205417bf5c23b81d18a0a00549c3e9bec2fd524f2a6b8fd07fd43e",
+            "sibling_sum": "2400000",
+            "side": "left"
+          },
+          {
+            "sibling_hash": "0x96a804725131c5b68262a86e8be95a492bef23c2c43cd0c555e987b7584b9da3",
+            "sibling_sum": "650001",
+            "side": "left"
+          },
+          {
+            "sibling_hash": "0xa07b47a8e4410f8de3c94f4ed3fd03855ee9a474ceb0f81575bb3195978b5a1d",
+            "sibling_sum": "105519999",
+            "side": "right"
+          }
+        ],
+        [
+          {
+            "sibling_hash": "0xb67e944bb49b06c1bc64e324b83aeaddb7bdc7cf1ae234e44eb82a927acddcac",
+            "sibling_sum": "320000",
+            "side": "right"
+          },
+          {
+            "sibling_hash": "0xda8d4819be8d5370d33ae6b4968c38e3baff11439974b27781add8a9a3f3682e",
+            "sibling_sum": "5200000",
+            "side": "right"
+          },
+          {
+            "sibling_hash": "0x0c1947265a41ee75f094ea2df3a6cea016e49be8d9f6370d98a04654875eae51",
+            "sibling_sum": "3050001",
+            "side": "left"
+          }
+        ],
+        [
+          {
+            "sibling_hash": "0x2ec29927dcc39a2bf602d4d91392e66e24663927c4d133b9eb2617384dd3c6b0",
+            "sibling_sum": "99999999",
+            "side": "left"
+          },
+          {
+            "sibling_hash": "0xda8d4819be8d5370d33ae6b4968c38e3baff11439974b27781add8a9a3f3682e",
+            "sibling_sum": "5200000",
+            "side": "right"
+          },
+          {
+            "sibling_hash": "0x0c1947265a41ee75f094ea2df3a6cea016e49be8d9f6370d98a04654875eae51",
+            "sibling_sum": "3050001",
+            "side": "left"
+          }
+        ],
+        [
+          {
+            "sibling_hash": "0x7d61cceafa899dbc7660d17a1bde574c860707e6e2df35a29dd933e6c6650cd1",
+            "sibling_sum": "100319999",
+            "side": "left"
+          },
+          {
+            "sibling_hash": "0x0c1947265a41ee75f094ea2df3a6cea016e49be8d9f6370d98a04654875eae51",
+            "sibling_sum": "3050001",
+            "side": "left"
+          }
+        ]
+      ]
+    }
+  ],
+  "must_fail": [
+    {
+      "name": "tampered amount: the buyer's amount edited after the snapshot",
+      "leaf": {
+        "salt": "0x3b4604eea8a319cdfd1d125a9e615816bb2df5ed70f673147925c5321c5306a5",
+        "order_commit": "0xc7c56f64c866783caeafe2636b431a1d3bdd572c76ada7faaf3df94b596fef99",
+        "amount_cents": "2"
+      },
+      "proof": [
+        {
+          "sibling_hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52",
+          "sibling_sum": "650000",
+          "side": "left"
+        },
+        {
+          "sibling_hash": "0x27a6a1c7c09d0aaa0d14ccacc48290a49ae1e75e0b6ff096c2529265547bebe1",
+          "sibling_sum": "2400000",
+          "side": "right"
+        }
+      ],
+      "root": {
+        "hash": "0x0c1947265a41ee75f094ea2df3a6cea016e49be8d9f6370d98a04654875eae51",
+        "sum": "3050001"
+      }
+    },
+    {
+      "name": "omitted escrow: the published total was built without this order",
+      "leaf": {
+        "salt": "0x0f0fc3aae213aae0ba218e61aa116e5cb3149ed2914489a33a636232637c2a91",
+        "order_commit": "0x11b35eb639f175e81fa938c62593caf3e89f0275c2ec996ee9262259e6bc0b27",
+        "amount_cents": "0"
+      },
+      "proof": [
+        {
+          "sibling_hash": "0x871f99446c205417bf5c23b81d18a0a00549c3e9bec2fd524f2a6b8fd07fd43e",
+          "sibling_sum": "2400000",
+          "side": "left"
+        },
+        {
+          "sibling_hash": "0x96a804725131c5b68262a86e8be95a492bef23c2c43cd0c555e987b7584b9da3",
+          "sibling_sum": "650001",
+          "side": "left"
+        }
+      ],
+      "root": {
+        "hash": "0x8b985d8a7d066459b6932a98ab51d41e612445a6e172eff693000837f3821bc2",
+        "sum": "3050001"
+      }
+    },
+    {
+      "name": "understated total: the right root hash with a smaller total",
+      "leaf": {
+        "salt": "0x3b4604eea8a319cdfd1d125a9e615816bb2df5ed70f673147925c5321c5306a5",
+        "order_commit": "0xc7c56f64c866783caeafe2636b431a1d3bdd572c76ada7faaf3df94b596fef99",
+        "amount_cents": "1"
+      },
+      "proof": [
+        {
+          "sibling_hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52",
+          "sibling_sum": "650000",
+          "side": "left"
+        },
+        {
+          "sibling_hash": "0x27a6a1c7c09d0aaa0d14ccacc48290a49ae1e75e0b6ff096c2529265547bebe1",
+          "sibling_sum": "2400000",
+          "side": "right"
+        }
+      ],
+      "root": {
+        "hash": "0x0c1947265a41ee75f094ea2df3a6cea016e49be8d9f6370d98a04654875eae51",
+        "sum": "3050000"
+      }
+    },
+    {
+      "name": "negative sibling sum: a hidden negative liability",
+      "leaf": {
+        "salt": "0x3b4604eea8a319cdfd1d125a9e615816bb2df5ed70f673147925c5321c5306a5",
+        "order_commit": "0xc7c56f64c866783caeafe2636b431a1d3bdd572c76ada7faaf3df94b596fef99",
+        "amount_cents": "1"
+      },
+      "proof": [
+        {
+          "sibling_hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52",
+          "sibling_sum": "-650000",
+          "side": "left"
+        },
+        {
+          "sibling_hash": "0x27a6a1c7c09d0aaa0d14ccacc48290a49ae1e75e0b6ff096c2529265547bebe1",
+          "sibling_sum": "2400000",
+          "side": "right"
+        }
+      ],
+      "root": {
+        "hash": "0x0c1947265a41ee75f094ea2df3a6cea016e49be8d9f6370d98a04654875eae51",
+        "sum": "3050001"
+      }
+    },
+    {
+      "name": "overflowing sibling sum: wraps the total around 2**64",
+      "leaf": {
+        "salt": "0x3b4604eea8a319cdfd1d125a9e615816bb2df5ed70f673147925c5321c5306a5",
+        "order_commit": "0xc7c56f64c866783caeafe2636b431a1d3bdd572c76ada7faaf3df94b596fef99",
+        "amount_cents": "1"
+      },
+      "proof": [
+        {
+          "sibling_hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52",
+          "sibling_sum": "18446744073709551616",
+          "side": "left"
+        },
+        {
+          "sibling_hash": "0x27a6a1c7c09d0aaa0d14ccacc48290a49ae1e75e0b6ff096c2529265547bebe1",
+          "sibling_sum": "2400000",
+          "side": "right"
+        }
+      ],
+      "root": {
+        "hash": "0x0c1947265a41ee75f094ea2df3a6cea016e49be8d9f6370d98a04654875eae51",
+        "sum": "3050001"
+      }
+    },
+    {
+      "name": "overflowing node: two in-range sums whose total exceeds 2**64-1",
+      "leaf": {
+        "salt": "0x3b4604eea8a319cdfd1d125a9e615816bb2df5ed70f673147925c5321c5306a5",
+        "order_commit": "0xc7c56f64c866783caeafe2636b431a1d3bdd572c76ada7faaf3df94b596fef99",
+        "amount_cents": "1"
+      },
+      "proof": [
+        {
+          "sibling_hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52",
+          "sibling_sum": "18446744073709551615",
+          "side": "left"
+        },
+        {
+          "sibling_hash": "0x27a6a1c7c09d0aaa0d14ccacc48290a49ae1e75e0b6ff096c2529265547bebe1",
+          "sibling_sum": "2400000",
+          "side": "right"
+        }
+      ],
+      "root": {
+        "hash": "0x0c1947265a41ee75f094ea2df3a6cea016e49be8d9f6370d98a04654875eae51",
+        "sum": "3050001"
+      }
+    },
+    {
+      "name": "wrong side: the sibling placed on the other side",
+      "leaf": {
+        "salt": "0x3b4604eea8a319cdfd1d125a9e615816bb2df5ed70f673147925c5321c5306a5",
+        "order_commit": "0xc7c56f64c866783caeafe2636b431a1d3bdd572c76ada7faaf3df94b596fef99",
+        "amount_cents": "1"
+      },
+      "proof": [
+        {
+          "sibling_hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52",
+          "sibling_sum": "650000",
+          "side": "right"
+        },
+        {
+          "sibling_hash": "0x27a6a1c7c09d0aaa0d14ccacc48290a49ae1e75e0b6ff096c2529265547bebe1",
+          "sibling_sum": "2400000",
+          "side": "right"
+        }
+      ],
+      "root": {
+        "hash": "0x0c1947265a41ee75f094ea2df3a6cea016e49be8d9f6370d98a04654875eae51",
+        "sum": "3050001"
+      }
+    },
+    {
+      "name": "negative amount in the buyer's own leaf",
+      "leaf": {
+        "salt": "0x3b4604eea8a319cdfd1d125a9e615816bb2df5ed70f673147925c5321c5306a5",
+        "order_commit": "0xc7c56f64c866783caeafe2636b431a1d3bdd572c76ada7faaf3df94b596fef99",
+        "amount_cents": "-1"
+      },
+      "proof": [
+        {
+          "sibling_hash": "0x0afac770ef944055a8af601f9bba6ed60e605df7d6a14409ab8e6f89ee42ef52",
+          "sibling_sum": "650000",
+          "side": "left"
+        },
+        {
+          "sibling_hash": "0x27a6a1c7c09d0aaa0d14ccacc48290a49ae1e75e0b6ff096c2529265547bebe1",
+          "sibling_sum": "2400000",
+          "side": "right"
+        }
+      ],
+      "root": {
+        "hash": "0x0c1947265a41ee75f094ea2df3a6cea016e49be8d9f6370d98a04654875eae51",
+        "sum": "3050001"
+      }
+    }
+  ]
+}

@@ -40,6 +40,8 @@ BACKFILL_COMPLETED = "backfill_completed"
 GLOBAL_EVENT_LINKED = "global_event_linked"
 # A9: a completed sale in the global chain, public on the seller's track record.
 SELLER_SALE_COMPLETED = "seller_sale_completed"
+# M24 B2: the total Vekro holds for buyers, as a Merkle sum tree root (global chain).
+LIABILITIES_SNAPSHOT = "liabilities_snapshot"
 
 DISPUTE_OPENED = "dispute_opened"
 DISPUTE_RETURN_SENT = "dispute_return_sent"
@@ -290,4 +292,17 @@ def seller_sale_payload(
         "sale_ref": sale_ref(transaction.id),
         "outcome": outcome,
         "amount_band": amount_band(Decimal(transaction.amount)),
+    }
+
+
+def liabilities_snapshot_payload(
+    snapshot_id: int, *, at: datetime, root: bytes | None, total_cents: int, leaf_count: int
+) -> dict[str, Any]:
+    """Public by design: no order, buyer or per-order amount, only the root and the total."""
+    return {
+        **envelope(LIABILITIES_SNAPSHOT, None, at),
+        "snapshot_id": snapshot_id,
+        "root": hex32(root) if root is not None else None,
+        "total": money(Decimal(total_cents) / 100),
+        "leaf_count": leaf_count,
     }

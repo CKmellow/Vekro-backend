@@ -130,6 +130,46 @@ make anvil-deploy
 If a non-development database ever holds pre-#241 rows, stop and ask the maintainer: those rows
 cannot be edited, and the right fix (re-anchoring, or a documented exception) is a decision.
 
+## 4b. Proof of liabilities (M24 B2)
+
+`python -m app.cli liabilities-snapshot` (the scheduler runs it every few minutes) puts every open
+escrow into a Merkle sum tree (`app/services/anchoring/sum_tree.py`). An open escrow is one where
+funded minus released minus refunded is above zero.
+
+- Each leaf is `keccak256(0x00 || salt || order_commit || amount_cents)`, where
+  `order_commit = keccak256("vekro-liability-order:" + order id)`.
+- Each node commits to both children's hashes and to the sum of their amounts.
+- The root and the total held are anchored as a `liabilities_snapshot` event in the global chain.
+  Its payload is the snapshot id, root, total and leaf count, with no order, buyer or per-order
+  amount.
+
+Each buyer can fetch `GET /transactions/{id}/liabilities-proof`: the order's leaf, its salt, the sum
+proof and the anchored event with its batch proof. The order page then says "Your KES X is included
+in Vekro's published total of held money", after the browser has:
+
+- recomputed `order_commit` from the order id, so the leaf is this buyer's and cannot be shown to
+  two buyers;
+- folded the proof to the root, refusing any amount or sum below zero or above 2^64 - 1. A negative
+  or wrapping sibling is how a total would be quietly lowered;
+- compared the root and total with the anchored payload;
+- checked the event's batch proof against the root on the AnchorRegistry.
+
+**What it proves.** The published total includes every buyer's held amount: a buyer left out, or
+counted for less, finds out. Once a snapshot is anchored, its total cannot be quietly understated:
+editing any amount or dropping any order changes the root, and the old root is on the chain.
+
+**What it does not prove.**
+
+- That the money exists. Liabilities are what Vekro owes; whether the custody provider holds that
+  much is the reserves side (next section).
+- That buyers who never check their proof are counted correctly. The guarantee is only as strong
+  as the share of buyers who look.
+- Anything between snapshots: an order paid and released between two runs never appears.
+
+Golden vectors shared with the frontend: `tests/fixtures/anchoring/sum_tree_vectors.json`, including
+must-fail cases for a tampered amount, an omitted escrow, an understated total, negative and
+overflowing sums, and a wrong side.
+
 ## 5. Threat model
 
 **Caught:**

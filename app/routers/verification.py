@@ -11,12 +11,14 @@ from app.models.anchor_batch import AnchorBatch
 from app.models.transaction import Transaction
 from app.models.user import User, UserRole
 from app.schemas.anchoring import (
+    LiabilitiesProofResponse,
     PublicBatchResponse,
     SellerTrackRecordResponse,
     TransactionVerificationResponse,
 )
 from app.services.anchoring.canonical import hex32
 from app.services.anchoring.chain_config import SUPPORTED_CHAINS
+from app.services.anchoring.liabilities import liabilities_proof
 from app.services.anchoring.track_record import seller_track_record
 from app.services.anchoring.verification import build_transaction_verification
 from app.services.public_order import PublicLookupRateLimitedError, check_lookup_quota
@@ -55,6 +57,41 @@ def get_transaction_verification(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found.")
     bundle = build_transaction_verification(db, transaction, get_settings())
     return TransactionVerificationResponse.model_validate(bundle)
+
+
+@router.get(
+    "/transactions/{transaction_id}/liabilities-proof",
+    response_model=LiabilitiesProofResponse,
+    summary="Proof the order's held money is counted in Vekro's published total (buyer, admin)",
+    description=(
+        "The order's leaf, salt and Merkle sum proof in the latest liabilities snapshot, the "
+        "snapshot's root and total, and the anchored liabilities_snapshot event with its batch "
+        "proof. The browser checks the leaf is this order's (order_commit), folds the proof (no "
+        "negative or overflowing sums), compares the root and total with the anchored payload, "
+        "and reads the batch root from the AnchorRegistry. 404 when the order is not held now."
+    ),
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
+        status.HTTP_404_NOT_FOUND: {
+            "description": "Not the caller's order, or no held money for it in the latest snapshot."
+        },
+    },
+)
+def get_liabilities_proof(
+    transaction_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> LiabilitiesProofResponse:
+    transaction = db.get(Transaction, transaction_id)
+    allowed = transaction is not None and (
+        current_user.role == UserRole.ADMIN or current_user.id == transaction.buyer_id
+    )
+    proof = liabilities_proof(db, transaction_id) if allowed else None
+    if proof is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No proof for this order."
+        )
+    return LiabilitiesProofResponse.model_validate(proof)
 
 
 @router.get(

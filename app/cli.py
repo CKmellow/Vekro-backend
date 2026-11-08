@@ -23,6 +23,9 @@ With --watch [SECONDS] it keeps going, querying each open prompt at backed-off i
 confirm-card-payments: ask Pesapal for the status of open card checkouts from the last day and
 lock the orders it reports completed for the exact amount (#251). Needs card payments configured.
 
+liabilities-snapshot: put every open escrow into a Merkle sum tree and anchor its root and total
+(M24 B2, docs/anchoring.md). The scheduler runs it on an interval.
+
 payment-rails: print which rail collects M-Pesa, card and USSD payments under the current
 configuration, and where the money sits (docs/demo-modes.md).
 """
@@ -176,6 +179,19 @@ def confirm_card_payments() -> int:
     return 0
 
 
+def liabilities_snapshot() -> int:
+    from app.services.anchoring.liabilities import build_liabilities_snapshot
+
+    with _session() as db:
+        snapshot = build_liabilities_snapshot(db)
+    anchored = "anchored" if snapshot.anchor_event_id else "not anchored (anchoring is off)"
+    print(
+        f"Snapshot {snapshot.id}: {snapshot.leaf_count} open escrow(s), "
+        f"KES {int(snapshot.total_cents) / 100:.2f} held, {anchored}."
+    )
+    return 0
+
+
 def payment_rails() -> int:
     from app.core.settings import get_settings
     from app.services.payment_rails import describe_collection_rails
@@ -221,6 +237,9 @@ def main(argv: list[str] | None = None) -> int:
         "confirm-card-payments", help="Confirm open Pesapal card checkouts (status query)."
     )
     commands.add_parser("payment-rails", help="Show which rail collects each payment method.")
+    commands.add_parser(
+        "liabilities-snapshot", help="Anchor the total held for buyers (Merkle sum tree)."
+    )
     args = parser.parse_args(argv)
 
     if args.command == "repair-return-cases":
@@ -235,6 +254,8 @@ def main(argv: list[str] | None = None) -> int:
         return confirm_mpesa_payments(watch_seconds=args.watch)
     if args.command == "confirm-card-payments":
         return confirm_card_payments()
+    if args.command == "liabilities-snapshot":
+        return liabilities_snapshot()
     if args.command == "payment-rails":
         return payment_rails()
 

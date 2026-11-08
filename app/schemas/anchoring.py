@@ -135,3 +135,39 @@ class SellerTrackRecordResponse(BaseModel):
         )
     )
     server_time: datetime
+
+
+class SumNodeResponse(BaseModel):
+    hash: str
+    sum: str = Field(description="Cents, as a decimal string (may exceed 2**53).")
+
+
+class SumLeafResponse(BaseModel):
+    salt: str
+    order_commit: str = Field(
+        description='keccak256("vekro-liability-order:" + the order id): recompute it to check '
+        "the leaf is this order's."
+    )
+    amount_cents: str
+
+
+class SumProofStepResponse(BaseModel):
+    sibling_hash: str
+    sibling_sum: str
+    side: Literal["left", "right"]
+
+
+class LiabilitiesProofResponse(BaseModel):
+    """Proof that this order's held amount is counted in Vekro's anchored total (M24 B2)."""
+
+    snapshot_id: int
+    created_at: datetime
+    root: SumNodeResponse
+    total: str = Field(description="KES held for all buyers at the snapshot.")
+    leaf_count: int
+    leaf: SumLeafResponse
+    proof: list[SumProofStepResponse]
+    anchor: VerificationEventResponse | None = Field(
+        description="The liabilities_snapshot event in the global chain, with its batch proof; "
+        "null until anchoring is on."
+    )

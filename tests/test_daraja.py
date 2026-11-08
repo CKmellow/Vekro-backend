@@ -386,3 +386,26 @@ def test_an_unrecognised_code_leaves_the_order_waiting_until_daraja_confirms() -
     assert confirm_pending_payments(db, client=fake.client())[transaction.id] == "confirmed"
     db.refresh(transaction)
     assert transaction.status == TransactionStatus.LOCKED
+
+
+def test_observed_live_query_and_push_shapes() -> None:
+    """#247: bodies the sandbox returned in the M22 fallback run, replayed through the client."""
+    fixtures = Path(__file__).parent / "fixtures" / "daraja"
+
+    def load(name: str) -> Any:
+        return json.loads((fixtures / name).read_text())
+
+    accepted = load("stk_push_accepted.json")
+    assert accepted["ResponseCode"] == "0" and accepted["CheckoutRequestID"].startswith("ws_CO_")
+
+    fake = FakeDaraja()
+    client = fake.client()
+    paid = load("stk_query_paid.json")
+    fake.query = lambda: (paid["http_status"], paid["body"])
+    assert client.stk_query(CHECKOUT).state == "succeeded"
+
+    limited = load("stk_query_rate_limited.json")
+    assert "SpikeArrestViolation" in json.dumps(limited["body"])
+    fake.query = lambda: (limited["http_status"], limited["body"])
+    with pytest.raises(DarajaUnavailableError):
+        client.stk_query(CHECKOUT)

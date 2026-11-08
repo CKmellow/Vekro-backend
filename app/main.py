@@ -33,11 +33,15 @@ from app.routers.transactions import router as transactions_router
 from app.routers.verification import router as verification_router
 from app.services.auth import is_valid_csrf_for_session, resolve_active_session
 from app.services.custody.registry import build_custody_registry
+from app.services.payment_rails import describe_collection_rails, format_routes
 
 
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI) -> AsyncIterator[None]:
     fastapi_app.state.custody_registry = custody_registry
+    logging.getLogger("app.payments").info(
+        "collection_rails %s", format_routes(describe_collection_rails(settings))
+    )
     yield
 
 

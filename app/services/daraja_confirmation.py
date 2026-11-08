@@ -40,6 +40,11 @@ class DarajaCallback:
     receipt: str | None
 
 
+def masked_checkout(checkout_request_id: str) -> str:
+    """Daraja's CheckoutRequestID ends with the payer's subscriber number: never log it whole."""
+    return checkout_request_id[:20] + "…" if len(checkout_request_id) > 20 else "…"
+
+
 def parse_callback(body: Any) -> DarajaCallback | None:
     """The fields Vekro uses from Daraja's ``Body.stkCallback``; None for anything else."""
     try:
@@ -77,7 +82,9 @@ def handle_callback(db: Session, body: Any, *, client: DarajaClient) -> str:
         )
     ).scalar()
     if prompt is None:
-        _logger.warning("daraja_callback_unknown_checkout id=%s", callback.checkout_request_id)
+        _logger.warning(
+            "daraja_callback_unknown_checkout id=%s", masked_checkout(callback.checkout_request_id)
+        )
         return "unknown_checkout"
     transaction = db.get(Transaction, prompt.transaction_id)
     if transaction is None:  # pragma: no cover - prompts belong to transactions

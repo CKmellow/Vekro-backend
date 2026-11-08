@@ -175,6 +175,7 @@ Read this before describing Vekro as "escrow" to anyone.
 - Every transaction response carries `custody_provider` (`econfirm` or `simulated`). The UI must show simulated custody as simulated and never present it as money held by a custodian.
 - Live payouts are blocked unless `ENVIRONMENT=production` and `ALLOW_LIVE_PAYOUTS=true`.
 - The payment callback (`POST /transactions/payment-callback`) advances the state machine. It records escrow funding (a balanced ESCROW_HELD / BUYER_CLEARING ledger posting and `funded_amount`, in the same commit as the lock) **only on the simulated rail outside production**, because no provider confirms the callback. In production it never records funding, so the payout executor's funded-balance guard still refuses to settle a payout for that escrow. With `DARAJA_ENABLED=true` (#224), STK pushes go through the real Daraja API. Safaricom's unsigned callback (`POST /payments/mpesa/callback`) is only a trigger: Vekro sends an STK query for its own prompt, and only `ResultCode` 0 locks the order and posts the funding, in production too (`callback_funding_confirmed`, rail `daraja`). A callback that claims a different amount is refused and audited. A pending or unreachable query leaves the order waiting, and `python -m app.cli confirm-mpesa-payments` settles open prompts from the last day. Otherwise, escrow funding is recorded from collection rails (webhooks confirmed by server-side inquiry), the eConfirm funding poller, or, outside production, the admin simulated force-complete control. The callback never locks an eConfirm transaction: eConfirm funding is confirmed only by polling eConfirm (`run_econfirm_funding_reconciliation`), which posts the funding to the ledger in the same commit as the lock.
+- **Daraja collects; it does not hold money in custody.** In the class-demo profile (`DARAJA_ENABLED=true`, M22) the buyer's M-Pesa payment lands in the configured shortcode's account (the sandbox test shortcode 174379 in the demo), and Vekro's ledger records it as held. No third party holds it in escrow. `python -m app.cli payment-rails` prints which rail serves each payment method; `docs/demo-modes.md` has the table per profile.
 - The payout executor, reconciliation, and the eConfirm funding poller are not scheduled by the app; operators run them (see `docs/runbooks.md`).
 - No KYC/AML screening, licensing, chargeback handling, or consumer-protection obligations are implemented. Any production launch needs a regulated partner and legal review.
 
@@ -184,6 +185,8 @@ Operational docs:
 - Capstone demo script (normal flow, failover, unknown outcome, duplicate funding): `docs/demo-script.md`
 - Tier switching, capability gating, and the eConfirm funding flow: `docs/custody-tiers.md`
 - eConfirm observed API, status values, and HTTP failure mapping: `docs/econfirm-api-observed.md`
+- Demo profiles, rail per payment method, tunnel and the Daraja fallback: `docs/demo-modes.md`
+- Daraja observed sandbox behaviour: `docs/daraja-observed.md`
 
 eConfirm test layers (all offline unless noted):
 
@@ -636,6 +639,7 @@ Migration notes:
 - 2026-10-20: Milestone 20 E7 (#156): custody selection wired into `POST /transactions` behind `ECONFIRM_ENABLED`. eConfirm transactions get an eConfirm escrow and STK prompt and lock only when the poller confirms funding; the Daraja callback ignores them. `transactions.custody_provider` (migration `e2b7c4d91f08`, chained after the payment-prompt migration `b5e8f1c2a904`) is returned in `TransactionResponse` and `TransactionDetailResponse`. eConfirm transactions record payment prompts like the gateway path, and resend re-prompts through eConfirm.
 - 2026-10-20: Milestone 20 E6 (#151): fixture contract tests, shared conformance over the real transport, the eConfirm failure matrix, the opt-in live smoke (`pytest -m live -k econfirm`, KES 100 round trip behind an extra confirmation variable), and custody-honesty updates to this README, the demo script, the custody-tier doc, and the runbooks.
 - 2026-10-20: Issue [#164] `POST /transactions/payment-callback` is authenticated: with `PAYMENT_CALLBACK_SECRET` set, the `X-Payment-Callback-Secret` header must match (constant-time) or the request is rejected with 401 before the transaction is read; with no secret it is refused in production and stays open outside production for the simulated rail and frontend end-to-end tests.
+- 2026-11-08: M22 #239 Daraja sandbox round trip: STK `AccountReference` is the order reference; `payment-rails` command and startup log state the collection rail per payment method (`docs/demo-modes.md`); `DARAJA_CALLBACK_URL` must be https; `make tunnel` (ngrok static domain) and `make confirm-mpesa`; opt-in `pytest -m live -k daraja`; `docs/daraja-observed.md` (CheckoutRequestID embeds the payer's number, so logs mask it; the sandbox STK query answers HTTP 429 often).
 
 ## Operator commands
 

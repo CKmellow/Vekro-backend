@@ -9,7 +9,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.escrow import Escrow
-from app.models.listing import Listing
 from app.models.payment_prompt import (
     PaymentFailureReason,
     PaymentPrompt,
@@ -24,6 +23,7 @@ from app.services.custody.enums import CollectionOutcome
 from app.services.custody.registry import build_econfirm_provider
 from app.services.custody.selection import PROVIDER_ECONFIRM
 from app.services.payment import (
+    STK_DESCRIPTION,
     PaymentGateway,
     PaymentRequest,
     PaymentResponse,
@@ -271,7 +271,6 @@ def resend_payment_prompt(
             now=current,
         )
 
-    listing = db.get(Listing, transaction.listing_id)
     gateway = payment_gateway or get_payment_gateway()
     try:
         response = gateway.initiate_stk_push(
@@ -279,8 +278,8 @@ def resend_payment_prompt(
                 transaction_id=str(transaction.id),
                 amount=f"{transaction.amount:.2f}",
                 phone_number=buyer.mpesa_phone or buyer.phone,
-                account_reference=str(transaction.id),
-                transaction_desc=f"Escrow payment for listing {listing.id if listing else ''}",
+                account_reference=transaction.reference,
+                transaction_desc=STK_DESCRIPTION,
             )
         )
     except Exception as exc:

@@ -3,6 +3,9 @@ from typing import Protocol
 
 from app.core.phone import normalize_phone
 
+# Daraja allows 13 characters for TransactionDesc.
+STK_DESCRIPTION = "Vekro escrow"
+
 
 @dataclass(frozen=True)
 class PaymentRequest:

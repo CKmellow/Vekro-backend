@@ -1,7 +1,15 @@
-.PHONY: run lint format rails-selftest pesapal-register-ipn contracts-test contracts-abi anvil-deploy
+.PHONY: run tunnel confirm-mpesa lint format rails-selftest pesapal-register-ipn contracts-test contracts-abi anvil-deploy
 
 run:
 	.venv/bin/uvicorn app.main:app --reload
+
+# HTTPS tunnel for Daraja callbacks (docs/demo-modes.md); host from DARAJA_CALLBACK_URL in .env.
+tunnel:
+	./scripts/tunnel.sh
+
+# Fallback when no callback arrives: confirm open STK prompts with Daraja's STK query.
+confirm-mpesa:
+	.venv/bin/python -m app.cli confirm-mpesa-payments
 
 lint:
 	.venv/bin/ruff check .

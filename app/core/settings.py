@@ -375,8 +375,10 @@ class Settings(BaseSettings):
                 violations.append(
                     "DARAJA_ENABLED=true requires " + ", ".join(missing) + " (values not shown)"
                 )
-            if environment == "production" and not self.daraja_callback_url.startswith("https://"):
-                violations.append("DARAJA_CALLBACK_URL must use https:// in production")
+            # Daraja posts results to a public HTTPS URL (locally a tunnel, docs/demo-modes.md).
+            callback = self.daraja_callback_url.strip()
+            if callback and not callback.startswith("https://"):
+                violations.append("DARAJA_CALLBACK_URL must use https://")
 
         if self.allow_live_payouts and environment != "production":
             violations.append("ALLOW_LIVE_PAYOUTS=true requires ENVIRONMENT=production")

@@ -14,11 +14,12 @@ import pytest
 from app.core.settings import get_settings
 from app.models.ledger_entry import LedgerEntry
 from app.models.money_audit_event import MoneyAuditEvent
-from app.models.payment_prompt import PaymentPrompt
+from app.models.payment_prompt import PaymentPrompt, PaymentPromptStatus
 from app.models.transaction import Transaction, TransactionStatus
 from app.services import payment as payment_module
 from app.services.anchoring.provider_ref import provider_ref
 from app.services.daraja import (
+    FINAL_FAILURE_CODES,
     DarajaClient,
     DarajaError,
     DarajaStkGateway,
@@ -31,7 +32,7 @@ from app.services.daraja_confirmation import (
     parse_callback,
 )
 from app.services.payment import MpesaStkStubGateway, PaymentRequest
-from app.services.payment_prompts import record_payment_prompt
+from app.services.payment_prompts import FAILURE_REASON_BY_RESULT_CODE, record_payment_prompt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -351,3 +352,37 @@ def test_observed_sandbox_shapes_parse() -> None:
     assert (cancelled.result_code, cancelled.amount, cancelled.receipt) == (1032, None, None)
     token = json.loads((fixtures / "oauth_token.json").read_text())
     assert isinstance(token["expires_in"], str)  # a string, not a number
+
+
+def test_only_known_final_codes_fail_and_unrecognised_codes_stay_pending() -> None:
+    """#245: a code Vekro does not know never ends a prompt the buyer may still approve."""
+    fake = FakeDaraja()
+    client = fake.client()
+    for code in sorted(FINAL_FAILURE_CODES):
+        fake.query = lambda code=code: (200, {"ResultCode": str(code), "ResultDesc": "x"})
+        assert client.stk_query(CHECKOUT).state == "failed"
+    fake.query = lambda: (200, {"ResultCode": "123456", "ResultDesc": "A code Vekro does not know"})
+    unknown = client.stk_query(CHECKOUT)
+    assert (unknown.state, unknown.result_code) == ("pending", 123456)
+
+
+def test_final_codes_match_the_prompt_failure_reasons() -> None:
+    assert FINAL_FAILURE_CODES == set(FAILURE_REASON_BY_RESULT_CODE)
+
+
+def test_an_unrecognised_code_leaves_the_order_waiting_until_daraja_confirms() -> None:
+    db = _db()
+    transaction, prompt = _awaiting(db, "91")
+    fake = FakeDaraja()
+    fake.query = lambda: (200, {"ResultCode": "123456", "ResultDesc": "A code Vekro does not know"})
+
+    assert confirm_pending_payments(db, client=fake.client())[transaction.id] == "pending"
+    db.refresh(prompt)
+    db.refresh(transaction)
+    assert prompt.status == PaymentPromptStatus.PENDING.value
+    assert transaction.status == TransactionStatus.AWAITING_PAYMENT
+
+    fake.query = lambda: (200, {"ResultCode": "0", "ResultDesc": "ok"})
+    assert confirm_pending_payments(db, client=fake.client())[transaction.id] == "confirmed"
+    db.refresh(transaction)
+    assert transaction.status == TransactionStatus.LOCKED

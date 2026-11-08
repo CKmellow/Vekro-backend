@@ -79,7 +79,11 @@ It looks for open prompts every few seconds, including new orders. It queries ea
 after first seeing it, then at doubling intervals up to 30s, each with ±20% jitter. It never sends
 two queries less than 2s apart, and a prompt the callback settles meanwhile just drops out. A 429
 or a pending answer only backs off; it never fails a payment. With a few payments in a class demo
-that keeps Vekro well under the limit. `make confirm-mpesa` does a single pass instead. The
+that keeps Vekro well under the limit. Prompts older than 10 minutes are left alone.
+
+Leave **at least a minute between two payments from the same phone**. Daraja refuses a second
+prompt while the first is in progress ("a similar transaction being underway"), which is why the
+resend button waits 60 seconds. `make confirm-mpesa` does a single pass instead. The
 scheduler (M24 B4) will run this on its own.
 
 ### 5. Opt-in live test

@@ -34,7 +34,9 @@ audit_logger = logging.getLogger("app.transactions.audit")
 
 # An STK prompt stays open on the phone for about a minute; clients poll for 90 seconds.
 PROMPT_LIFETIME = timedelta(seconds=90)
-RESEND_COOLDOWN = timedelta(seconds=30)
+# Daraja refuses a second prompt to the same subscriber within a minute ("wait at least 1 minute
+# between requests"; observed in M22: "a similar transaction is underway"), so no resend sooner.
+RESEND_COOLDOWN = timedelta(seconds=60)
 
 # M-Pesa STK result codes. Anything else is a provider error.
 FAILURE_REASON_BY_RESULT_CODE: dict[int, PaymentFailureReason] = {

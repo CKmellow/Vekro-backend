@@ -38,7 +38,7 @@ from app.models.payment_prompt import PaymentPrompt
 from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User, UserRole
 from app.schemas.transaction import CreateTransactionRequest
-from app.services.daraja import DarajaClient, DarajaStkGateway
+from app.services.daraja import DarajaClient, DarajaStkGateway, DarajaUnavailableError
 from app.services.daraja_confirmation import watch_pending_payments
 from app.services.transaction import create_transaction
 from dotenv import dotenv_values
@@ -238,7 +238,10 @@ def test_daraja_sandbox_stk_round_trip(tmp_path: Path) -> None:
         if callback is not None:
             _save("stk_callback_paid.json", callback, phone)
         assert status == TransactionStatus.LOCKED
-        client.stk_query(checkout)  # one query after the fact, for the fixture only
+        try:  # one query after the fact, for the fixture only; the sandbox may answer 429
+            client.stk_query(checkout)
+        except DarajaUnavailableError:
+            pass
     else:
         with Session(engine, expire_on_commit=False) as db:
             outcomes = watch_pending_payments(

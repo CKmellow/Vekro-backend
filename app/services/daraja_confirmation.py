@@ -163,7 +163,9 @@ def confirm_payment(
     return "confirmed"
 
 
-def _open_prompts(db: Session, now: datetime) -> list[tuple[Transaction, PaymentPrompt]]:
+def _open_prompts(
+    db: Session, now: datetime, *, window: timedelta = RECONCILE_WINDOW
+) -> list[tuple[Transaction, PaymentPrompt]]:
     rows = db.execute(
         select(Transaction, PaymentPrompt)
         .join(PaymentPrompt, PaymentPrompt.transaction_id == Transaction.id)
@@ -171,7 +173,7 @@ def _open_prompts(db: Session, now: datetime) -> list[tuple[Transaction, Payment
             Transaction.status == TransactionStatus.AWAITING_PAYMENT,
             PaymentPrompt.status == PaymentPromptStatus.PENDING.value,
             PaymentPrompt.checkout_request_id.is_not(None),
-            PaymentPrompt.sent_at >= now - RECONCILE_WINDOW,
+            PaymentPrompt.sent_at >= now - window,
         )
         .order_by(PaymentPrompt.sent_at)
     ).all()
@@ -198,6 +200,9 @@ class Backoff:
     jitter: float = 0.2  # each delay is scaled by a random factor in [1 - jitter, 1 + jitter]
     min_gap_seconds: float = 2.0  # between any two queries
     idle_poll_seconds: float = 5.0  # how often to look for new prompts
+    # An M-Pesa prompt is long dead by then. Older ones are left to a manual single pass, so a
+    # prompt Daraja keeps answering with an unrecognised code cannot use up the query budget.
+    max_prompt_age_seconds: float = 600.0
 
 
 def next_delay(previous: float | None, backoff: Backoff, rng: random.Random) -> float:
@@ -237,7 +242,10 @@ def watch_pending_payments(
     while clock() < deadline:
         db.rollback()  # a fresh snapshot: see callbacks and new orders committed elsewhere
         open_rows = {
-            prompt.id: (transaction, prompt) for transaction, prompt in _open_prompts(db, now())
+            prompt.id: (transaction, prompt)
+            for transaction, prompt in _open_prompts(
+                db, now(), window=timedelta(seconds=backoff.max_prompt_age_seconds)
+            )
         }
         for prompt_id in list(schedule):
             if prompt_id not in open_rows:

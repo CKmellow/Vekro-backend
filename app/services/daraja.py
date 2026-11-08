@@ -7,8 +7,11 @@ the same rule as the Pesapal and LOOP webhooks.
 STK query answers:
 
 - HTTP 200 with ``ResultCode`` "0": paid.
-- HTTP 200 with another ``ResultCode`` (1032 cancelled, 2001 wrong PIN, 1 insufficient funds, …):
-  not paid.
+- HTTP 200 with a final failure code (``FINAL_FAILURE_CODES``: 1032 cancelled, 1037 timeout,
+  2001 wrong PIN, 1 insufficient funds): not paid.
+- HTTP 200 with any other ``ResultCode``: still pending (#245). The sandbox answered one such code
+  13 seconds after a push, before the payer could act; failing on it would mark a payment the
+  buyer may still approve as failed, and nothing re-checks a failed prompt.
 - HTTP 500 with ``errorCode`` 500.001.1001 ("The transaction is being processed"): still pending.
 - Anything else (timeouts, 5xx, non-JSON): ``DarajaUnavailableError``, try again later.
 """
@@ -35,6 +38,8 @@ BASE_URLS = {
     "production": "https://api.safaricom.co.ke",
 }
 PENDING_ERROR_CODE = "500.001.1001"
+# ResultCodes that end a prompt for good (kept equal to payment_prompts' failure reasons).
+FINAL_FAILURE_CODES = frozenset({1, 1032, 1037, 2001})
 EAT = timezone(timedelta(hours=3))
 TOKEN_REFRESH_MARGIN_SECONDS = 60
 
@@ -167,7 +172,12 @@ class DarajaClient:
         if response.status_code == 200 and "ResultCode" in body:
             code = int(str(body["ResultCode"]))
             desc = str(body.get("ResultDesc") or "")
-            return StkQueryResult("succeeded" if code == 0 else "failed", code, desc)
+            if code == 0:
+                return StkQueryResult("succeeded", code, desc)
+            if code in FINAL_FAILURE_CODES:
+                return StkQueryResult("failed", code, desc)
+            _logger.warning("daraja_query_unrecognised_result code=%s desc=%s", code, desc[:120])
+            return StkQueryResult("pending", code, desc)
         if str(body.get("errorCode")) == PENDING_ERROR_CODE:
             return StkQueryResult("pending", None, str(body.get("errorMessage") or ""))
         raise DarajaUnavailableError(

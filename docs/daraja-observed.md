@@ -73,14 +73,44 @@ callback-triggered query was rate-limited. `confirm-mpesa-payments --watch` (#24
 backoff (5s doubling to 30s, jitter, at least 2s between queries); the scheduler (M24 B4) will run
 it on its own.
 
-## 5. Not yet observed
+## 5. A paid order, funded by the callback (2026-11-08, second session)
 
-- A **successful** payment (callback with `CallbackMetadata`, query `ResultCode` 0). The only
-  push so far was cancelled on the phone. Next live run: `RUN_DARAJA_LIVE_TESTS=1 pytest -m live
-  -k daraja -s` (needs Cyprian's go-ahead; see `docs/demo-modes.md`).
-- Raw push-accepted and query bodies: the first run stopped on the 429 before writing them. The
-  test now backs off on 429 and saves every exchange.
+`DARAJA_LIVE_MODE=callback`, KES 1, order `VK-V4V79E`. The callback arrived about 11 seconds after
+the push. The query it triggered answered `ResultCode` 0, so the order locked, the escrow was funded
+with KES 1 and the balanced `ESCROW_HELD` / `BUYER_CLEARING` posting was written. No subscriber
+digits appeared in any anchored payload, audit row or notification. Captured as
+`tests/fixtures/daraja/stk_callback_paid.json`. It differs from the docs' sample:
 
-## 6. Account Balance (for M24 reserves)
+- `Amount` is the integer `1`, not `1.0`;
+- a `Balance` item is present **without** a `Value`;
+- `MerchantRequestID` looks like `3197-4224-a7b4-…`.
+
+A query the test sent after the callback, only to capture a fixture, got HTTP 429 again.
+
+## 6. Two prompts to one phone within a minute: the second fails
+
+A second push about 55 seconds after the first, to the same phone, was accepted by the API. The
+phone then showed that M-Pesa was "unable to process request due to a similar transaction being
+underway". About 13 seconds after that push, the query answered HTTP 200 with a `ResultCode` that
+is neither 0 nor one Vekro maps. The code itself was not captured: every query since then has
+answered 429. The docs' error table says the same in its own words: "Unable to lock subscriber, a
+transaction is already in process for the current subscriber ... Wait at least 1 minute between
+requests". Consequences (#245):
+
+- `RESEND_COOLDOWN` is 60 seconds (was 30), so "resend" never triggers this;
+- `stk_query` fails a prompt only on codes known to be final (`FINAL_FAILURE_CODES`: 1032, 1037,
+  2001, 1). Any other code is pending and logged (`daraja_query_unrecognised_result`), because an
+  unknown code may mean "still processing", and nothing re-checks a failed prompt;
+- the watcher stops re-querying prompts older than 10 minutes, so a prompt stuck on an unknown
+  code cannot eat the query budget;
+- in a demo, leave at least a minute between payments from the same phone.
+
+## 7. Not yet observed
+
+- A query answering `ResultCode` 0 captured as a fixture, and the fallback path funding an order
+  live (the fallback run collided with the previous prompt, section 6).
+- The exact `ResultCode` for "similar transaction underway".
+
+## 8. Account Balance (for M24 reserves)
 
 Not read: the portal page loaded without content. To be checked before M24 B2.

@@ -233,3 +233,74 @@ moment of the backfill, not from when it happened.
 movements and write audit rows; they never edit rows. RB-2's "set the attempt to succeeded" step
 still works, because `payout_attempts` is not guarded. An escrow can no longer be deleted once it
 has ledger rows.
+
+## RB-8: Anchoring halted (M21)
+
+**Signal**: `python -m app.jobs.anchoring` exits with code 3, `GET /admin/anchoring/status` shows
+`halted: true`, and a money audit event `anchoring_halted` exists. Nothing more is anchored until
+the halt is cleared. Escrows keep working, and events keep being recorded.
+
+**Meaning**: the registry disagrees with the database. Either it holds a different root for a batch
+id, it has a different number of batches, or the previous root does not match. Possible causes,
+most likely first:
+
+1. The worker points at the wrong registry or chain (`ANCHOR_REGISTRY_ADDRESS`, `ANCHOR_CHAIN_ID`,
+   or a restored database matched with a fresh registry).
+2. The database was restored from a backup older than the chain.
+3. Someone else holds the anchorer key and anchored their own batch (treat as a key compromise,
+   RB-10).
+4. Tampering: the batch's events changed after the batch was built.
+
+**Steps**
+
+1. Do not edit `anchor_batches` or `anchor_events`. Run `scripts/audit_anchoring.py` and keep the
+   output.
+2. Compare `halt_reason` with the registry: `cast call <registry> "getBatch(uint256)" <id>` and
+   `batchCount()`.
+3. Cause 1: fix the settings, then set the halted batch back to `built` (`UPDATE anchor_batches
+   SET status='built', halt_reason=NULL WHERE id=<id>`; `anchor_batches` is working state, not
+   guarded). Restart the worker.
+4. Cause 2 or 3: deploy a new registry, record the switch-over, and re-anchor from batch 1 (RB-10).
+5. Cause 4: an incident. Preserve the database and the audit output, and notify the maintainer.
+
+## RB-9: Payout held or halted by the anchor gate (M21 A8)
+
+**Signal**: a payout attempt stays `unknown` with `failure_code` set to `waiting_for_anchor`,
+`anchor_check_unavailable` or `anchor_mismatch_halted`. The admin status shows
+`payouts_waiting_for_anchor` or `payouts_halted`.
+
+- **waiting_for_anchor**: normal for up to a few minutes after the decision. If the wait grows,
+  check RB-8 and the worker. The payout goes out on the first executor run after its batch is
+  confirmed.
+- **anchor_check_unavailable**: the RPC is down. The payout waits, nothing fails. Check
+  `ANCHOR_RPC_URL`.
+- **anchor_mismatch_halted** (audited once as `payout_<kind>_halted_anchor_mismatch`): the payout
+  no longer matches its anchored authorisation (amount, destination or order), or the proof fails
+  against the registry. **Do not pay by hand.** Run `scripts/verify_transaction.py
+  --transaction-id <id>` and `scripts/audit_anchoring.py`. If an engineer changed the attempt
+  deliberately, the change must go through a new decision: mark the attempt `failed_definite`
+  with a note, and let the service queue a fresh payout, which records and anchors a new
+  authorisation. Otherwise treat it as an incident.
+
+## RB-10: Anchorer key rotation or registry switch-over (M21)
+
+The registry has an immutable anchorer and no owner (decision D6), so a key change means a new
+registry.
+
+1. Stop the worker (`run-loop`). Wait until `in_flight` is null or `confirmed`.
+2. With the maintainer's go-ahead and a funded key, deploy:
+   `CONFIRM_PUBLIC_DEPLOY=<network> ANCHORER_ADDRESS=<new address> forge script
+   script/Deploy.s.sol --rpc-url <network> --broadcast --private-key <deployer key>`.
+   Commit `contracts/deployments/<network>.json`, and keep the old file as
+   `<network>-until-<date>.json`.
+3. Record the switch-over: a `money_audit` row with action `anchoring_registry_switched` and the old
+   and new addresses in `details`, written through `record_money_audit_event`. It is anchored in
+   the new registry's first batch.
+4. The new registry starts at batch 1 and seq 1. Existing batches stay verifiable against the old
+   registry. Verifiers must know both addresses with the batch ranges, and the web app pins the
+   new one.
+5. Set `ANCHOR_REGISTRY_ADDRESS` and `ANCHOR_PRIVATE_KEY`. Then renumber: archive the old
+   `anchor_batches` rows and assign new batch ids from 1. This is a deliberate engineering step,
+   reviewed and done in a migration, never ad hoc.
+6. Rotating `ANCHOR_ADMIN_REF_SECRET`: put the new key first and keep the old ones after it. Old
+   `admin_ref`, `destination_ref` and `sale_ref` values still resolve.

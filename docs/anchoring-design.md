@@ -545,3 +545,8 @@ that lists every case stuck today and fixes it only with `--apply`.
 4. #214 (A2): canonical encoding, keccak and Merkle library.
 5. #215 (A3): event log, write hooks, triggers on all three tables, backfill.
 6. #216 to #219 (A4 to A7), in order.
+
+Delivered: A4 #232, A5 #233, A6 #234, then two additions approved on 2026-11-07, A8 anchor before
+payout (#230, PR #235) and A9 verified seller track record (#231, PR #236), and A7 docs
+(`docs/anchoring.md`, `docs/frontend-verification-contract.md`, runbooks RB-8 to RB-10, demo
+Scenario 6).

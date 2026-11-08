@@ -1,0 +1,146 @@
+# Verifiable escrow ledger (M21)
+
+Vekro holds buyers' money. Without anchoring, the only proof of what happened to that money is
+Vekro's own database, and whoever controls the database controls the story. M21 changes that:
+**Vekro holds the money; a public blockchain holds Vekro to account.** The money itself stays in
+M-Pesa and eConfirm. No buyer or seller needs a wallet, a token or any crypto.
+
+Design decisions and the event inventory are in `docs/anchoring-design.md`. This document explains
+how the parts fit, what they prove, and what they do not.
+
+## 1. What is anchored
+
+Every money-relevant fact is written to `anchor_events` in the **same DB transaction** as the fact:
+
+| Fact | Event | Chain |
+| --- | --- | --- |
+| Order created | `transaction_created` | the order's |
+| Every status change | `transaction_transition` (from, to, actor, reason) | the order's |
+| Every ledger posting | `ledger_entry` | the order's |
+| Every money audit row (payouts queued and settled, funding, admin actions) | `money_audit` | the order's, or global |
+| Dispute steps | `dispute_opened`, `dispute_escalated`, … | the order's |
+| Admin decisions | `admin_decision` (decision, reason, split, `admin_ref`) | the order's |
+| Completed sales | `seller_sale_completed` (seller, outcome, amount band) | global (public) |
+
+Each event is canonical JSON (RFC 8785) with a random 32-byte salt. Its leaf is
+`keccak256(0x00 ‖ salt ‖ prev_event_hash ‖ payload)`, where `prev_event_hash` is the previous leaf
+**of the same order**. Every order is therefore its own hash chain. Removing or editing any event
+in the middle breaks every hash after it.
+
+Party free text is stored as a keccak hash only, and admins appear only as an HMAC `admin_ref`.
+Payout destinations appear as an HMAC `destination_ref`.
+
+## 2. How it reaches the chain
+
+```
+money operation ──(same DB txn)──▶ anchor_events (append-only, hash-chained)
+                                          │
+              python -m app.jobs.anchoring run-loop  (one worker, one batch in flight)
+                                          │  gapless seq, RFC 6962 keccak Merkle root
+                                          ▼
+                     AnchorRegistry.anchor(batchId, root, prevRoot, leafCount, firstSeq, lastSeq)
+                                     on Base (L2); Anvil locally
+```
+
+- The **AnchorRegistry** (`contracts/src/AnchorRegistry.sol`) has no owner, no proxy, no overwrite
+  and no delete. It accepts only the next batch id, the previous root, and a sequence range that
+  starts right after the last one. A batch can never be replaced, skipped or reordered.
+- The **worker** (`app/services/anchoring/batcher.py`) writes each signed transaction to the
+  database before broadcasting it. Before every submission it checks the registry to see whether
+  the batch is already there. A stuck transaction gets a fee bump at the same nonce, and a batch
+  dropped by a reorg is resubmitted with identical values. If the registry ever holds a different
+  root than the database, the worker **halts** (audit event plus critical log) and anchors nothing
+  more until a person looks (runbook RB-8).
+- Money never waits on the chain to be *recorded*. An RPC outage leaves every escrow untouched;
+  events simply wait for the next batch.
+
+## 3. Where the chain is on the money path
+
+With `ANCHOR_GATE_PAYOUTS=true` (required in production with anchoring), **no payout or refund is
+sent to a rail until the decision that authorised it is anchored and confirmed.** That decision is
+the `payout_<kind>_queued` audit event. Before paying, the executor:
+
+1. recomputes the event's leaf and checks that its payload names this attempt, order and amount,
+   and that the destination matches the anchored `destination_ref`;
+2. checks that the event's batch is CONFIRMED and still complete;
+3. recomputes the Merkle proof and compares it with the root **read from the registry**, not the
+   database.
+
+If the event is not anchored yet, or the chain is unreachable, the payout waits. If anything
+disagrees, for example an amount or destination edited after the decision, or a different root
+on-chain, that payout **halts** and is audited (RB-9). An insider who edits the database cannot
+move money without the edit failing against a public commitment made before it.
+
+## 4. Who can verify what
+
+| Who | How | Checks | Trusts |
+| --- | --- | --- | --- |
+| Buyer or seller | "Verified record" panel on the order page (in the browser), or a downloaded receipt and `scripts/verify_transaction.py` | their order's chain, every proof against the registry root, live status and amount against the last anchored facts | the registry address built into the web app, and a public RPC |
+| Anyone | a seller's Trust Link: `GET /sellers/{id}/track-record` | each completed sale's proof against the registry | the same |
+| Operators and auditors | `scripts/audit_anchoring.py` | every batch (count, gapless seq, root, on-chain root), every chain, every source row against its anchored payload, statuses, admin decisions, escrow totals against the ledger, sales against orders | the database snapshot they audit |
+
+Verdicts: **VERIFIED**, **PARTIALLY_PENDING** (intact, some events not anchored yet), **TAMPERED**,
+**UNAVAILABLE** (registry unreachable). The server never states a verdict. It serves data
+(`GET /transactions/{id}/verification`), and the verifier reads each root from the chain itself.
+
+## 5. Threat model
+
+**Caught:**
+
+- Editing a ledger row, audit row or event payload after it was anchored (leaf, proof or full
+  audit).
+- Deleting an event from the middle of an order's history (the chain breaks).
+- Deleting an order's latest event (seq gap and batch count; full audit).
+- Changing an order's status, amount or admin decision without a recorded event (status, amount
+  and decision checks).
+- Rewriting history wholesale and re-anchoring it: the registry refuses to replace a batch, and
+  verifiers read the old root.
+- Paying out an edited or unauthorised payout (the payout gate).
+- Inflating a seller's sales count (each counted sale needs a proof).
+
+**Not caught, by design:**
+
+- **The window before anchoring.** An event deleted or edited before its batch is anchored leaves
+  no on-chain trace. This window lasts one worker interval plus confirmations (about a minute on
+  Base). The payout gate closes it for money leaving escrow.
+- **Lies at write time.** Anchoring proves the record was not changed afterwards. It does not prove
+  the record was true when written. The M-Pesa and eConfirm confirmations and the custody controls
+  cover that.
+- **Omission from the seller track record.** Proofs show that each listed sale is real. They cannot
+  show that none were left out, so the page speaks only of completed sales.
+- **Custodian balances.** The chain does not prove the money is still at M-Pesa or eConfirm. That
+  needs the custodian's own attestation (a proof-of-reserves follow-up).
+
+The append-only triggers stop bugs and casual edits, but not a table owner or superuser. The
+anchored roots are what catch those.
+
+## 6. Why a public chain
+
+A private log signed by Vekro proves nothing to someone who distrusts Vekro, because Vekro could
+re-sign a different history. A public chain gives a timestamped commitment that nobody, Vekro
+included, can withdraw or replace, and that anyone can read without asking Vekro.
+
+- **Base** is an Ethereum L2: an anchor costs a fraction of a cent, blocks come every ~2 seconds,
+  it is EVM, and its data is secured by Ethereum. Base Sepolia (84532) is used for testing, and
+  Anvil (31337) locally and in CI.
+- **Only roots go on-chain.** Payloads, salts and proofs stay in Vekro's database and are served
+  only to the parties involved, so no personal data is ever published. The exception is completed
+  sales, which are public by design and carry no personal data.
+
+## 7. Operating it
+
+| Task | How |
+| --- | --- |
+| Run the worker | `python -m app.jobs.anchoring run-loop` (exit 3 = halted) |
+| See progress | `GET /admin/anchoring/status` |
+| Local chain | `anvil --port 8545 && make anvil-deploy` |
+| Verify one order | `scripts/verify_transaction.py --transaction-id <uuid>` |
+| Full audit | `scripts/audit_anchoring.py` |
+| Show tampering (never in production) | `scripts/demo_tamper.py <scenario> --reference VK-… --i-understand-this-corrupts-data` |
+| Settings | `.env.example`, M21 block |
+| Runbooks | `docs/runbooks.md` RB-7 to RB-10 |
+| Demo | `docs/demo-script.md` Scenario 6 |
+| Frontend | `docs/frontend-verification-contract.md` |
+
+**Never deploy the registry to Base Sepolia or Base, or send any public-network transaction,
+without the maintainer's explicit go-ahead and a funded key from them.**

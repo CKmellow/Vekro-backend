@@ -166,3 +166,43 @@ RUN_ECONFIRM_LIVE_TESTS=1 ECONFIRM_LIVE_MONEY_CONFIRM=KES100 \
 ECONFIRM_LIVE_PAYER_PHONE=+2547XXXXXXXX ECONFIRM_LIVE_RECEIVER_PHONE=+2547XXXXXXXX \
 .venv/bin/pytest -m live -k econfirm -s
 ```
+
+## Scenario 6: Tamper-evident ledger and anchor before payout (M21)
+
+**Shows**: every money fact sealed on a public chain. A payout waits for its seal, and tampering
+by someone with database access is caught by the buyer, by the full audit, and by the payout gate.
+
+Setup (local, no public network):
+
+```bash
+anvil --port 8545 &
+make anvil-deploy                       # registry 0x5FbDB2315678afecb367f032d93F642f64180aa3
+# .env: ANCHOR_ENABLED=true ANCHOR_RPC_URL=http://127.0.0.1:8545 ANCHOR_CHAIN_ID=31337
+#       ANCHOR_REGISTRY_ADDRESS=0x5FbDB2315678afecb367f032d93F642f64180aa3
+#       ANCHOR_PRIVATE_KEY=<anvil key 0>  ANCHOR_ADMIN_REF_SECRET=<32+ chars>
+#       ANCHOR_GATE_PAYOUTS=true ANCHOR_MIN_CONFIRMATIONS=1
+make run &
+.venv/bin/python -m app.jobs.anchoring run-loop &
+```
+
+1. **Normal order, sealed.** Run Scenario 1 up to the buyer's delivery-code confirmation. The
+   payout is queued but **held**: `GET /admin/anchoring/status` shows
+   `payouts_waiting_for_anchor: 1`. Within one worker interval the batch is confirmed. The next
+   payout executor run pays, and the buyer's order page shows "Tamper-evident record: every step
+   of this order is sealed and checks out."
+2. **Independent check.** Download the receipt from the order page, then run
+   `.venv/bin/python scripts/verify_transaction.py --bundle receipt.json` → `VERIFIED`. The roots
+   come from Anvil, not from Vekro.
+3. **Insider edits history.** `.venv/bin/python scripts/demo_tamper.py edit-ledger --reference
+   VK-… --i-understand-this-corrupts-data`, then `scripts/audit_anchoring.py` → `TAMPERED:
+   source_row_changed`. Repeat with `change-status`: the order page now says "This record doesn't
+   match its seal", and the script reports `status_mismatch`.
+4. **Insider redirects a payout.** Create a second order up to release. Before the executor runs,
+   change the payout attempt's `request_snapshot.destination_phone` in the database. The executor
+   **halts** the payout (`anchor_mismatch_halted`, audited once), and no money moves.
+5. **Seller reputation.** Open the seller's Trust Link: "N verified sales". Each count is a sale
+   whose proof the browser checked against the registry.
+
+Talking points: only Merkle roots go on-chain, so no personal data is published. Each anchor costs
+a fraction of a cent on Base. The registry cannot overwrite or reorder history. The honest limits
+are in `docs/anchoring.md` section 5.

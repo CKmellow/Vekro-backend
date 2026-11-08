@@ -652,6 +652,7 @@ Migration notes:
 - 2026-11-08: M22 #255 the card return URL is `FRONTEND_URL/pay/return?order=<id>&ref=<reference>`, so the return page can read the order and call `payment/refresh`; the result always comes from the API.
 - 2026-11-08: M22 #257 `transactions.collection_rail` and `payment_mode` (migration d7e2b5c9a1f3 with backfill from eConfirm custody, card orders and Daraja checkout ids), set at creation (and on eConfirm fallback), exposed on the API, and anchored in the funding events' details (`callback_funding_recorded`, `callback_funding_confirmed`, `econfirm_funding_confirmed`).
 - 2026-11-08: M24 #259 Merkle sum tree for proof of liabilities (`app/services/anchoring/sum_tree.py`): salted leaves commit to a buyer-recomputable order commitment and an amount in cents; nodes commit to both children and their sum (uint64, range-checked); golden vectors `tests/fixtures/anchoring/sum_tree_vectors.json` with must-fail cases (tampered amount, omitted escrow, understated total, negative or overflowing sums, wrong side).
+- 2026-11-08: M24 #261 liabilities snapshot: `liabilities_snapshots` / `liabilities_leaves` (migration e5a9c3d1f7b2), `python -m app.cli liabilities-snapshot` anchors the root and total held as a global `liabilities_snapshot` event (no per-order data), `GET /transactions/{id}/liabilities-proof` (buyer or admin) serves the leaf, salt, sum proof and anchored event; `docs/anchoring.md` 4b says what it proves and what it does not.
 
 ## Operator commands
 

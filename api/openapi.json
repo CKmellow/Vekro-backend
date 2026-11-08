@@ -2817,6 +2817,56 @@
         }
       }
     },
+    "/transactions/{transaction_id}/liabilities-proof": {
+      "get": {
+        "tags": [
+          "Verification"
+        ],
+        "summary": "Proof the order's held money is counted in Vekro's published total (buyer, admin)",
+        "description": "The order's leaf, salt and Merkle sum proof in the latest liabilities snapshot, the snapshot's root and total, and the anchored liabilities_snapshot event with its batch proof. The browser checks the leaf is this order's (order_commit), folds the proof (no negative or overflowing sums), compares the root and total with the anchored payload, and reads the batch root from the AnchorRegistry. 404 when the order is not held now.",
+        "operationId": "get_liabilities_proof_transactions__transaction_id__liabilities_proof_get",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiabilitiesProofResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "404": {
+            "description": "Not the caller's order, or no held money for it in the latest snapshot."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/anchoring/batches/{batch_id}": {
       "get": {
         "tags": [
@@ -6372,6 +6422,65 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "LiabilitiesProofResponse": {
+        "properties": {
+          "snapshot_id": {
+            "type": "integer",
+            "title": "Snapshot Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "root": {
+            "$ref": "#/components/schemas/SumNodeResponse"
+          },
+          "total": {
+            "type": "string",
+            "title": "Total",
+            "description": "KES held for all buyers at the snapshot."
+          },
+          "leaf_count": {
+            "type": "integer",
+            "title": "Leaf Count"
+          },
+          "leaf": {
+            "$ref": "#/components/schemas/SumLeafResponse"
+          },
+          "proof": {
+            "items": {
+              "$ref": "#/components/schemas/SumProofStepResponse"
+            },
+            "type": "array",
+            "title": "Proof"
+          },
+          "anchor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VerificationEventResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The liabilities_snapshot event in the global chain, with its batch proof; null until anchoring is on."
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshot_id",
+          "created_at",
+          "root",
+          "total",
+          "leaf_count",
+          "leaf",
+          "proof",
+          "anchor"
+        ],
+        "title": "LiabilitiesProofResponse",
+        "description": "Proof that this order's held amount is counted in Vekro's anchored total (M24 B2)."
+      },
       "ListingListResponse": {
         "properties": {
           "items": {
@@ -8692,6 +8801,76 @@
           "server_time"
         ],
         "title": "SellerTrackRecordResponse"
+      },
+      "SumLeafResponse": {
+        "properties": {
+          "salt": {
+            "type": "string",
+            "title": "Salt"
+          },
+          "order_commit": {
+            "type": "string",
+            "title": "Order Commit",
+            "description": "keccak256(\"vekro-liability-order:\" + the order id): recompute it to check the leaf is this order's."
+          },
+          "amount_cents": {
+            "type": "string",
+            "title": "Amount Cents"
+          }
+        },
+        "type": "object",
+        "required": [
+          "salt",
+          "order_commit",
+          "amount_cents"
+        ],
+        "title": "SumLeafResponse"
+      },
+      "SumNodeResponse": {
+        "properties": {
+          "hash": {
+            "type": "string",
+            "title": "Hash"
+          },
+          "sum": {
+            "type": "string",
+            "title": "Sum",
+            "description": "Cents, as a decimal string (may exceed 2**53)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "hash",
+          "sum"
+        ],
+        "title": "SumNodeResponse"
+      },
+      "SumProofStepResponse": {
+        "properties": {
+          "sibling_hash": {
+            "type": "string",
+            "title": "Sibling Hash"
+          },
+          "sibling_sum": {
+            "type": "string",
+            "title": "Sibling Sum"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right"
+            ],
+            "title": "Side"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sibling_hash",
+          "sibling_sum",
+          "side"
+        ],
+        "title": "SumProofStepResponse"
       },
       "TimelineEventResponse": {
         "properties": {

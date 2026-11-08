@@ -1151,10 +1151,43 @@ def _record_simulated_callback_funding(db: Session, transaction: Transaction, *,
         )
 
 
+def _record_confirmed_callback_funding(
+    db: Session, transaction: Transaction, *, rail: str, payload: PaymentCallbackRequest
+) -> None:
+    """Record the escrow as funded once the provider itself confirmed the payment (#224), in
+    every environment. Idempotent, like the simulated path."""
+    service = EscrowService(db)
+    if not service.ledger_ready():
+        return
+    escrow = service.escrow_for(transaction)
+    if post_escrow_funding(
+        db,
+        escrow,
+        idempotency_key=f"callback-funding:{transaction.id}",
+        description=f"Funding confirmed by {rail} status query",
+    ):
+        record_money_audit_event(
+            db,
+            action="callback_funding_confirmed",
+            actor_type=ACTOR_PROVIDER,
+            reason=f"Payment confirmed by a {rail} status query.",
+            transaction_id=transaction.id,
+            escrow_id=escrow.id,
+            provider_reference=payload.provider_reference or payload.checkout_request_id,
+            rail_name=rail,
+            amount=escrow.amount_total,
+            currency=escrow.currency,
+        )
+
+
 def confirm_payment_callback(
     db: Session,
     payload: PaymentCallbackRequest,
+    *,
+    confirmed_by: str | None = None,
 ) -> PaymentCallbackResult:
+    """Lock a paid transaction. ``confirmed_by`` names the provider that confirmed the payment
+    itself (an STK query, #224); only then is funding posted in production."""
     transaction = db.get(Transaction, payload.transaction_id)
     if transaction is None:
         raise TransactionNotFoundForCallbackError("Transaction not found.")
@@ -1230,7 +1263,10 @@ def confirm_payment_callback(
     )
     transaction.locked_at = datetime.now(UTC)
     resolve_open_prompt(db, transaction.id, result_code=0, now=transaction.locked_at)
-    _record_simulated_callback_funding(db, transaction, settings=get_settings())
+    if confirmed_by is not None:
+        _record_confirmed_callback_funding(db, transaction, rail=confirmed_by, payload=payload)
+    else:
+        _record_simulated_callback_funding(db, transaction, settings=get_settings())
     _create_locked_notifications(
         db,
         transaction=transaction,

@@ -20,6 +20,7 @@ from app.routers.health import router as health_router
 from app.routers.listings import router as listings_router
 from app.routers.loop_webhooks import router as loop_webhooks_router
 from app.routers.money_audit_admin import router as money_audit_admin_router
+from app.routers.mpesa_webhooks import router as mpesa_webhooks_router
 from app.routers.notifications import router as notifications_router
 from app.routers.pesapal_webhooks import router as pesapal_webhooks_router
 from app.routers.protected import router as protected_router
@@ -210,6 +211,7 @@ app.include_router(verification_router)
 app.include_router(simulated_custody_admin_router)
 app.include_router(loop_webhooks_router)
 app.include_router(pesapal_webhooks_router)
+app.include_router(mpesa_webhooks_router)
 app.include_router(public_orders_router)
 app.include_router(seller_profile_router)
 app.include_router(account_router)

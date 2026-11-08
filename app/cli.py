@@ -13,6 +13,9 @@ anchor-backfill: create anchor events for history written before M21, once (docs
 
 anchor-sales-backfill: record track-record events for completed sales from before M21 A9.
 Idempotent.
+
+confirm-mpesa-payments: query Daraja for open STK prompts from the last day whose callback never
+arrived, and lock the orders it confirms (#224). Needs DARAJA_ENABLED=true.
 """
 
 from __future__ import annotations
@@ -122,6 +125,23 @@ def anchor_sales_backfill() -> int:
     return 0
 
 
+def confirm_mpesa_payments() -> int:
+    from app.core.settings import get_settings
+    from app.services.daraja import DarajaClient
+    from app.services.daraja_confirmation import confirm_pending_payments
+
+    settings = get_settings()
+    if not settings.daraja_enabled:
+        print("Daraja is disabled (DARAJA_ENABLED=false); nothing to do.", file=sys.stderr)
+        return 2
+    with _session() as db:
+        outcomes = confirm_pending_payments(db, client=DarajaClient.from_settings(settings))
+    for transaction_id, outcome in outcomes.items():
+        print(f"{transaction_id} {outcome}")
+    print(f"Checked {len(outcomes)} open payment prompt(s).")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -143,6 +163,9 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser(
         "anchor-sales-backfill", help="Record completed sales for the sellers' track records."
     )
+    commands.add_parser(
+        "confirm-mpesa-payments", help="Confirm open STK prompts whose callback never arrived."
+    )
     args = parser.parse_args(argv)
 
     if args.command == "repair-return-cases":
@@ -153,6 +176,8 @@ def main(argv: list[str] | None = None) -> int:
         return anchor_backfill(resume=args.resume)
     if args.command == "anchor-sales-backfill":
         return anchor_sales_backfill()
+    if args.command == "confirm-mpesa-payments":
+        return confirm_mpesa_payments()
 
     password = os.environ.get(PASSWORD_ENV, "")
     if not password:

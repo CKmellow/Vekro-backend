@@ -43,7 +43,13 @@ from app.services.anchoring.canonical import (
 )
 from app.services.anchoring.chain import ChainUnavailableError
 from app.services.anchoring.merkle import merkle_root
-from app.services.anchoring.recorder import AUDIT_TABLE, LEDGER_TABLE, TRANSACTIONS_TABLE
+from app.services.anchoring.recorder import (
+    AUDIT_TABLE,
+    LEDGER_TABLE,
+    SELLER_SALES_SOURCE,
+    TRANSACTIONS_TABLE,
+)
+from app.services.transitions import SALE_STATUSES
 
 AuditVerdict = Literal["CLEAN", "TAMPERED", "UNAVAILABLE"]
 
@@ -208,11 +214,44 @@ def _audit_sources(
             )
             if not has_snapshot:
                 report.add("event_missing", "Transaction has no creation event.", transaction.id)
+    transactions = {str(item.id): item for item in db.execute(select(Transaction)).scalars()}
     for (table, source_id), event in by_source.items():
+        if table == SELLER_SALES_SOURCE:
+            _audit_sale(report, transactions.get(source_id), bodies.get(event.id, {}), source_id)
+            continue
         report.add(
             "source_missing",
             f"{table} row {source_id} was anchored but no longer exists.",
             event.transaction_id,
+        )
+    recorded_sales = {source_id for (table, source_id) in by_source if table == SELLER_SALES_SOURCE}
+    for transaction_id, transaction in transactions.items():
+        if transaction.status in SALE_STATUSES and transaction_id not in recorded_sales:
+            report.add(
+                "sale_event_missing",
+                "A completed sale has no track-record event (run anchor-sales-backfill).",
+                transaction_id,
+            )
+
+
+def _audit_sale(
+    report: AuditReport,
+    transaction: Transaction | None,
+    body: dict[str, Any],
+    source_id: str,
+) -> None:
+    """A public sale must be a real completed sale of the seller it names, under its own ref."""
+    if (
+        transaction is None
+        or transaction.status not in SALE_STATUSES
+        or body.get("seller_id") != str(transaction.seller_id)
+        or body.get("sale_ref") != payloads.sale_ref(transaction.id)
+        or body.get("amount_band") != payloads.amount_band(transaction.amount)
+    ):
+        report.add(
+            "sale_record_mismatch",
+            "A track-record sale does not match a completed sale of that seller.",
+            source_id,
         )
 
 

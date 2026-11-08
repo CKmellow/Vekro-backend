@@ -9,10 +9,15 @@ from app.core.settings import get_settings
 from app.db.session import get_db
 from app.models.anchor_batch import AnchorBatch
 from app.models.transaction import Transaction
-from app.models.user import UserRole
-from app.schemas.anchoring import PublicBatchResponse, TransactionVerificationResponse
+from app.models.user import User, UserRole
+from app.schemas.anchoring import (
+    PublicBatchResponse,
+    SellerTrackRecordResponse,
+    TransactionVerificationResponse,
+)
 from app.services.anchoring.canonical import hex32
 from app.services.anchoring.chain_config import SUPPORTED_CHAINS
+from app.services.anchoring.track_record import seller_track_record
 from app.services.anchoring.verification import build_transaction_verification
 from app.services.public_order import PublicLookupRateLimitedError, check_lookup_quota
 
@@ -70,14 +75,7 @@ def get_public_batch(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
 ) -> PublicBatchResponse:
-    try:
-        check_lookup_quota("anchoring:" + get_client_identifier(request))
-    except PublicLookupRateLimitedError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many lookups. Please wait a moment.",
-            headers={"Retry-After": str(exc.retry_after_seconds)},
-        ) from exc
+    _check_public_quota(request)
     batch = db.get(AnchorBatch, batch_id)
     if batch is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Batch not found.")
@@ -96,3 +94,41 @@ def get_public_batch(
         network=SUPPORTED_CHAINS.get(batch.chain_id),
         registry_address=batch.registry_address,
     )
+
+
+@router.get(
+    "/sellers/{seller_id}/track-record",
+    response_model=SellerTrackRecordResponse,
+    summary="A seller's verifiable track record (public)",
+    description=(
+        "Each completed sale as a public, anchored event (seller, outcome, amount band; no buyer "
+        "or order) with its Merkle proof, so anyone can check the count against the "
+        "AnchorRegistry. Rate-limited per client."
+    ),
+    responses={
+        status.HTTP_404_NOT_FOUND: {"description": "No such seller."},
+        status.HTTP_429_TOO_MANY_REQUESTS: {"description": "Too many lookups. See Retry-After."},
+    },
+)
+def get_seller_track_record(
+    seller_id: uuid.UUID,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+) -> SellerTrackRecordResponse:
+    _check_public_quota(request)
+    seller = db.get(User, seller_id)
+    if seller is None or seller.role != UserRole.SELLER:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Seller not found.")
+    record = seller_track_record(db, seller_id, get_settings())
+    return SellerTrackRecordResponse.model_validate(record)
+
+
+def _check_public_quota(request: Request) -> None:
+    try:
+        check_lookup_quota("anchoring:" + get_client_identifier(request))
+    except PublicLookupRateLimitedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many lookups. Please wait a moment.",
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc

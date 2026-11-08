@@ -2819,6 +2819,56 @@
         }
       }
     },
+    "/sellers/{seller_id}/track-record": {
+      "get": {
+        "tags": [
+          "Verification"
+        ],
+        "summary": "A seller's verifiable track record (public)",
+        "description": "Each completed sale as a public, anchored event (seller, outcome, amount band; no buyer or order) with its Merkle proof, so anyone can check the count against the AnchorRegistry. Rate-limited per client.",
+        "operationId": "get_seller_track_record_sellers__seller_id__track_record_get",
+        "parameters": [
+          {
+            "name": "seller_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Seller Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SellerTrackRecordResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such seller."
+          },
+          "429": {
+            "description": "Too many lookups. See Retry-After."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/simulated-custody/collections/force-complete": {
       "post": {
         "tags": [
@@ -8207,6 +8257,50 @@
         ],
         "title": "SellerSummaryResponse",
         "description": "Money totals for the seller dashboard. Months are calendar months in EAT."
+      },
+      "SellerTrackRecordResponse": {
+        "properties": {
+          "seller_id": {
+            "type": "string",
+            "title": "Seller Id"
+          },
+          "chain": {
+            "$ref": "#/components/schemas/VerificationChainResponse"
+          },
+          "completed_sales": {
+            "type": "integer",
+            "title": "Completed Sales",
+            "description": "Completed sales in Vekro's records (unverified)."
+          },
+          "recorded_sales": {
+            "type": "integer",
+            "title": "Recorded Sales",
+            "description": "Of those, how many have a track-record event."
+          },
+          "sales": {
+            "items": {
+              "$ref": "#/components/schemas/VerificationEventResponse"
+            },
+            "type": "array",
+            "title": "Sales",
+            "description": "Newest first, at most 200: each sale's public payload (seller, outcome, amount band, unlinkable sale_ref) with its proof. Count as verified only the sales whose proof matches the registry root and whose payload names this seller."
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Server Time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "seller_id",
+          "chain",
+          "completed_sales",
+          "recorded_sales",
+          "sales",
+          "server_time"
+        ],
+        "title": "SellerTrackRecordResponse"
       },
       "TimelineEventResponse": {
         "properties": {

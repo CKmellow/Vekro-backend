@@ -7,6 +7,8 @@ are facts whose record is the event log itself.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -15,7 +17,7 @@ from typing import Any
 from app.models.ledger_entry import LedgerEntry
 from app.models.money_audit_event import MoneyAuditEvent
 from app.models.transaction import Transaction
-from app.services.anchoring.admin_ref import admin_ref
+from app.services.anchoring.admin_ref import admin_ref, configured_keys
 from app.services.anchoring.canonical import (
     hex32,
     money,
@@ -36,6 +38,8 @@ ADMIN_DECISION = "admin_decision"
 BACKFILL_SNAPSHOT = "backfill_snapshot"
 BACKFILL_COMPLETED = "backfill_completed"
 GLOBAL_EVENT_LINKED = "global_event_linked"
+# A9: a completed sale in the global chain, public on the seller's track record.
+SELLER_SALE_COMPLETED = "seller_sale_completed"
 
 DISPUTE_OPENED = "dispute_opened"
 DISPUTE_RETURN_SENT = "dispute_return_sent"
@@ -250,3 +254,39 @@ def backfill_snapshot_payload(transaction: Transaction, dispute: Any, *, at: dat
 
 def backfill_completed_payload(*, at: datetime, counts: dict[str, int]) -> dict:
     return {**envelope(BACKFILL_COMPLETED, None, at, backfilled=True), "counts": counts}
+
+
+# Upper bounds (KES) of the public amount bands; above the last is "100k_plus".
+AMOUNT_BANDS = (
+    (Decimal("1000"), "under_1k"),
+    (Decimal("5000"), "1k_5k"),
+    (Decimal("20000"), "5k_20k"),
+    (Decimal("100000"), "20k_100k"),
+)
+
+
+def amount_band(amount: Decimal) -> str:
+    for limit, band in AMOUNT_BANDS:
+        if amount < limit:
+            return band
+    return "100k_plus"
+
+
+def sale_ref(transaction_id: uuid.UUID, *, keys: list[str] | None = None) -> str:
+    """Unlinkable public name for a sale: nobody outside Vekro can tie it to an order."""
+    key = (keys or configured_keys())[0]
+    message = ("sale:" + str(uuid.UUID(str(transaction_id)))).encode("utf-8")
+    return hmac.new(key.encode("utf-8"), message, hashlib.sha256).hexdigest()
+
+
+def seller_sale_payload(
+    transaction: Transaction, *, outcome: str, at: datetime, backfilled: bool = False
+) -> dict[str, Any]:
+    """Public by design: the seller, the outcome and an amount band. No buyer, no order id."""
+    return {
+        **envelope(SELLER_SALE_COMPLETED, None, at, backfilled=backfilled),
+        "seller_id": uuid_text(transaction.seller_id),
+        "sale_ref": sale_ref(transaction.id),
+        "outcome": outcome,
+        "amount_band": amount_band(Decimal(transaction.amount)),
+    }

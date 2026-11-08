@@ -1,0 +1,6 @@
+{
+  "body": {
+    "message": "No HTTP resource was found that matches the request URI 'https://cybqa.pesapal.com/pesapalv3/api/Transactions/RegisterIPN'."
+  },
+  "http_status": 404
+}

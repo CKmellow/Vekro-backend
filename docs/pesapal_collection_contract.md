@@ -27,7 +27,7 @@ This integration follows Pesapal v3 sandbox contract semantics.
   - Token refresh is proactive when less than 60 seconds remain.
 
 2. IPN registration (one-off admin action)
-- Endpoint: `POST /api/Transactions/RegisterIPN`
+- Endpoint: `POST /api/URLSetup/RegisterIPN` (corrected in #249; `/api/Transactions/RegisterIPN` answers 404)
 - Purpose: register callback URL and capture reusable `ipn_id`.
 - Operational rule: registration is an admin or CLI action, not a runtime request path for each checkout.
 

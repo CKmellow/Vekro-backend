@@ -41,7 +41,7 @@ def test_register_ipn_extracts_nested_ipn_id(monkeypatch: pytest.MonkeyPatch) ->
 
     assert ipn_id == "ipn-900"
     assert observed["method"] == "POST"
-    assert str(observed["url"]).endswith("/api/Transactions/RegisterIPN")
+    assert str(observed["url"]).endswith("/api/URLSetup/RegisterIPN")  # documented path (#249)
     headers = dict(observed["headers"] or {})
     payload = dict(observed["payload"] or {})
     assert headers["Authorization"] == "Bearer pesapal-token"

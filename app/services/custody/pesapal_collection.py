@@ -29,7 +29,15 @@ _FAILED_STATUS_VALUES = {
     "canceled",
 }
 _TERMINAL_SUCCESS_STATES = {"completed", "paid", "successful", "succeeded"}
-_TERMINAL_FAILED_STATES = {"failed", "cancelled", "canceled", "invalid", "rejected"}
+# "invalid" is not here: Pesapal answers INVALID (status_code 0) for an order nobody has paid yet
+# (docs/pesapal-observed.md 5), so it is pending, never a failure (#249).
+_TERMINAL_FAILED_STATES = {"failed", "cancelled", "canceled", "rejected", "reversed"}
+# GetTransactionStatus status_code, as documented: 0 INVALID, 1 COMPLETED, 2 FAILED, 3 REVERSED.
+_STATUS_CODE_OUTCOMES = {
+    1: (CollectionOutcome.SUCCEEDED, "completed"),
+    2: (CollectionOutcome.FAILED_DEFINITE, "failed"),
+    3: (CollectionOutcome.FAILED_DEFINITE, "reversed"),
+}
 _PENDING_STATES = {"pending", "processing", "queued", "waiting", "initiated"}
 
 
@@ -57,13 +65,9 @@ class PesapalCollectionRail:
         self._transport = transport or default_pesapal_http_transport
         self._timeout_seconds = timeout_seconds
         self._now_fn = now_fn or (lambda: datetime.now(UTC))
+        # The registry builds this rail even when Pesapal is disabled, so a missing IPN id is
+        # reported there (only when enabled) and by request_funding, not here (#249).
         self._logger = logger or logging.getLogger("app.custody.pesapal.collection")
-
-        if not self._ipn_id:
-            self._logger.warning(
-                "pesapal_ipn_id_missing PESAPAL_ENABLED=true but PESAPAL_IPN_ID is blank; "
-                "submit-order requests may fail until IPN registration is completed."
-            )
 
     def request_funding(self, request: FundingRequest) -> CollectionResult:
         if not self._ipn_id:
@@ -82,10 +86,10 @@ class PesapalCollectionRail:
             "id": request.account_reference,
             "currency": request.currency,
             "amount": float(request.amount),
-            "description": f"Escrow funding for {request.escrow_reference}",
+            # Documented fields only (docs/pesapal-observed.md 3): description max 100 characters.
+            "description": f"Vekro escrow {request.escrow_reference}"[:100],
             "callback_url": self._callback_url,
             "notification_id": self._ipn_id,
-            "reference": request.escrow_reference,
             "billing_address": {
                 "phone_number": request.phone_number,
             },
@@ -248,12 +252,18 @@ class PesapalCollectionRail:
                 },
             )
 
-        if status_value in _TERMINAL_SUCCESS_STATES:
+        code = _status_code(body.get("status_code"))
+        if code in _STATUS_CODE_OUTCOMES:
+            outcome, status_value = _STATUS_CODE_OUTCOMES[code]
+        elif code is not None:
+            # 0 INVALID ("Pending Payment" before anyone pays) or a code Vekro does not know.
+            outcome = CollectionOutcome.UNKNOWN
+            error = body.get("error") if isinstance(body.get("error"), dict) else {}
+            status_value = str(error.get("code") or status_value or "invalid").strip().lower()
+        elif status_value in _TERMINAL_SUCCESS_STATES:
             outcome = CollectionOutcome.SUCCEEDED
         elif status_value in _TERMINAL_FAILED_STATES:
             outcome = CollectionOutcome.FAILED_DEFINITE
-        elif status_value in _PENDING_STATES:
-            outcome = CollectionOutcome.UNKNOWN
         else:
             outcome = CollectionOutcome.UNKNOWN
 
@@ -265,6 +275,12 @@ class PesapalCollectionRail:
             metadata={
                 "order_tracking_id": provider_reference,
                 "redirect_url": None,
+                # What was actually paid: card funding is recorded only for the exact amount.
+                "amount": _text_or_none(body.get("amount")),
+                "currency": _text_or_none(body.get("currency")),
+                "merchant_reference": _text_or_none(body.get("merchant_reference")),
+                "confirmation_code": _text_or_none(body.get("confirmation_code")),
+                "payment_method": _text_or_none(body.get("payment_method")),
             },
         )
 
@@ -281,6 +297,20 @@ class PesapalCollectionRail:
             response.status_code,
             _redact_payload(body),
         )
+
+
+def _status_code(value: Any) -> int | None:
+    if isinstance(value, bool) or value is None or str(value).strip() == "":
+        return None
+    try:
+        return int(str(value).strip())
+    except ValueError:
+        return None
+
+
+def _text_or_none(value: Any) -> str | None:
+    text = str(value).strip() if value is not None else ""
+    return text or None
 
 
 def _normalized_status(body: dict[str, Any], *, keys: tuple[str, ...]) -> str:

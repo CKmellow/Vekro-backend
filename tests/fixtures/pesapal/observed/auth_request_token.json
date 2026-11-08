@@ -1,0 +1,10 @@
+{
+  "body": {
+    "error": null,
+    "expiryDate": "2026-11-08T12:47:12.0676283Z",
+    "message": "Request processed successfully",
+    "status": "200",
+    "token": "<redacted>"
+  },
+  "http_status": 200
+}

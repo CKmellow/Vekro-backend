@@ -149,8 +149,15 @@ def test_any_single_bit_change_in_salt_or_prev_changes_the_leaf(
     assert changed != original
 
 
+_VALID_TEXT = st.characters(blacklist_categories=("Cs",))  # canonical JSON refuses lone surrogates
+
+
 @settings(max_examples=100, deadline=None)
-@given(payload=st.text(min_size=1), position=st.integers(min_value=0), char=st.characters())
+@given(
+    payload=st.text(_VALID_TEXT, min_size=1),
+    position=st.integers(min_value=0),
+    char=_VALID_TEXT,
+)
 def test_any_payload_change_changes_the_leaf(payload, position, char) -> None:
     index = position % len(payload)
     edited = payload[:index] + char + payload[index + 1 :]

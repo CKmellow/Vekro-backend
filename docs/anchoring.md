@@ -83,6 +83,53 @@ Verdicts: **VERIFIED**, **PARTIALLY_PENDING** (intact, some events not anchored 
 **UNAVAILABLE** (registry unreachable). The server never states a verdict. It serves data
 (`GET /transactions/{id}/verification`), and the verifier reads each root from the chain itself.
 
+## 4a. Personal data in payloads
+
+Every payload of an order is served, with its salt, to **both** parties
+(`GET /transactions/{id}/verification`). A party can only check a hash over the whole payload, so
+nothing can be stripped from one party's copy. The rule is therefore that no payload names a
+person except by UUID or keyed reference:
+
+| Event type | Personal data, and how it is kept out | Buyer sees | Seller sees |
+| --- | --- | --- | --- |
+| `transaction_created` | buyer and seller UUIDs only | same | same |
+| `transaction_transition` | actor UUID (admins as `actor_ref`); `door_rejection_reason` is a code | same | same |
+| `dispute_*` | party-written text as `text_keccak` only (D4) | same | same |
+| `admin_decision` | admin as `admin_ref`; the reason is the admin's own wording, shown to both parties anyway | same | same |
+| `ledger_entry` | descriptions and idempotency keys use Vekro IDs; the simulated rail's references appear only as a SHA-256 digest | same | same |
+| `money_audit` | payout destinations as `destination_ref`; provider references as `provider_ref`; webhook dedupe keys as `dedupe_ref` (#241) | same | same |
+| `global_event_linked` | `provider_ref` (#241) | same | same |
+| `seller_sale_completed` | public by design: seller, outcome, amount band; no buyer, no order id (`sale_ref`) | - | - |
+
+**`provider_ref` (#241).** Provider references are not safe to show: Daraja's `CheckoutRequestID`
+ends with the payer's subscriber number (`docs/daraja-observed.md`). `money_audit_events`, its
+`correlation_id`, log lines, notifications and every payload hold
+`provider_ref = hex(HMAC-SHA256(key, "provider:" + raw))` with the `ANCHOR_ADMIN_REF_SECRET` keys
+(`app/services/anchoring/provider_ref.py`). The raw value stays only in the private tables that
+talk to providers (`payment_prompts`, `collection_attempts`, `payout_attempts`,
+`provider_events`, the escrow's custody columns). Admins can still search the money audit by the
+provider's own reference: `GET /admin/audit/money-events?provider_reference=` hashes it under
+every configured key.
+
+The test suite enforces this: `tests/conftest.py` inspects every anchor event any test writes and
+fails on an e-mail address, a phone number (`+254`, `254`, `07`, `01`) or any run of 9 or more digits
+(`tests/pii_guard.py`).
+
+**Rows written before #241.** `anchor_events` and `money_audit_events` are append-only (database
+triggers), and that stays so: old rows are not rewritten. Nothing has been anchored on a public
+chain, and every database so far is a development one, so reset instead:
+
+```bash
+# local development only: drops all data
+.venv/bin/alembic downgrade base && .venv/bin/alembic upgrade head
+# restart anvil (its state is in memory) and redeploy the registry
+anvil --port 8545 &   # in its own terminal
+make anvil-deploy
+```
+
+If a non-development database ever holds pre-#241 rows, stop and ask the maintainer: those rows
+cannot be edited, and the right fix (re-anchoring, or a documented exception) is a decision.
+
 ## 5. Threat model
 
 **Caught:**

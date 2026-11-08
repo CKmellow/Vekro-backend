@@ -69,12 +69,12 @@ Golden rule for all incidents: **never create a second payout for a purpose that
 
 **Steps**
 
-1. Read the audit event: note `provider_reference`, `rail_name`, `amount`, and `details.failure_code`.
+1. Read the audit event: note `rail_name`, `amount` and `details.failure_code`. Its `provider_reference` is the keyed `provider_ref` (#241); the raw provider reference is on the payout attempt (`payout_attempts.provider_reference`).
 2. Branch on `failure_code`:
    - `insufficient_funded_balance`: the rail accepted the payout, but the escrow has no recorded funding. Confirm the buyer's collection with the provider, record funding through the collection path (webhook, the eConfirm poller, or in non-production the admin simulated force-complete or a simulated payment callback), then rerun the executor. The ledger settles once. In production the payment callback never records funding (#222, #224).
    - `rail_unavailable` / `rail_request_error`: follow RB-1, then rerun the executor.
    - Otherwise (timeout, pending, malformed): rerun the executor. It inquires with the **same** `provider_reference` and never sends a new payout.
-3. If the attempt stays UNKNOWN, look up `provider_reference` in the provider portal:
+3. If the attempt stays UNKNOWN, look up the attempt's raw `provider_reference` in the provider portal:
    - **Provider shows paid**: escalate to an engineer. There is no admin API to force-close an attempt. The engineer must set the attempt to `succeeded`, post the ledger movement with idempotency key `outbox:<attempt_id>`, and insert a `money_audit_events` row with the reason and evidence. Since M21, do both through `EscrowLedger.post_movement` and `record_money_audit_event`, never raw SQL: the services record the anchor events in the same DB transaction, and a row written by hand has none, so the anchoring audit reports it.
    - **Provider shows failed/never received**: escalate to an engineer to mark the attempt `failed_definite` with an audit row. Only after that can a new attempt be queued for the same purpose.
 4. Never retry by queuing a new purpose or editing `provider_reference`.

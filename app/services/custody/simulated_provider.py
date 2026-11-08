@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.models.collection_attempt import AttemptOutcome, CollectionAttempt
 from app.models.escrow import Escrow
 from app.models.payout_attempt import PayoutAttempt
+from app.services.anchoring.provider_ref import stable_digest
 from app.services.custody.dto import (
     CollectionResult,
     CustodyCapabilities,
@@ -276,11 +277,11 @@ class SimulatedCustodyProvider:
 
     @staticmethod
     def _funding_idempotency_key(result: CollectionResult) -> str:
-        return f"sim-funding:{result.provider_reference}"
+        return f"sim-funding:{stable_digest(result.provider_reference)}"
 
     @staticmethod
     def _payout_idempotency_key(payout_type: str, result: PayoutResult) -> str:
-        return f"sim-{payout_type}:{result.provider_reference}"
+        return f"sim-{payout_type}:{stable_digest(result.provider_reference)}"
 
     @staticmethod
     def _format_escrow_reference(escrow_id: uuid.UUID) -> str:

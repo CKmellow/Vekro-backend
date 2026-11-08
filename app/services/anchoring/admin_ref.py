@@ -40,10 +40,10 @@ def configured_keys(settings=None) -> list[str]:
         from app.core.settings import get_settings
 
         settings = get_settings()
-    keys = parse_keys(settings.anchor_admin_ref_secret)
+    keys = parse_keys(getattr(settings, "anchor_admin_ref_secret", ""))
     if keys:
         return keys
-    if (settings.environment or "").strip().lower() == "production":
+    if (getattr(settings, "environment", "") or "").strip().lower() == "production":
         raise RuntimeError("ANCHOR_ADMIN_REF_SECRET is required in production.")
     if not _warned:
         _logger.warning(

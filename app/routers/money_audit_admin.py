@@ -31,7 +31,13 @@ def admin_list_money_audit_events(
     current_user: Annotated[User, Depends(require_admin_user)],
     db: Annotated[Session, Depends(get_db)],
     transaction_id: uuid.UUID | None = None,
-    provider_reference: Annotated[str | None, Query(max_length=120)] = None,
+    provider_reference: Annotated[
+        str | None,
+        Query(
+            max_length=120,
+            description="The provider's own reference, or a provider_ref read off an event.",
+        ),
+    ] = None,
     rail_name: Annotated[str | None, Query(max_length=40)] = None,
     action: Annotated[str | None, Query(max_length=60)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,

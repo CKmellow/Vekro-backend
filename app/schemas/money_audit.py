@@ -23,11 +23,15 @@ class MoneyAuditEventResponse(BaseModel):
         default=None, description="Affected collection or payout attempt."
     )
     provider_reference: str | None = Field(
-        default=None, description="Provider reference for the rail operation."
+        default=None,
+        description=(
+            "Keyed provider_ref (HMAC) of the provider's reference, never the raw value: some "
+            "provider references carry the payer's phone number (#241)."
+        ),
     )
     rail_name: str | None = Field(default=None, description="Rail that handled the operation.")
     correlation_id: str = Field(
-        description="Correlation key combining transaction_id, provider_reference, and rail."
+        description="Correlation key combining transaction_id, provider_ref, and rail."
     )
     amount: Decimal | None = Field(default=None, description="Amount moved or requested.")
     currency: str | None = Field(default=None, description="ISO currency code.")

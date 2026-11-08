@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models.money_audit_event import MoneyAuditEvent
+from app.services.anchoring.provider_ref import candidate_refs, provider_ref
 from app.services.anchoring.recorder import record_money_audit
 
 ACTOR_USER = "user"
@@ -60,6 +61,10 @@ def record_money_audit_event(
     details: dict[str, Any] | None = None,
     occurred_at: datetime | None = None,
 ) -> MoneyAuditEvent | None:
+    """``provider_reference`` is the raw provider value; the row, the log line and the anchored
+    payload only ever hold its keyed ``provider_ref`` (#241)."""
+    raw_reference = provider_reference
+    provider_reference = provider_ref(raw_reference)
     correlation_id = build_correlation_id(
         transaction_id=transaction_id,
         provider_reference=provider_reference,
@@ -100,7 +105,7 @@ def record_money_audit_event(
     # Set now, not at flush: the anchor payload is built from it straight away.
     event.occurred_at = occurred_at or datetime.now(UTC)
     db.add(event)
-    record_money_audit(db, event)
+    record_money_audit(db, event, raw_provider_reference=raw_reference)
     return event
 
 
@@ -109,7 +114,9 @@ def list_money_audit_events(db: Session, query: MoneyAuditQuery) -> list[MoneyAu
     if query.transaction_id is not None:
         statement = statement.where(MoneyAuditEvent.transaction_id == query.transaction_id)
     if query.provider_reference:
-        statement = statement.where(MoneyAuditEvent.provider_reference == query.provider_reference)
+        # Admins search by the provider's own reference, or by a provider_ref read off an event.
+        wanted = [query.provider_reference, *candidate_refs(query.provider_reference)]
+        statement = statement.where(MoneyAuditEvent.provider_reference.in_(wanted))
     if query.rail_name:
         statement = statement.where(MoneyAuditEvent.rail_name == query.rail_name)
     if query.action:

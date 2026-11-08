@@ -12,8 +12,8 @@ The backend also logs it at startup (`collection_rails ...`).
 
 | Profile | Settings | M-Pesa | Card | USSD | Where the money sits |
 |---|---|---|---|---|---|
-| **Default** (development, tests, CI) | nothing set | simulated stub: no prompt is sent; the order is paid via `POST /transactions/payment-callback` | not offered yet (M22 P2) | not offered yet (M23) | nowhere: Vekro's ledger rows only (`ESCROW_HELD`) |
-| **Class demo** | `DARAJA_ENABLED=true` + `DARAJA_*`, `make tunnel` | Daraja sandbox STK push to the buyer's real phone; funded only after Vekro's own STK query confirms | not offered yet (M22 P2) | not offered yet (M23) | the sandbox test shortcode 174379 collects; Vekro's ledger records it as held. This is **collection, not custody**: no third party holds it in escrow |
+| **Default** (development, tests, CI) | nothing set | simulated stub: no prompt is sent; the order is paid via `POST /transactions/payment-callback` | not configured | not offered yet (M23) | nowhere: Vekro's ledger rows only (`ESCROW_HELD`) |
+| **Class demo** | `DARAJA_ENABLED=true` + `DARAJA_*`, `make tunnel` | Daraja sandbox STK push to the buyer's real phone; funded only after Vekro's own STK query confirms | Pesapal hosted checkout (with `PESAPAL_*`, `PESAPAL_IPN_ID`, `FRONTEND_URL`); funded only after Vekro's own status query reports COMPLETED for the exact amount | not offered yet (M23) | the sandbox test shortcode 174379 collects; Vekro's ledger records it as held. Card money lands in the merchant's Pesapal account. Both are **collection, not custody**: no third party holds it in escrow |
 | **Real custody** | `ECONFIRM_ENABLED=true` + key + `ECONFIRM_CODE_ENCRYPTION_KEY` | eConfirm (third-party escrow) for amounts in `ECONFIRM_MIN_AMOUNT`-`ECONFIRM_MAX_AMOUNT`; other amounts fall back to Daraja if enabled, else simulated | not offered yet | not offered yet | eConfirm holds the money until release or reversal |
 
 Notes:
@@ -23,6 +23,25 @@ Notes:
   real custody.
 - `CUSTODY_COLLECTION_RAIL_PRIORITY` (LOOP, Pesapal) drives the custody registry and its tests,
   not the buyer's checkout. Pesapal reaches buyers through M22 P2.
+
+## Class demo: card payments (Pesapal)
+
+1. Set `PESAPAL_ENABLED=true`, the sandbox base URL and the public demo keys
+   (`developer.pesapal.com/api3-demo-keys.txt`), and `FRONTEND_URL`.
+2. Register the IPN once. It stores `PESAPAL_IPN_ID` in `.env`:
+   `python -m app.services.custody.pesapal_ipn_registration --callback-url https://<host>/payments/pesapal/ipn --notification-type GET`
+   (export the `PESAPAL_*` values first).
+3. The buyer chooses card. `POST /transactions` with `payment_method: card` answers a `REDIRECT`
+   payment instruction. The buyer pays on Pesapal's page with a test card
+   (`docs/pesapal-observed.md` section 4) and comes back to `FRONTEND_URL/pay/return?ref=<reference>`.
+4. The IPN (`/payments/pesapal/ipn`) and the return page (`POST /transactions/{id}/payment/refresh`)
+   are triggers only. Vekro asks Pesapal for the status and funds the order only for a COMPLETED
+   payment of the exact amount, currency and reference. A mismatch is refused and audited.
+   `python -m app.cli confirm-card-payments` settles open checkouts if neither arrives.
+
+What it proves and what it does not: the buyer sees a real card form and a real authorisation in
+Pesapal's sandbox. The money is collected into the merchant's Pesapal account, so it is not held by
+an independent escrow agent. Refunds for card orders are manual (next: the admin refund queue).
 
 ## Class demo: Daraja round trip
 

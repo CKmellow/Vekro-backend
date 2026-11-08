@@ -20,6 +20,9 @@ when the callback cannot reach Vekro (no tunnel, flaky network): funding never d
 With --watch [SECONDS] it keeps going, querying each open prompt at backed-off intervals (about
 5s doubling to 30s, with jitter, never two queries at once) so the sandbox rate limit is not hit.
 
+confirm-card-payments: ask Pesapal for the status of open card checkouts from the last day and
+lock the orders it reports completed for the exact amount (#251). Needs card payments configured.
+
 payment-rails: print which rail collects M-Pesa, card and USSD payments under the current
 configuration, and where the money sits (docs/demo-modes.md).
 """
@@ -153,6 +156,26 @@ def confirm_mpesa_payments(*, watch_seconds: float | None = None) -> int:
     return 0
 
 
+def confirm_card_payments() -> int:
+    from app.core.settings import get_settings
+    from app.services.card_payments import (
+        build_rail,
+        card_payments_available,
+        confirm_pending_card_payments,
+    )
+
+    settings = get_settings()
+    if not card_payments_available(settings):
+        print("Card payments are not configured (PESAPAL_*, FRONTEND_URL).", file=sys.stderr)
+        return 2
+    with _session() as db:
+        outcomes = confirm_pending_card_payments(db, rail=build_rail(settings))
+    for transaction_id, outcome in outcomes.items():
+        print(f"{transaction_id} {outcome}")
+    print(f"Checked {len(outcomes)} open card checkout(s).")
+    return 0
+
+
 def payment_rails() -> int:
     from app.core.settings import get_settings
     from app.services.payment_rails import describe_collection_rails
@@ -194,6 +217,9 @@ def main(argv: list[str] | None = None) -> int:
         metavar="SECONDS",
         help="Keep confirming, with backoff, for SECONDS (default 900); picks up new prompts.",
     )
+    commands.add_parser(
+        "confirm-card-payments", help="Confirm open Pesapal card checkouts (status query)."
+    )
     commands.add_parser("payment-rails", help="Show which rail collects each payment method.")
     args = parser.parse_args(argv)
 
@@ -207,6 +233,8 @@ def main(argv: list[str] | None = None) -> int:
         return anchor_sales_backfill()
     if args.command == "confirm-mpesa-payments":
         return confirm_mpesa_payments(watch_seconds=args.watch)
+    if args.command == "confirm-card-payments":
+        return confirm_card_payments()
     if args.command == "payment-rails":
         return payment_rails()
 

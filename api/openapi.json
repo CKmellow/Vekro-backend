@@ -1329,6 +1329,52 @@
         }
       }
     },
+    "/transactions/{transaction_id}/payment/refresh": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Check a card payment now (buyer only)",
+        "description": "For a card order, ask Pesapal for the payment's status now, for example when the buyer lands on the return page before Pesapal's IPN. The result is read from Pesapal, never from the return URL; funding is recorded only for a completed payment of the exact amount. Call it once on the return page, then poll the order.",
+        "operationId": "refresh_transaction_card_payment_transactions__transaction_id__payment_refresh_post",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentInstructionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not a buyer."
+          },
+          "404": {
+            "description": "Transaction not found, or the caller is not its buyer."
+          },
+          "422": {
+            "description": "Not a card order."
+          }
+        }
+      }
+    },
     "/transactions/{transaction_id}/payment/resend": {
       "post": {
         "tags": [
@@ -3130,6 +3176,48 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/payments/pesapal/ipn": {
+      "get": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Pesapal IPN (card checkout)",
+        "description": "Pesapal's IPN for card checkouts (register this URL with ipn_notification_type GET or POST). It is only a trigger: Vekro asks Pesapal for the order's status and records funding only for a COMPLETED payment of the exact amount. An IPN for an order Vekro did not send is refused (status 500) and changes nothing.",
+        "operationId": "pesapal_card_ipn_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PesapalIpnAnswer"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Pesapal IPN (card checkout)",
+        "description": "Pesapal's IPN for card checkouts (register this URL with ipn_notification_type GET or POST). It is only a trigger: Vekro asks Pesapal for the order's status and records funding only for a COMPLETED payment of the exact amount. An IPN for an order Vekro did not send is refused (status 500) and changes nothing.",
+        "operationId": "pesapal_card_ipn_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PesapalIpnAnswer"
                 }
               }
             }
@@ -5542,6 +5630,16 @@
             ],
             "title": "Amount",
             "description": "Optional. The escrow amount is always the listing price; if sent, it must match the listing price exactly or the request is rejected."
+          },
+          "payment_method": {
+            "type": "string",
+            "enum": [
+              "mpesa",
+              "card"
+            ],
+            "title": "Payment Method",
+            "description": "mpesa: an M-Pesa prompt on the buyer's phone (payment.kind STK_PROMPT). card: Pesapal's hosted card checkout (payment.kind REDIRECT, send the buyer to payment.redirect_url). Card is refused with 422 when it is not configured.",
+            "default": "mpesa"
           }
         },
         "type": "object",
@@ -7288,7 +7386,8 @@
                   "wrong_pin",
                   "insufficient_funds",
                   "timeout",
-                  "provider_error"
+                  "provider_error",
+                  "declined"
                 ]
               },
               {
@@ -7441,6 +7540,36 @@
         ],
         "title": "PesapalCollectionWebhookResponse",
         "description": "Acknowledgement payload for Pesapal collection callbacks."
+      },
+      "PesapalIpnAnswer": {
+        "properties": {
+          "orderNotificationType": {
+            "type": "string",
+            "title": "Ordernotificationtype"
+          },
+          "orderTrackingId": {
+            "type": "string",
+            "title": "Ordertrackingid"
+          },
+          "orderMerchantReference": {
+            "type": "string",
+            "title": "Ordermerchantreference"
+          },
+          "status": {
+            "type": "integer",
+            "title": "Status",
+            "description": "200: received and processed; 500: refused or not processed."
+          }
+        },
+        "type": "object",
+        "required": [
+          "orderNotificationType",
+          "orderTrackingId",
+          "orderMerchantReference",
+          "status"
+        ],
+        "title": "PesapalIpnAnswer",
+        "description": "The acknowledgement Pesapal documents for an IPN call."
       },
       "PhoneCodeRequest": {
         "properties": {
@@ -8480,6 +8609,16 @@
             "description": "Who holds the money. 'econfirm' is real Tier-1 custody; 'simulated' is the Vekro-side simulated ledger and must never be presented as real money.",
             "default": "simulated"
           },
+          "payment_method": {
+            "type": "string",
+            "enum": [
+              "mpesa",
+              "card"
+            ],
+            "title": "Payment Method",
+            "description": "How the buyer pays: mpesa (STK prompt) or card (Pesapal).",
+            "default": "mpesa"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -8626,6 +8765,16 @@
             "title": "Custody Provider",
             "description": "Who holds the money. 'econfirm' is real Tier-1 custody; 'simulated' is the Vekro-side simulated ledger and must never be presented as real money.",
             "default": "simulated"
+          },
+          "payment_method": {
+            "type": "string",
+            "enum": [
+              "mpesa",
+              "card"
+            ],
+            "title": "Payment Method",
+            "description": "How the buyer pays: mpesa (STK prompt) or card (Pesapal).",
+            "default": "mpesa"
           },
           "created_at": {
             "type": "string",
@@ -8887,6 +9036,16 @@
             "title": "Custody Provider",
             "description": "Who holds the money. 'econfirm' is real Tier-1 custody; 'simulated' is the Vekro-side simulated ledger and must never be presented as real money.",
             "default": "simulated"
+          },
+          "payment_method": {
+            "type": "string",
+            "enum": [
+              "mpesa",
+              "card"
+            ],
+            "title": "Payment Method",
+            "description": "How the buyer pays: mpesa (STK prompt) or card (Pesapal).",
+            "default": "mpesa"
           },
           "created_at": {
             "type": "string",

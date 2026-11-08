@@ -27,6 +27,7 @@ class PaymentFailureReason(StrEnum):
     INSUFFICIENT_FUNDS = "insufficient_funds"
     TIMEOUT = "timeout"
     PROVIDER_ERROR = "provider_error"
+    DECLINED = "declined"  # card payment refused (Pesapal FAILED or REVERSED), #251
 
 
 class PaymentPrompt(Base):

@@ -6,7 +6,8 @@ The choice is made by configuration alone, so it is stated once here and printed
 - M-Pesa: eConfirm (real third-party custody) when it is usable and the amount is inside its
   band; otherwise Daraja when ``DARAJA_ENABLED=true`` (the class-demo profile); otherwise the
   simulated stub, which is the default.
-- Card and USSD are not offered yet.
+- Card: Pesapal's hosted checkout when ``PESAPAL_*`` and ``FRONTEND_URL`` are set (#251).
+- USSD is not offered yet.
 """
 
 from __future__ import annotations
@@ -60,7 +61,19 @@ def describe_collection_rails(settings: Any) -> list[RailRoute]:
         )
     else:
         routes.append(RailRoute("mpesa", "simulated", otherwise, "nowhere: Vekro ledger rows only"))
-    routes.append(RailRoute("card", "none", "not offered", "-"))
+    from app.services.card_payments import card_payments_available
+
+    if card_payments_available(settings):
+        routes.append(
+            RailRoute(
+                "card",
+                "pesapal",
+                "hosted checkout",
+                "the merchant's Pesapal account (collection, not custody)",
+            )
+        )
+    else:
+        routes.append(RailRoute("card", "none", "not configured", "-"))
     routes.append(RailRoute("ussd", "none", "not offered", "-"))
     return routes
 

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.auth_context import CurrentUser, require_buyer_user, require_seller_user
 from app.core.settings import get_settings
 from app.db.session import get_db
-from app.models.transaction import TransactionStatus
+from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User, UserRole
 from app.schemas.payment_prompt import PaymentInstructionResponse, TransactionCreatedResponse
 from app.schemas.transaction import (
@@ -33,6 +33,12 @@ from app.schemas.transaction_detail import (
     TransactionDetailResponse,
     TransactionListResponse,
 )
+from app.services.card_payments import (
+    PAYMENT_METHOD_CARD,
+    card_payments_available,
+    refresh_card_payment,
+)
+from app.services.card_payments import build_rail as build_card_rail
 from app.services.dispute_escalation import (
     EscalationForbiddenError,
     EscalationInvalidStateError,
@@ -369,6 +375,46 @@ def get_timeline(
         TimelineEventResponse(kind=e.kind, at=e.at, title=e.title, description=e.description)
         for e in events
     ]
+
+
+@router.post(
+    "/{transaction_id}/payment/refresh",
+    response_model=PaymentInstructionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Check a card payment now (buyer only)",
+    description=(
+        "For a card order, ask Pesapal for the payment's status now, for example when the buyer "
+        "lands on the return page before Pesapal's IPN. The result is read from Pesapal, never "
+        "from the return URL; funding is recorded only for a completed payment of the exact "
+        "amount. Call it once on the return page, then poll the order."
+    ),
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
+        status.HTTP_403_FORBIDDEN: {"description": "Authenticated user is not a buyer."},
+        status.HTTP_404_NOT_FOUND: {
+            "description": "Transaction not found, or the caller is not its buyer."
+        },
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "Not a card order."},
+    },
+)
+def refresh_transaction_card_payment(
+    transaction_id: uuid.UUID,
+    current_user: Annotated[User, Depends(require_buyer_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> PaymentInstructionResponse:
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None or transaction.buyer_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found.")
+    settings = get_settings()
+    if transaction.payment_method != PAYMENT_METHOD_CARD or not card_payments_available(settings):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Not a card order."
+        )
+    refresh_card_payment(db, transaction, rail=build_card_rail(settings))
+    instruction = _payment_instruction(db, transaction.id)
+    if instruction is None:  # pragma: no cover - a card order always has a checkout
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No card checkout.")
+    return instruction
 
 
 @router.post(

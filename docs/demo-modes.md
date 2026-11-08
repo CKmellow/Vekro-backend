@@ -41,7 +41,8 @@ Notes:
 
 What it proves and what it does not: the buyer sees a real card form and a real authorisation in
 Pesapal's sandbox. The money is collected into the merchant's Pesapal account, so it is not held by
-an independent escrow agent. Refunds for card orders are manual (next: the admin refund queue).
+an independent escrow agent. Refunds of card orders go to the admin queue (`GET /admin/refunds/manual`): support refunds them in
+Pesapal, then completes them (`docs/runbooks.md` RB-11).
 
 ## Class demo: Daraja round trip
 

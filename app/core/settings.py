@@ -17,11 +17,12 @@ ENABLED_CREDENTIAL_FIELDS: dict[str, tuple[str, ...]] = {
         "loop_shortcode",
         "loop_passkey",
     ),
+    # PESAPAL_CALLBACK_URL is required only when Pesapal is a custody collection rail (below);
+    # card checkout returns buyers to FRONTEND_URL instead (#253).
     "pesapal": (
         "pesapal_base_url",
         "pesapal_consumer_key",
         "pesapal_consumer_secret",
-        "pesapal_callback_url",
     ),
     "intasend": (
         "intasend_base_url",
@@ -294,6 +295,15 @@ class Settings(BaseSettings):
             payout_rails = self.custody_payout_rail_priority_list
         except ValueError as exc:
             violations.append(str(exc))
+
+        if (
+            self.pesapal_enabled
+            and "pesapal" in collection_rails
+            and not self.pesapal_callback_url.strip()
+        ):
+            violations.append(
+                "PESAPAL_CALLBACK_URL must be set when pesapal is a custody collection rail"
+            )
 
         configured_rails = set(collection_rails + payout_rails)
         unknown_rails = sorted(configured_rails.difference(SUPPORTED_CUSTODY_RAILS))

@@ -35,6 +35,7 @@ from app.services.custody.rail_breaker import (
 from app.services.custody.registry import CustodyRegistry, build_custody_registry
 from app.services.ledger import ESCROW_HELD_ACCOUNT, EscrowLedger, LedgerMovement
 
+MANUAL_CARD_REFUND_RAIL = "manual_card_refund"  # never sent; support completes it
 logger = logging.getLogger("app.escrow.payouts")
 
 
@@ -285,9 +286,13 @@ class EscrowService:
             return existing
 
         destination_phone = self._resolve_destination_phone(destination_user_id)
+        manual_card_refund = payout_kind == "refund" and transaction.payment_method == "card"
         # Sticky routing (Hard Rule 1): an escrow opened on eConfirm pays out via
-        # eConfirm; it is never failed over to the simulated rail.
-        rail_name = self._payout_rail_for_escrow(escrow)
+        # eConfirm; it is never failed over to the simulated rail. Card money is refunded
+        # through Pesapal by support, never over M-Pesa (#253).
+        rail_name = (
+            MANUAL_CARD_REFUND_RAIL if manual_card_refund else self._payout_rail_for_escrow(escrow)
+        )
         attempt = PayoutAttempt(
             id=uuid.uuid4(),
             escrow_id=escrow.id,
@@ -332,6 +337,21 @@ class EscrowService:
                 "destination_ref": destination_ref(destination_phone),
             },
         )
+
+        if manual_card_refund:
+            record_money_audit_event(
+                self._db,
+                action="manual_refund_required",
+                actor_type=ACTOR_SYSTEM,
+                reason="Card payment: support refunds it through Pesapal, then completes it here.",
+                transaction_id=transaction.id,
+                escrow_id=escrow.id,
+                attempt_id=attempt.id,
+                rail_name=MANUAL_CARD_REFUND_RAIL,
+                amount=payout_amount,
+                currency=escrow.currency,
+                details={"purpose": normalized_purpose},
+            )
 
         transaction.payout_status = TransactionPayoutStatus.PENDING
         self._db.add(transaction)
@@ -476,7 +496,11 @@ def run_payout_executor_once(
     claimed = list(
         db.execute(
             select(PayoutAttempt)
-            .where(PayoutAttempt.outcome == AttemptOutcome.UNKNOWN)
+            .where(
+                PayoutAttempt.outcome == AttemptOutcome.UNKNOWN,
+                # Card refunds are paid back by support in Pesapal, never sent to a rail (#253).
+                PayoutAttempt.rail_name != MANUAL_CARD_REFUND_RAIL,
+            )
             .order_by(PayoutAttempt.created_at.asc(), PayoutAttempt.attempted_at.asc())
             .limit(batch_size)
             .with_for_update(skip_locked=True)
@@ -660,20 +684,7 @@ def run_payout_executor_once(
             )
 
         if attempt.outcome == AttemptOutcome.SUCCEEDED:
-            available_balance = _quantize(
-                escrow.funded_amount - escrow.released_amount - escrow.refunded_amount
-            )
-            if available_balance < attempt.amount:
-                attempt.outcome = AttemptOutcome.UNKNOWN
-                attempt.failure_code = "insufficient_funded_balance"
-                attempt.failure_reason = (
-                    "Escrow funded balance is insufficient for payout settlement."
-                )
-                attempt.response_snapshot = {
-                    **attempt.response_snapshot,
-                    "message": attempt.failure_reason,
-                }
-                db.add(attempt)
+            if not settle_succeeded_payout(db, attempt, escrow, payout_kind=payout_kind):
                 unknown += 1
                 _audit_payout_attempt(
                     db, attempt=attempt, transaction=transaction, kind=payout_kind
@@ -681,25 +692,6 @@ def run_payout_executor_once(
                 service.refresh_transaction_payout_status(transaction)
                 db.add(transaction)
                 continue
-
-            movement = LedgerMovement(
-                escrow_id=escrow.id,
-                idempotency_key=f"outbox:{attempt.id}",
-                amount=attempt.amount,
-                debit_account_code=(
-                    "SELLER_PAYABLE" if payout_kind == "release" else "BUYER_REFUNDABLE"
-                ),
-                credit_account_code=ESCROW_HELD_ACCOUNT,
-                description=f"Payout executor {payout_kind} for {attempt.purpose}",
-                currency=attempt.currency,
-            )
-            post_result = EscrowLedger(db).post_movement(movement)
-            if post_result.created_entries == 2:
-                if payout_kind == "release":
-                    escrow.released_amount = _quantize(escrow.released_amount + attempt.amount)
-                else:
-                    escrow.refunded_amount = _quantize(escrow.refunded_amount + attempt.amount)
-                db.add(escrow)
             succeeded += 1
         elif attempt.outcome == AttemptOutcome.FAILED_DEFINITE:
             failed_definite += 1
@@ -838,6 +830,47 @@ def run_payout_reconciliation(
         unknown_alerts=unknown_alerts,
         mismatch_alerts=mismatch_alerts,
     )
+
+
+def settle_succeeded_payout(
+    db: Session, attempt: PayoutAttempt, escrow: Escrow, *, payout_kind: str
+) -> bool:
+    """Post a paid-out attempt to the ledger and escrow totals, once (idempotent by attempt).
+
+    False, with the attempt put back to UNKNOWN, when the escrow's funded balance cannot cover
+    it. Shared by the executor and the manual card refund completion (#253).
+    """
+    available_balance = _quantize(
+        escrow.funded_amount - escrow.released_amount - escrow.refunded_amount
+    )
+    if available_balance < attempt.amount:
+        attempt.outcome = AttemptOutcome.UNKNOWN
+        attempt.failure_code = "insufficient_funded_balance"
+        attempt.failure_reason = "Escrow funded balance is insufficient for payout settlement."
+        attempt.response_snapshot = {
+            **attempt.response_snapshot,
+            "message": attempt.failure_reason,
+        }
+        db.add(attempt)
+        return False
+
+    movement = LedgerMovement(
+        escrow_id=escrow.id,
+        idempotency_key=f"outbox:{attempt.id}",
+        amount=attempt.amount,
+        debit_account_code="SELLER_PAYABLE" if payout_kind == "release" else "BUYER_REFUNDABLE",
+        credit_account_code=ESCROW_HELD_ACCOUNT,
+        description=f"Payout executor {payout_kind} for {attempt.purpose}",
+        currency=attempt.currency,
+    )
+    post_result = EscrowLedger(db).post_movement(movement)
+    if post_result.created_entries == 2:
+        if payout_kind == "release":
+            escrow.released_amount = _quantize(escrow.released_amount + attempt.amount)
+        else:
+            escrow.refunded_amount = _quantize(escrow.refunded_amount + attempt.amount)
+        db.add(escrow)
+    return True
 
 
 def _hold_for_anchor(

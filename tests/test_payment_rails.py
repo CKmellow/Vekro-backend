@@ -43,6 +43,21 @@ def test_econfirm_stays_first_for_amounts_in_its_band() -> None:
     assert _mpesa(**ECONFIRM)[1] == ("simulated", "otherwise")
 
 
+def test_card_is_pesapal_once_configured() -> None:
+    card = {
+        "pesapal_enabled": True,
+        "pesapal_base_url": "https://cybqa.pesapal.com/pesapalv3",
+        "pesapal_consumer_key": "k",
+        "pesapal_consumer_secret": "s",
+        "pesapal_callback_url": "https://app.example/pay/return",
+        "pesapal_ipn_id": "ipn-1",
+        "frontend_url": "https://app.example",
+    }
+    routes = {r.method: r for r in describe_collection_rails(_settings(**OFF | card))}
+    assert routes["card"].rail == "pesapal"
+    assert "not custody" in routes["card"].money_sits
+
+
 def test_card_and_ussd_are_not_offered_yet() -> None:
     routes = {r.method: r.rail for r in describe_collection_rails(_settings(**OFF))}
     assert routes["card"] == "none"

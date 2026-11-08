@@ -22,6 +22,14 @@ class CreateTransactionRequest(BaseModel):
             "the listing price exactly or the request is rejected."
         ),
     )
+    payment_method: Literal["mpesa", "card"] = Field(
+        default="mpesa",
+        description=(
+            "mpesa: an M-Pesa prompt on the buyer's phone (payment.kind STK_PROMPT). card: "
+            "Pesapal's hosted card checkout (payment.kind REDIRECT, send the buyer to "
+            "payment.redirect_url). Card is refused with 422 when it is not configured."
+        ),
+    )
 
 
 class TransactionResponse(BaseModel):
@@ -45,8 +53,16 @@ class TransactionResponse(BaseModel):
             "Vekro-side simulated ledger and must never be presented as real money."
         ),
     )
+    payment_method: Literal["mpesa", "card"] = Field(
+        default="mpesa", description="How the buyer pays: mpesa (STK prompt) or card (Pesapal)."
+    )
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("payment_method", mode="before")
+    @classmethod
+    def _default_payment_method(cls, value: Any) -> str:
+        return "card" if str(value or "").strip().lower() == "card" else "mpesa"
 
     @field_validator("custody_provider", mode="before")
     @classmethod

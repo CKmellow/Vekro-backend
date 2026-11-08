@@ -10,7 +10,7 @@ from app.services.payment_prompts import PaymentPromptState
 PaymentKind = Literal["STK_PROMPT", "REDIRECT"]
 PaymentStatus = Literal["pending", "succeeded", "failed", "expired", "failed_to_initiate"]
 PaymentFailure = Literal[
-    "cancelled", "wrong_pin", "insufficient_funds", "timeout", "provider_error"
+    "cancelled", "wrong_pin", "insufficient_funds", "timeout", "provider_error", "declined"
 ]
 
 

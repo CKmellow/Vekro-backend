@@ -151,6 +151,15 @@ class Transaction(Base):
         server_default=text("'simulated'"),
     )
 
+    # M22 (#251): how the buyer pays, 'mpesa' (STK prompt) or 'card' (Pesapal hosted checkout).
+    # Card money cannot be refunded over M-Pesa, so refunds route on this.
+    payment_method: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="mpesa",
+        server_default=text("'mpesa'"),
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

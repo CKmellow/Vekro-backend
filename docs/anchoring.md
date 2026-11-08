@@ -17,7 +17,7 @@ Every money-relevant fact is written to `anchor_events` in the **same DB transac
 | Order created | `transaction_created` | the order's |
 | Every status change | `transaction_transition` (from, to, actor, reason) | the order's |
 | Every ledger posting | `ledger_entry` | the order's |
-| Every money audit row (payouts queued and settled, funding, admin actions) | `money_audit` | the order's, or global |
+| Every money audit row (payouts queued and settled, funding by M-Pesa or card, card payments that failed or did not match, admin actions) | `money_audit` | the order's, or global |
 | Dispute steps | `dispute_opened`, `dispute_escalated`, … | the order's |
 | Admin decisions | `admin_decision` (decision, reason, split, `admin_ref`) | the order's |
 | Completed sales | `seller_sale_completed` (seller, outcome, amount band) | global (public) |

@@ -17,6 +17,12 @@ from app.models.payment_prompt import (
 )
 from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User
+from app.services.card_payments import (
+    PAYMENT_METHOD_CARD,
+    card_payments_available,
+    start_card_checkout,
+)
+from app.services.card_payments import build_rail as build_card_rail
 from app.services.custody.dto import CollectionResult
 from app.services.custody.econfirm_orchestration import request_econfirm_funding
 from app.services.custody.enums import CollectionOutcome
@@ -183,6 +189,36 @@ def resolve_open_prompt(
     return prompt
 
 
+def _resend_card_checkout(
+    db: Session,
+    transaction: Transaction,
+    *,
+    buyer: User,
+    previous: PaymentPrompt | None,
+    settings,
+    rail,
+) -> PaymentPrompt:
+    """A card order keeps its open Pesapal checkout: superseding it would ignore a payment the
+    buyer may still make on that page (#251). Only a failed checkout is replaced."""
+    if previous is not None and previous.status == PaymentPromptStatus.PENDING.value:
+        return previous
+    from app.core.settings import get_settings
+
+    runtime = settings or get_settings()
+    if not card_payments_available(runtime):
+        raise PaymentResendInvalidStateError("Card payments are not available right now.")
+    prompt = start_card_checkout(
+        db,
+        transaction,
+        buyer,
+        rail=rail or build_card_rail(runtime, reference=transaction.reference),
+    )
+    if prompt is None:
+        raise PaymentResendInitiationError(latest_payment_prompt(db, transaction.id))
+    audit_logger.info("card_checkout_restarted transaction_id=%s", transaction.id)
+    return prompt
+
+
 def _resend_via_econfirm(
     db: Session,
     transaction: Transaction,
@@ -238,6 +274,7 @@ def resend_payment_prompt(
     now: datetime | None = None,
     econfirm_provider=None,
     settings=None,
+    card_rail=None,
 ) -> PaymentPrompt:
     """Sends a new STK prompt for an unpaid transaction, at most once per cooldown.
 
@@ -252,6 +289,10 @@ def resend_payment_prompt(
         raise PaymentResendInvalidStateError("Transaction is not awaiting payment.")
 
     previous = latest_payment_prompt(db, transaction.id)
+    if transaction.payment_method == PAYMENT_METHOD_CARD:
+        return _resend_card_checkout(
+            db, transaction, buyer=buyer, previous=previous, settings=settings, rail=card_rail
+        )
     if previous is not None:
         available_at = _utc(previous.sent_at) + RESEND_COOLDOWN
         if current < available_at:

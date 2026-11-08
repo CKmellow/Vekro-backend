@@ -34,6 +34,12 @@ from app.services.audit import (
     ACTOR_USER,
     record_money_audit_event,
 )
+from app.services.card_payments import (
+    PAYMENT_METHOD_CARD,
+    card_payments_available,
+    start_card_checkout,
+)
+from app.services.card_payments import build_rail as build_card_rail
 from app.services.custody.econfirm_orchestration import (
     open_econfirm_escrow,
     request_econfirm_funding,
@@ -305,6 +311,7 @@ def create_transaction(
     *,
     settings=None,
     econfirm_provider=None,
+    card_rail=None,
 ) -> Transaction:
     if buyer.role != UserRole.BUYER:
         raise TransactionValidationError("Only buyers can create transactions.")
@@ -323,7 +330,16 @@ def create_transaction(
         raise TransactionValidationError("Amount must match the listing price.")
 
     runtime_settings = settings or get_settings()
-    selection = _select_custody_for_new_transaction(db, settings=runtime_settings, amount=amount)
+    pays_by_card = payload.payment_method == PAYMENT_METHOD_CARD
+    if pays_by_card and not card_payments_available(runtime_settings):
+        raise TransactionValidationError("Card payments are not available right now.")
+    if pays_by_card:
+        # Pesapal collects card money; eConfirm only takes its own M-Pesa prompt (#251).
+        selection = CustodySelection(PROVIDER_SIMULATED, "card_payment")
+    else:
+        selection = _select_custody_for_new_transaction(
+            db, settings=runtime_settings, amount=amount
+        )
 
     transaction = Transaction(
         # Set now, not at flush: the transaction_created event is built from them first.
@@ -336,6 +352,7 @@ def create_transaction(
         amount=amount,
         status=TransactionStatus.AWAITING_PAYMENT,
         custody_provider=selection.provider,
+        payment_method=payload.payment_method,
     )
     db.add(transaction)
     record_transaction_created(db, transaction)
@@ -365,6 +382,14 @@ def create_transaction(
         selection.provider,
         selection.reason,
     )
+
+    if pays_by_card:
+        rail = card_rail or build_card_rail(runtime_settings, reference=transaction.reference)
+        if start_card_checkout(db, transaction, buyer, rail=rail) is None:
+            raise PaymentInitiationError(
+                "Pesapal did not accept the card checkout.", transaction=transaction
+            )
+        return transaction
 
     if escrow is not None:
         landed = _fund_via_econfirm(

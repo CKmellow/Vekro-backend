@@ -2,6 +2,7 @@
 query rate limit (HTTP 429, docs/daraja-observed.md section 4) is never hit in a class demo."""
 
 import random
+from datetime import timedelta
 from typing import Any
 
 from app.models.payment_prompt import PaymentPromptStatus
@@ -160,3 +161,15 @@ def test_stop_when_idle_returns_once_nothing_is_open() -> None:
 
     assert outcomes == {transaction.id: "confirmed"}
     assert clock() == 15.0
+
+
+def test_prompts_older_than_the_age_limit_are_left_alone() -> None:
+    db = _db()
+    _transaction, prompt = _awaiting(db, "88")
+    prompt.sent_at = prompt.sent_at - timedelta(minutes=11)
+    db.commit()
+    fake, clock = FakeDaraja(), FakeClock()
+    times = _scripted(fake, clock, [PAID])
+
+    assert _watch(db, fake, clock, 60) == {}
+    assert times == []

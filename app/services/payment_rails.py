@@ -80,3 +80,44 @@ def describe_collection_rails(settings: Any) -> list[RailRoute]:
 
 def format_routes(routes: list[RailRoute]) -> str:
     return "; ".join(f"{r.method}={r.rail} ({r.when}) -> {r.money_sits}" for r in routes)
+
+
+# How an order's money was collected (#257). Recorded on the transaction and anchored with its
+# funding, so the UI never calls sandbox money real, or real money a demo.
+RAIL_SIMULATED = "simulated"
+RAIL_DARAJA = "daraja"
+RAIL_PESAPAL = "pesapal"
+RAIL_ECONFIRM = "econfirm"
+MODE_SANDBOX = "sandbox"
+MODE_LIVE = "live"
+
+
+def mpesa_rail(settings: Any) -> str:
+    """The rail an M-Pesa order not on eConfirm is collected on."""
+    return RAIL_DARAJA if getattr(settings, "daraja_enabled", False) else RAIL_SIMULATED
+
+
+def rail_mode(settings: Any, rail: str) -> str:
+    """sandbox: no real money moves; live: real money is collected."""
+    if rail == RAIL_DARAJA:
+        return MODE_LIVE if getattr(settings, "daraja_env", "") == "production" else MODE_SANDBOX
+    if rail == RAIL_PESAPAL:
+        base = str(getattr(settings, "pesapal_base_url", "")).lower()
+        return MODE_SANDBOX if "cybqa." in base else MODE_LIVE
+    if rail == RAIL_ECONFIRM:
+        base = str(getattr(settings, "econfirm_base_url", "")).lower()
+        return MODE_SANDBOX if any(t in base for t in ("sandbox", "staging", "test")) else MODE_LIVE
+    return MODE_SANDBOX
+
+
+def set_collection(transaction: Any, settings: Any, rail: str) -> None:
+    transaction.collection_rail = rail
+    transaction.payment_mode = rail_mode(settings, rail)
+
+
+def collection_facts(transaction: Any) -> dict[str, str]:
+    """What the funding event anchors about how the money came in."""
+    return {
+        "collection_rail": transaction.collection_rail or RAIL_SIMULATED,
+        "payment_mode": transaction.payment_mode or MODE_SANDBOX,
+    }

@@ -18,6 +18,10 @@ The backend also logs it at startup (`collection_rails ...`).
 
 Notes:
 
+- Each order records `collection_rail` and `payment_mode` (sandbox or live) from this configuration
+  (#257), and its funding event anchors both. The buyer sees "Test payment via <rail> sandbox: no
+  real money moves" or, live, "Paid via <rail>. Held by Vekro's payment partner until delivery".
+
 - Simulated stays the default. Nothing real is called unless a profile is switched on.
 - eConfirm, when usable, is always tried first, so turning Daraja on never takes orders away from
   real custody.

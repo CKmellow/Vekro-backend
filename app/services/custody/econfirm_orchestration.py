@@ -288,6 +288,7 @@ def run_econfirm_funding_reconciliation(
                 amount=escrow.amount_total,
                 currency=escrow.currency,
                 reason="poller_confirmed_funding",
+                details=_collection_facts_for(db, escrow),
             )
             funded_hook(db, escrow)
 
@@ -295,6 +296,16 @@ def run_econfirm_funding_reconciliation(
     return EconfirmPollResult(
         polled=polled, funded=funded, skipped_timed_out=skipped, budget=max_requests
     )
+
+
+def _collection_facts_for(db: Session, escrow: Escrow) -> dict[str, str]:
+    from app.models.transaction import Transaction
+    from app.services.payment_rails import collection_facts
+
+    transaction = db.get(Transaction, escrow.transaction_id)
+    if transaction is None:  # pragma: no cover - foreign key
+        return {"collection_rail": PROVIDER_ECONFIRM, "payment_mode": "live"}
+    return collection_facts(transaction)
 
 
 def next_poll_delay_seconds(

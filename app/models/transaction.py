@@ -159,6 +159,19 @@ class Transaction(Base):
         default="mpesa",
         server_default=text("'mpesa'"),
     )
+    # #257: the rail that collects the money, and sandbox vs live (app/services/payment_rails.py).
+    collection_rail: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="simulated",
+        server_default=text("'simulated'"),
+    )
+    payment_mode: Mapped[str] = mapped_column(
+        String(8),
+        nullable=False,
+        default="sandbox",
+        server_default=text("'sandbox'"),
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

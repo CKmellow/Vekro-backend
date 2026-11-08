@@ -8833,6 +8833,28 @@
             "description": "How the buyer pays: mpesa (STK prompt) or card (Pesapal).",
             "default": "mpesa"
           },
+          "collection_rail": {
+            "type": "string",
+            "enum": [
+              "simulated",
+              "daraja",
+              "pesapal",
+              "econfirm"
+            ],
+            "title": "Collection Rail",
+            "description": "The rail that collects the money. daraja and pesapal collect into the merchant's account (collection, not third-party escrow); econfirm is third-party custody; simulated moves no money.",
+            "default": "simulated"
+          },
+          "payment_mode": {
+            "type": "string",
+            "enum": [
+              "sandbox",
+              "live"
+            ],
+            "title": "Payment Mode",
+            "description": "sandbox: a test payment, no real money moves. live: real money was collected. Show sandbox payments as tests, never as real money.",
+            "default": "sandbox"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -8989,6 +9011,28 @@
             "title": "Payment Method",
             "description": "How the buyer pays: mpesa (STK prompt) or card (Pesapal).",
             "default": "mpesa"
+          },
+          "collection_rail": {
+            "type": "string",
+            "enum": [
+              "simulated",
+              "daraja",
+              "pesapal",
+              "econfirm"
+            ],
+            "title": "Collection Rail",
+            "description": "The rail that collects the money. daraja and pesapal collect into the merchant's account (collection, not third-party escrow); econfirm is third-party custody; simulated moves no money.",
+            "default": "simulated"
+          },
+          "payment_mode": {
+            "type": "string",
+            "enum": [
+              "sandbox",
+              "live"
+            ],
+            "title": "Payment Mode",
+            "description": "sandbox: a test payment, no real money moves. live: real money was collected. Show sandbox payments as tests, never as real money.",
+            "default": "sandbox"
           },
           "created_at": {
             "type": "string",
@@ -9260,6 +9304,28 @@
             "title": "Payment Method",
             "description": "How the buyer pays: mpesa (STK prompt) or card (Pesapal).",
             "default": "mpesa"
+          },
+          "collection_rail": {
+            "type": "string",
+            "enum": [
+              "simulated",
+              "daraja",
+              "pesapal",
+              "econfirm"
+            ],
+            "title": "Collection Rail",
+            "description": "The rail that collects the money. daraja and pesapal collect into the merchant's account (collection, not third-party escrow); econfirm is third-party custody; simulated moves no money.",
+            "default": "simulated"
+          },
+          "payment_mode": {
+            "type": "string",
+            "enum": [
+              "sandbox",
+              "live"
+            ],
+            "title": "Payment Mode",
+            "description": "sandbox: a test payment, no real money moves. live: real money was collected. Show sandbox payments as tests, never as real money.",
+            "default": "sandbox"
           },
           "created_at": {
             "type": "string",

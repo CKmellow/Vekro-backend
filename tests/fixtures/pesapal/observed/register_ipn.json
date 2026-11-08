@@ -1,0 +1,14 @@
+{
+  "body": {
+    "created_date": "2026-11-08T11:47:12.6368275Z",
+    "ipn_id": "1c24f403-e737-468a-82c7-d9b005ca94ee",
+    "ipn_notification_type_description": "GET",
+    "ipn_status": 1,
+    "ipn_status_decription": "Active",
+    "message": "Request processed successfully",
+    "notification_type": 0,
+    "status": "200",
+    "url": "https://tunnel.example/api/webhooks/pesapal/callback"
+  },
+  "http_status": 200
+}

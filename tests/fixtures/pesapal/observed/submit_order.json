@@ -1,0 +1,10 @@
+{
+  "body": {
+    "error": null,
+    "merchant_reference": "VK-PROBE-1794138432",
+    "order_tracking_id": "3e42a00b-3326-4fbd-87b8-d9b088fddb71",
+    "redirect_url": "https://cybqa.pesapal.com/pesapaliframe/PesapalIframe3/Index?OrderTrackingId=3e42a00b-3326-4fbd-87b8-d9b088fddb71",
+    "status": "200"
+  },
+  "http_status": 200
+}

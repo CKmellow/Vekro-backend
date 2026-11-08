@@ -31,7 +31,7 @@ def register_pesapal_ipn(
     )
     access_token = token_manager.get_access_token()
 
-    endpoint = f"{base_url.strip().rstrip('/')}/api/Transactions/RegisterIPN"
+    endpoint = f"{base_url.strip().rstrip('/')}/api/URLSetup/RegisterIPN"  # #249
     response = default_pesapal_http_transport(
         "POST",
         endpoint,

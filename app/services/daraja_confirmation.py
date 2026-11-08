@@ -10,7 +10,10 @@ the order waiting; ``python -m app.cli confirm-mpesa-payments`` (or the next cal
 from __future__ import annotations
 
 import logging
+import random
+import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -160,11 +163,7 @@ def confirm_payment(
     return "confirmed"
 
 
-def confirm_pending_payments(
-    db: Session, *, client: DarajaClient, now: datetime | None = None
-) -> dict[uuid.UUID, str]:
-    """Settle prompts whose callback never arrived: query each open one from the last day."""
-    since = (now or datetime.now(UTC)) - RECONCILE_WINDOW
+def _open_prompts(db: Session, now: datetime) -> list[tuple[Transaction, PaymentPrompt]]:
     rows = db.execute(
         select(Transaction, PaymentPrompt)
         .join(PaymentPrompt, PaymentPrompt.transaction_id == Transaction.id)
@@ -172,11 +171,107 @@ def confirm_pending_payments(
             Transaction.status == TransactionStatus.AWAITING_PAYMENT,
             PaymentPrompt.status == PaymentPromptStatus.PENDING.value,
             PaymentPrompt.checkout_request_id.is_not(None),
-            PaymentPrompt.sent_at >= since,
+            PaymentPrompt.sent_at >= now - RECONCILE_WINDOW,
         )
         .order_by(PaymentPrompt.sent_at)
     ).all()
+    return [(transaction, prompt) for transaction, prompt in rows]
+
+
+def confirm_pending_payments(
+    db: Session, *, client: DarajaClient, now: datetime | None = None
+) -> dict[uuid.UUID, str]:
+    """Settle prompts whose callback never arrived: query each open one from the last day."""
     return {
         transaction.id: confirm_payment(db, transaction, prompt, client=client)
-        for transaction, prompt in rows
+        for transaction, prompt in _open_prompts(db, now or datetime.now(UTC))
     }
+
+
+@dataclass(frozen=True)
+class Backoff:
+    """The sandbox rate-limits STK query hard (HTTP 429, docs/daraja-observed.md section 4), so
+    the fallback queries each prompt at growing intervals and never two queries at once."""
+
+    first_seconds: float = 5.0
+    cap_seconds: float = 30.0
+    jitter: float = 0.2  # each delay is scaled by a random factor in [1 - jitter, 1 + jitter]
+    min_gap_seconds: float = 2.0  # between any two queries
+    idle_poll_seconds: float = 5.0  # how often to look for new prompts
+
+
+def next_delay(previous: float | None, backoff: Backoff, rng: random.Random) -> float:
+    base = backoff.first_seconds if previous is None else min(previous * 2, backoff.cap_seconds)
+    return base * (1 + rng.uniform(-backoff.jitter, backoff.jitter))
+
+
+DEFAULT_BACKOFF = Backoff()
+SETTLED = frozenset({"confirmed", "failed", "already_processed", "amount_mismatch"})
+
+
+def watch_pending_payments(
+    db: Session,
+    *,
+    client: DarajaClient,
+    duration_seconds: float,
+    backoff: Backoff = DEFAULT_BACKOFF,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+    rng: random.Random | None = None,
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    stop_when_idle: bool = False,
+) -> dict[uuid.UUID, str]:
+    """The fallback behind the callback (#243): keep confirming open prompts for a while.
+
+    The callback stays the primary path. Each open prompt is first queried ``first_seconds`` after
+    the watcher sees it, then at doubling intervals up to ``cap_seconds``, with jitter, while
+    Daraja says pending or is unavailable (429 included). A prompt the callback settles meanwhile
+    simply drops out. New prompts are picked up as they appear, so it can run through a demo.
+    With ``stop_when_idle`` it returns as soon as no prompt is open.
+    """
+    rng = rng or random.Random()
+    deadline = clock() + duration_seconds
+    schedule: dict[uuid.UUID, tuple[float, float]] = {}  # prompt id -> (next query at, delay)
+    outcomes: dict[uuid.UUID, str] = {}
+    last_query = float("-inf")
+    while clock() < deadline:
+        db.rollback()  # a fresh snapshot: see callbacks and new orders committed elsewhere
+        open_rows = {
+            prompt.id: (transaction, prompt) for transaction, prompt in _open_prompts(db, now())
+        }
+        for prompt_id in list(schedule):
+            if prompt_id not in open_rows:
+                del schedule[prompt_id]
+        if stop_when_idle and not open_rows:
+            break
+        for prompt_id in open_rows:
+            if prompt_id not in schedule:
+                delay = next_delay(None, backoff, rng)
+                schedule[prompt_id] = (clock() + delay, delay)
+        due = sorted((at, prompt_id) for prompt_id, (at, _) in schedule.items() if at <= clock())
+        if not due:
+            upcoming = min(
+                (at for at, _ in schedule.values()), default=clock() + backoff.idle_poll_seconds
+            )
+            sleep(max(0.0, min(upcoming, clock() + backoff.idle_poll_seconds, deadline) - clock()))
+            continue
+        _, prompt_id = due[0]
+        wait = last_query + backoff.min_gap_seconds - clock()
+        if wait > 0:
+            sleep(wait)
+        transaction, prompt = open_rows[prompt_id]
+        outcome = confirm_payment(db, transaction, prompt, client=client)
+        last_query = clock()
+        outcomes[transaction.id] = outcome
+        if outcome in SETTLED:
+            del schedule[prompt_id]
+        else:
+            delay = next_delay(schedule[prompt_id][1], backoff, rng)
+            schedule[prompt_id] = (clock() + delay, delay)
+            _logger.info(
+                "daraja_confirm_backoff transaction_id=%s outcome=%s next_in=%.1fs",
+                transaction.id,
+                outcome,
+                delay,
+            )
+    return outcomes

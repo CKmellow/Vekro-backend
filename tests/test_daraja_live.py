@@ -1,19 +1,17 @@
-"""Opt-in Daraja sandbox round trip (M22 P1). Sends ONE real STK push; never runs by default.
+"""Opt-in Daraja sandbox round trip (M22). Each run sends ONE real KES 1 STK push; never by default.
 
-    RUN_DARAJA_LIVE_TESTS=1 .venv/bin/pytest -m live -k daraja -s
+    RUN_DARAJA_LIVE_TESTS=1 DARAJA_LIVE_MODE=callback|fallback .venv/bin/pytest -m live -k daraja -s
 
 Needs the DARAJA_* credentials and DARAJA_LIVE_TEST_PHONE (the Safaricom number that gets the
-prompt; never printed, masked in fixtures). The amount is KES 1.
+prompt; never printed, masked in fixtures). The order is created through ``create_transaction``
+with the real Daraja gateway, in a scratch SQLite database (DARAJA_LIVE_DB, default under pytest's
+tmp dir). One run funds one order, by one of the two paths (docs/demo-modes.md):
 
-The order is created through ``create_transaction`` with the real Daraja gateway, in a scratch
-SQLite database (DARAJA_LIVE_DB, default under pytest's tmp dir). Straight after the push the
-database is copied to ``<DARAJA_LIVE_DB>.fallback`` while the prompt is still pending, so the same
-payment can be confirmed both ways (docs/demo-modes.md):
-
-- by the callback: run the backend on DARAJA_LIVE_DB behind ``make tunnel`` and set
-  DARAJA_LIVE_EXPECT_CALLBACK=1; the test waits for the callback to lock the order;
-- without it: stop the tunnel and run ``python -m app.cli confirm-mpesa-payments`` against the
-  fallback copy.
+- ``callback``: the backend runs on DARAJA_LIVE_DB behind ``make tunnel``. The test sends no STK
+  query of its own (two queriers trip the sandbox's 429 limit); it waits for the callback, and the
+  query it triggers, to lock the order.
+- ``fallback``: the tunnel is stopped, so no callback can arrive. The real fallback,
+  ``watch_pending_payments`` (``confirm-mpesa-payments --watch``), confirms the order with backoff.
 
 Sanitised request and response shapes are written to tests/fixtures/daraja/.
 """
@@ -24,7 +22,6 @@ import base64
 import json
 import os
 import re
-import sqlite3
 import time
 import uuid
 from datetime import UTC, datetime
@@ -41,12 +38,8 @@ from app.models.payment_prompt import PaymentPrompt
 from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User, UserRole
 from app.schemas.transaction import CreateTransactionRequest
-from app.services.daraja import (
-    DarajaClient,
-    DarajaStkGateway,
-    DarajaUnavailableError,
-    StkQueryResult,
-)
+from app.services.daraja import DarajaClient, DarajaStkGateway
+from app.services.daraja_confirmation import watch_pending_payments
 from app.services.transaction import create_transaction
 from dotenv import dotenv_values
 from sqlalchemy import create_engine, select, text
@@ -56,9 +49,8 @@ from sqlalchemy.orm import Session
 
 FIXTURES = Path(__file__).parent / "fixtures" / "daraja"
 MASKED_PHONE = "254700000000"
-QUERY_INTERVAL_SECONDS = 6
-QUERY_BUDGET_SECONDS = 150
-CALLBACK_WAIT_SECONDS = 60
+QUERY_BUDGET_SECONDS = 240
+CALLBACK_WAIT_SECONDS = 180
 NGROK_API = "http://127.0.0.1:4040/api/requests/http?limit=50"
 
 
@@ -204,6 +196,9 @@ def _decoded(raw: str) -> str:
 
 
 def test_daraja_sandbox_stk_round_trip(tmp_path: Path) -> None:
+    mode = _env("DARAJA_LIVE_MODE") or "fallback"
+    if mode not in {"callback", "fallback"}:
+        pytest.fail("DARAJA_LIVE_MODE must be callback or fallback.")
     phone = re.sub(r"\D", "", _env("DARAJA_LIVE_TEST_PHONE"))
     if not re.fullmatch(r"254\d{9}", phone):
         pytest.skip("Set DARAJA_LIVE_TEST_PHONE (2547XXXXXXXX) in .env.")
@@ -212,9 +207,7 @@ def test_daraja_sandbox_stk_round_trip(tmp_path: Path) -> None:
         pytest.skip("Set DARAJA_CALLBACK_URL to the tunnel's https URL.")
 
     db_path = Path(_env("DARAJA_LIVE_DB") or tmp_path / "daraja-live.sqlite3").resolve()
-    fallback_path = Path(f"{db_path}.fallback")
-    for path in (db_path, fallback_path):
-        path.unlink(missing_ok=True)
+    db_path.unlink(missing_ok=True)
     url = f"sqlite:///{db_path}"
     _schema(url)
     engine = create_engine(url)
@@ -236,57 +229,48 @@ def test_daraja_sandbox_stk_round_trip(tmp_path: Path) -> None:
         checkout = prompt.checkout_request_id
         reference = transaction.reference
     assert checkout, "Daraja accepted no STK push"
+    print(f"\nSTK push sent for {reference} (KES 1, {mode} path). Approve it on the phone now.")
 
-    # The fallback copy: the order as it stands before any callback can arrive.
-    with sqlite3.connect(db_path) as source, sqlite3.connect(fallback_path) as target:
-        source.backup(target)
-    print(f"\nSTK push sent for {reference} (KES 1). Approve it on the phone now.")
-    print(f"Scratch DB: {db_path}\nFallback copy (prompt still pending): {fallback_path}")
-
-    # The sandbox rate-limits STK query hard (HTTP 429 seen on the first poll): back off and retry.
-    deadline = time.monotonic() + QUERY_BUDGET_SECONDS
-    result: StkQueryResult | None = None
-    interval = QUERY_INTERVAL_SECONDS
-    while time.monotonic() < deadline:
-        time.sleep(interval)
-        try:
-            result = client.stk_query(checkout)
-        except DarajaUnavailableError as exc:
-            print(f"STK query unavailable ({exc}); retrying.")
-            interval = min(interval * 2, 30)
-            continue
-        if result.state != "pending":
-            break
-    assert result is not None, "Daraja never answered the STK query."
-    print(f"STK query: {result.state} (ResultCode {result.result_code}: {result.result_desc})")
-
-    by_path: dict[str, list[tuple[int, Any]]] = {}
-    for path, status, body in recorder.exchanges:
-        by_path.setdefault(path, []).append((status, body))
-    _save("oauth_token.json", by_path["/oauth/v1/generate"][0][1], phone)
-    _save("stk_push_accepted.json", by_path["/mpesa/stkpush/v1/processrequest"][0][1], phone)
-    queries = by_path["/mpesa/stkpushquery/v1/query"]
-    for status, body in queries[:-1]:
-        name = "stk_query_rate_limited.json" if status == 429 else "stk_query_pending.json"
-        _save(name, {"http_status": status, "body": body}, phone)
-    _save("stk_query_final.json", {"http_status": queries[-1][0], "body": queries[-1][1]}, phone)
-
-    assert result.state == "succeeded", "The prompt was not paid; nothing to confirm."
-
-    if _env("DARAJA_LIVE_EXPECT_CALLBACK") in {"1", "true", "yes"}:
-        deadline = time.monotonic() + CALLBACK_WAIT_SECONDS
-        status = None
-        while time.monotonic() < deadline:
-            with Session(engine) as db:
-                status = db.execute(
-                    select(Transaction.status).where(Transaction.reference == reference)
-                ).scalar_one()
-            if status != TransactionStatus.AWAITING_PAYMENT:
-                break
-            time.sleep(3)
+    if mode == "callback":
+        status = _wait_for_status(engine, reference, seconds=CALLBACK_WAIT_SECONDS)
         print(f"After the callback the order is {status}.")
-        assert status == TransactionStatus.LOCKED
         callback = _ngrok_callback(checkout)
         if callback is not None:
-            _save("stk_callback.json", callback, phone)
+            _save("stk_callback_paid.json", callback, phone)
+        assert status == TransactionStatus.LOCKED
+        client.stk_query(checkout)  # one query after the fact, for the fixture only
+    else:
+        with Session(engine, expire_on_commit=False) as db:
+            outcomes = watch_pending_payments(
+                db, client=client, duration_seconds=QUERY_BUDGET_SECONDS, stop_when_idle=True
+            )
+        status = _wait_for_status(engine, reference, seconds=0)
+        print(f"Fallback outcomes: {list(outcomes.values())}; the order is {status}.")
+        assert status == TransactionStatus.LOCKED
+
+    by_path: dict[str, list[tuple[int, Any]]] = {}
+    for path, http_status, body in recorder.exchanges:
+        by_path.setdefault(path, []).append((http_status, body))
+    _save("oauth_token.json", by_path["/oauth/v1/generate"][0][1], phone)
+    _save("stk_push_accepted.json", by_path["/mpesa/stkpush/v1/processrequest"][0][1], phone)
+    for http_status, body in by_path.get("/mpesa/stkpushquery/v1/query", []):
+        if http_status == 429:
+            name = "stk_query_rate_limited.json"
+        elif http_status != 200:
+            name = "stk_query_pending.json"
+        else:
+            name = "stk_query_paid.json"
+        _save(name, {"http_status": http_status, "body": body}, phone)
     engine.dispose()
+
+
+def _wait_for_status(engine: Any, reference: str, *, seconds: float) -> TransactionStatus:
+    deadline = time.monotonic() + seconds
+    while True:
+        with Session(engine) as db:
+            status = db.execute(
+                select(Transaction.status).where(Transaction.reference == reference)
+            ).scalar_one()
+        if status != TransactionStatus.AWAITING_PAYMENT or time.monotonic() >= deadline:
+            return status
+        time.sleep(3)

@@ -1,4 +1,4 @@
-.PHONY: run tunnel confirm-mpesa lint format rails-selftest pesapal-register-ipn contracts-test contracts-abi anvil-deploy
+.PHONY: run tunnel confirm-mpesa confirm-mpesa-watch lint format rails-selftest pesapal-register-ipn contracts-test contracts-abi anvil-deploy
 
 run:
 	.venv/bin/uvicorn app.main:app --reload
@@ -10,6 +10,10 @@ tunnel:
 # Fallback when no callback arrives: confirm open STK prompts with Daraja's STK query.
 confirm-mpesa:
 	.venv/bin/python -m app.cli confirm-mpesa-payments
+
+# The same, kept running with backoff (run it alongside the class demo).
+confirm-mpesa-watch:
+	.venv/bin/python -m app.cli confirm-mpesa-payments --watch
 
 lint:
 	.venv/bin/ruff check .

@@ -33,7 +33,7 @@ Notes:
    (export the `PESAPAL_*` values first).
 3. The buyer chooses card. `POST /transactions` with `payment_method: card` answers a `REDIRECT`
    payment instruction. The buyer pays on Pesapal's page with a test card
-   (`docs/pesapal-observed.md` section 4) and comes back to `FRONTEND_URL/pay/return?ref=<reference>`.
+   (`docs/pesapal-observed.md` section 4) and comes back to `FRONTEND_URL/pay/return?order=<id>&ref=<reference>`.
 4. The IPN (`/payments/pesapal/ipn`) and the return page (`POST /transactions/{id}/payment/refresh`)
    are triggers only. Vekro asks Pesapal for the status and funds the order only for a COMPLETED
    payment of the exact amount, currency and reference. A mismatch is refused and audited.

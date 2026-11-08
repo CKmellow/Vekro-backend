@@ -56,15 +56,17 @@ def card_payments_available(settings: Any) -> bool:
     )
 
 
-def return_url(settings: Any, reference: str) -> str:
-    """Where Pesapal sends the buyer back: the frontend return page, never the backend."""
-    return f"{settings.frontend_url.rstrip('/')}/pay/return?ref={quote(reference)}"
+def return_url(settings: Any, transaction: Transaction) -> str:
+    """Where Pesapal sends the buyer back: the frontend return page, never the backend. ``order``
+    lets the page read the order; the result always comes from the API, never the URL (#255)."""
+    base = settings.frontend_url.rstrip("/")
+    return f"{base}/pay/return?order={transaction.id}&ref={quote(transaction.reference)}"
 
 
-def build_rail(settings: Any, *, reference: str = "") -> PesapalCollectionRail:
+def build_rail(settings: Any, *, transaction: Any = None) -> PesapalCollectionRail:
     return PesapalCollectionRail(
         base_url=settings.pesapal_base_url,
-        callback_url=return_url(settings, reference) if reference else "",
+        callback_url=return_url(settings, transaction) if transaction is not None else "",
         ipn_id=settings.pesapal_ipn_id,
         token_manager=PesapalTokenManager(
             base_url=settings.pesapal_base_url,

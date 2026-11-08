@@ -139,8 +139,8 @@ def test_a_card_order_gets_a_redirect_to_pesapal_and_the_return_page() -> None:
     assert (prompt.kind, prompt.status) == ("redirect", "pending")
     assert prompt.redirect_url.startswith("https://cybqa.pesapal.com/")
     assert fake.submitted[0].account_reference == transaction.reference
-    assert return_url(card_settings(), transaction.reference) == (
-        f"https://app.example/pay/return?ref={transaction.reference}"
+    assert return_url(card_settings(), transaction) == (
+        f"https://app.example/pay/return?order={transaction.id}&ref={transaction.reference}"
     )
 
 

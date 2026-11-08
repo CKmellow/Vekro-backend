@@ -384,7 +384,7 @@ def create_transaction(
     )
 
     if pays_by_card:
-        rail = card_rail or build_card_rail(runtime_settings, reference=transaction.reference)
+        rail = card_rail or build_card_rail(runtime_settings, transaction=transaction)
         if start_card_checkout(db, transaction, buyer, rail=rail) is None:
             raise PaymentInitiationError(
                 "Pesapal did not accept the card checkout.", transaction=transaction

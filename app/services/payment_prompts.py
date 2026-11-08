@@ -211,7 +211,7 @@ def _resend_card_checkout(
         db,
         transaction,
         buyer,
-        rail=rail or build_card_rail(runtime, reference=transaction.reference),
+        rail=rail or build_card_rail(runtime, transaction=transaction),
     )
     if prompt is None:
         raise PaymentResendInitiationError(latest_payment_prompt(db, transaction.id))

@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.provider_event import ProviderEvent
+from app.services.anchoring.provider_ref import provider_ref
 from app.services.audit import ACTOR_PROVIDER, record_money_audit_event
 from app.services.custody.dto import CollectionResult
 from app.services.custody.enums import CollectionOutcome
@@ -167,7 +168,7 @@ def process_pesapal_collection_webhook(
             reason="Pesapal callback confirmed via server-side status inquiry.",
             provider_reference=provider_reference,
             rail_name=PESAPAL_RAIL_NAME,
-            details={"dedupe_key": dedupe_key},
+            details={"dedupe_ref": provider_ref(dedupe_key)},
             occurred_at=now,
         )
     db.commit()

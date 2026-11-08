@@ -96,7 +96,7 @@ deleted. Current actions:
 | `admin_force_resolve_<refund|release|split>` | `force_resolve_dispute_case` | yes |
 | `simulated_collection_forced`, `simulated_collection_progressed`, `simulated_payout_<kind>_progressed` | `simulated_admin` | yes, when the escrow exists |
 | `econfirm_open_succeeded`, `econfirm_open_unknown_needs_reconciliation`, `econfirm_open_rejected_fallback_simulated`, `econfirm_stk_requested`, `econfirm_funding_confirmed` | `econfirm_orchestration` | yes |
-| `funding_confirmed` (LOOP, Pesapal) | `loop_webhook`, `pesapal_webhook` | **no**, only `provider_reference` |
+| `funding_confirmed` (LOOP, Pesapal) | `loop_webhook`, `pesapal_webhook` | **no**, only `provider_ref` (keyed, #241) |
 
 **Choke point:** inside `record_money_audit_event`, right after the `MoneyAuditEvent` is added.
 `occurred_at` is otherwise filled in at flush, so A3 sets it explicitly before building the payload.
@@ -112,7 +112,8 @@ derived value.
 **Linking event (D10).** When a global funding event is matched to a transaction, the matcher also
 records a `global_event_linked` event in that transaction's chain:
 
-- Matching happens when the event's `provider_reference` resolves through `collection_attempts` to
+- Matching happens when the event's raw provider reference (passed in, never stored on the event)
+  resolves through `collection_attempts` to
   an escrow. The match is tried when the global event is written, and again by any later code that
   binds the funding to an escrow.
 - The linking event's payload carries the global event's `leaf_hash` and its source
@@ -233,7 +234,7 @@ admin decisions), the stored payload is the record.
 // money_audit (one per row; source_table = money_audit_events)
 {"v":1,"type":"money_audit","transaction_id":"…"|null,"at":"…",        // at = occurred_at
  "audit_event_id":"…","action":"payout_release_queued","actor_type":"system","actor_id":null,
- "actor_ref":null,"reason":"…"|null,"escrow_id":"…"|null,"attempt_id":"…"|null,"provider_reference":"…"|null,
+ "actor_ref":null,"reason":"…"|null,"escrow_id":"…"|null,"attempt_id":"…"|null,"provider_ref":"…"|null,
  "rail_name":"simulated"|null,"correlation_id":"txn=…|ref=…|rail=…",
  "amount":"500.00"|null,"currency":"KES"|null,"details":{…}}
 
@@ -278,7 +279,7 @@ admin decisions), the stored payload is the record.
 
 // global_event_linked (D10; in the matched transaction's chain; source = the log)
 {"v":1,"type":"global_event_linked","transaction_id":"…","at":"…",
- "global_event_id":12345,"global_leaf_hash":"0x…","escrow_id":"…","provider_reference":"…"}
+ "global_event_id":12345,"global_leaf_hash":"0x…","escrow_id":"…","provider_ref":"…"}
 
 // Global events (transaction_id null): anchoring_registry_switch (key rotation, A7),
 // backfill_completed (marker written once by the backfill command).

@@ -10,6 +10,7 @@ from app.core.settings import get_settings
 from app.models.collection_attempt import AttemptOutcome, CollectionAttempt
 from app.models.escrow import Escrow
 from app.models.payout_attempt import PayoutAttempt
+from app.services.anchoring.provider_ref import stable_digest
 from app.services.audit import ACTOR_ADMIN, record_money_audit_event
 from app.services.custody.dto import CollectionResult, FundingRequest, PayoutResult
 from app.services.custody.enums import CollectionOutcome, PayoutOutcome
@@ -163,7 +164,7 @@ def progress_simulated_collection_scenario(
         ledger_result = EscrowLedger(db).post_movement(
             LedgerMovement(
                 escrow_id=escrow.id,
-                idempotency_key=f"sim-funding:{provider_reference}",
+                idempotency_key=f"sim-funding:{stable_digest(provider_reference)}",
                 amount=attempt.amount,
                 debit_account_code=ESCROW_HELD_ACCOUNT,
                 credit_account_code="BUYER_CLEARING",
@@ -247,7 +248,7 @@ def progress_simulated_payout_scenario(
         ledger_result = EscrowLedger(db).post_movement(
             LedgerMovement(
                 escrow_id=escrow.id,
-                idempotency_key=f"sim-{payout_type}:{provider_reference}",
+                idempotency_key=f"sim-{payout_type}:{stable_digest(provider_reference)}",
                 amount=attempt.amount,
                 debit_account_code=debit_account_code,
                 credit_account_code=ESCROW_HELD_ACCOUNT,

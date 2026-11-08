@@ -112,7 +112,8 @@ def money_audit_payload(
         "reason": event.reason,
         "escrow_id": uuid_text(event.escrow_id),
         "attempt_id": uuid_text(event.attempt_id),
-        "provider_reference": event.provider_reference,
+        # The row already holds the keyed provider_ref, never the raw reference (#241).
+        "provider_ref": event.provider_reference,
         "rail_name": event.rail_name,
         "correlation_id": event.correlation_id,
         "amount": money(event.amount),
@@ -208,14 +209,14 @@ def global_event_linked_payload(
     global_leaf_hash: bytes,
     global_audit_event_id: uuid.UUID,
     escrow_id: uuid.UUID,
-    provider_reference: str,
+    provider_ref: str,
 ) -> dict[str, Any]:
     return {
         **envelope(GLOBAL_EVENT_LINKED, transaction_id, at),
         "global_leaf_hash": hex32(global_leaf_hash),
         "global_audit_event_id": uuid_text(global_audit_event_id),
         "escrow_id": uuid_text(escrow_id),
-        "provider_reference": provider_reference,
+        "provider_ref": provider_ref,
     }
 
 

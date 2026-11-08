@@ -17,6 +17,7 @@ from app.models.transaction import Transaction
 from app.models.user import User, UserRole
 from app.models.user_session import UserSession
 from app.routers import simulated_custody_admin as simulated_admin_router
+from app.services.anchoring.provider_ref import stable_digest
 from app.services.auth import ActiveSessionContext
 from app.services.custody.dto import FundingRequest, OpenEscrowRequest, PayoutRequest
 from app.services.custody.enums import CollectionOutcome, PayoutOutcome
@@ -436,7 +437,8 @@ def test_progress_collection_scenario_reconciles_out_of_order_idempotently() -> 
         funding_entries = list(
             db.execute(
                 select(LedgerEntry).where(
-                    LedgerEntry.idempotency_key == f"sim-funding:{initial.provider_reference}"
+                    LedgerEntry.idempotency_key
+                    == f"sim-funding:{stable_digest(initial.provider_reference)}"
                 )
             )
             .scalars()
@@ -506,7 +508,8 @@ def test_progress_payout_scenario_reconciles_out_of_order_idempotently() -> None
         release_entries = list(
             db.execute(
                 select(LedgerEntry).where(
-                    LedgerEntry.idempotency_key == f"sim-release:{initial.provider_reference}"
+                    LedgerEntry.idempotency_key
+                    == f"sim-release:{stable_digest(initial.provider_reference)}"
                 )
             )
             .scalars()

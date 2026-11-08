@@ -125,7 +125,7 @@ def _payloads() -> list[dict[str, Any]]:
             "reason": "Evidence supports a partial refund.",
             "escrow_id": ESCROW,
             "attempt_id": "77777777-8888-4999-8aaa-bbbbbbbbbbbb",
-            "provider_reference": None,
+            "provider_ref": None,
             "rail_name": "simulated",
             "correlation_id": f"txn={TXN}|ref=-|rail=simulated",
             "amount": money("300.00"),

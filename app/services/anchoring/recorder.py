@@ -123,7 +123,9 @@ def record_ledger_entry(db: Session, entry: LedgerEntry) -> AnchorEvent | None:
     )
 
 
-def record_money_audit(db: Session, audit: MoneyAuditEvent) -> AnchorEvent | None:
+def record_money_audit(
+    db: Session, audit: MoneyAuditEvent, *, raw_provider_reference: str | None = None
+) -> AnchorEvent | None:
     anchor = record_anchor_event(
         db,
         event_type=payloads.MONEY_AUDIT,
@@ -133,7 +135,7 @@ def record_money_audit(db: Session, audit: MoneyAuditEvent) -> AnchorEvent | Non
         source_id=str(audit.id),
     )
     if anchor is not None and audit.transaction_id is None:
-        _link_global_funding_event(db, audit, anchor)
+        _link_global_funding_event(db, audit, anchor, raw_provider_reference)
     return anchor
 
 
@@ -187,10 +189,13 @@ def note_status(db: Any, transaction_id: uuid.UUID, status_value: str) -> None:
         info.setdefault(_STATUS_KEY, {})[transaction_id] = status_value
 
 
-def _link_global_funding_event(db: Session, audit: MoneyAuditEvent, anchor: AnchorEvent) -> None:
+def _link_global_funding_event(
+    db: Session, audit: MoneyAuditEvent, anchor: AnchorEvent, raw_reference: str | None
+) -> None:
     """Decision D10: a global funding event matched to an escrow is linked into that
-    transaction's chain, so its verification includes it."""
-    if not audit.provider_reference:
+    transaction's chain, so its verification includes it. Matched on the raw reference, which
+    only the private collection_attempts table holds (#241)."""
+    if not raw_reference or not audit.provider_reference:
         return
     from app.models.collection_attempt import CollectionAttempt
 
@@ -199,7 +204,7 @@ def _link_global_funding_event(db: Session, audit: MoneyAuditEvent, anchor: Anch
             row = db.execute(
                 select(Escrow.id, Escrow.transaction_id)
                 .join(CollectionAttempt, CollectionAttempt.escrow_id == Escrow.id)
-                .where(CollectionAttempt.provider_reference == audit.provider_reference)
+                .where(CollectionAttempt.provider_reference == raw_reference)
                 .limit(1)
             ).first()
     except SQLAlchemyError:  # pragma: no cover - collection_attempts missing in a test schema
@@ -217,7 +222,7 @@ def _link_global_funding_event(db: Session, audit: MoneyAuditEvent, anchor: Anch
             global_leaf_hash=anchor.leaf_hash,
             global_audit_event_id=audit.id,
             escrow_id=escrow_id,
-            provider_reference=audit.provider_reference,
+            provider_ref=audit.provider_reference,
         ),
     )
 

@@ -23,6 +23,7 @@ from app.services.anchoring import payloads
 from app.services.anchoring.admin_ref import admin_ref, resolve_admin_ref
 from app.services.anchoring.backfill import BackfillRefusedError, backfill_anchor_events
 from app.services.anchoring.canonical import ZERO_HASH, canonical_json, leaf_hash
+from app.services.anchoring.provider_ref import provider_ref
 from app.services.anchoring.recorder import AnchorCompletenessError
 from app.services.audit import ACTOR_PROVIDER, record_money_audit_event
 from app.services.custody.simulated_provider import SimulatedCustodyProvider
@@ -362,6 +363,10 @@ def test_a_global_funding_event_matched_to_an_escrow_is_linked_into_its_chain() 
     assert linked.event_type == payloads.GLOBAL_EVENT_LINKED
     assert body["global_leaf_hash"] == "0x" + bytes(global_event.leaf_hash).hex()
     assert body["global_audit_event_id"] == global_event.source_id
+    # #241: linked on the raw reference, but both payloads carry only the keyed provider_ref.
+    assert body["provider_ref"] == provider_ref(reference)
+    assert json.loads(global_event.payload)["provider_ref"] == provider_ref(reference)
+    assert reference not in linked.payload + global_event.payload
     _assert_chain(_events(db, transaction.id))
 
 

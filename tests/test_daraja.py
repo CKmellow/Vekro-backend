@@ -17,6 +17,7 @@ from app.models.money_audit_event import MoneyAuditEvent
 from app.models.payment_prompt import PaymentPrompt
 from app.models.transaction import Transaction, TransactionStatus
 from app.services import payment as payment_module
+from app.services.anchoring.provider_ref import provider_ref
 from app.services.daraja import (
     DarajaClient,
     DarajaError,
@@ -251,7 +252,8 @@ def test_a_confirmed_callback_locks_and_funds_even_in_production(production) -> 
     audit = db.execute(
         select(MoneyAuditEvent).where(MoneyAuditEvent.action == "callback_funding_confirmed")
     ).scalar_one()
-    assert (audit.rail_name, audit.provider_reference) == ("daraja", "NLJ7RT61SV")
+    # The receipt is stored only as its keyed provider_ref (#241).
+    assert (audit.rail_name, audit.provider_reference) == ("daraja", provider_ref("NLJ7RT61SV"))
 
     # A repeat callback changes nothing and posts nothing twice.
     assert handle_callback(db, body, client=fake.client()) == "already_processed"

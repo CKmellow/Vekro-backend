@@ -2600,8 +2600,10 @@
                   "type": "null"
                 }
               ],
+              "description": "The provider's own reference, or a provider_ref read off an event.",
               "title": "Provider Reference"
-            }
+            },
+            "description": "The provider's own reference, or a provider_ref read off an event."
           },
           {
             "name": "rail_name",
@@ -6675,7 +6677,7 @@
               }
             ],
             "title": "Provider Reference",
-            "description": "Provider reference for the rail operation."
+            "description": "Keyed provider_ref (HMAC) of the provider's reference, never the raw value: some provider references carry the payer's phone number (#241)."
           },
           "rail_name": {
             "anyOf": [
@@ -6692,7 +6694,7 @@
           "correlation_id": {
             "type": "string",
             "title": "Correlation Id",
-            "description": "Correlation key combining transaction_id, provider_reference, and rail."
+            "description": "Correlation key combining transaction_id, provider_ref, and rail."
           },
           "amount": {
             "anyOf": [

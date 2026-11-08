@@ -26,6 +26,7 @@ from app.schemas.transaction import (
     PaymentCallbackRequest,
 )
 from app.services.anchoring import payloads
+from app.services.anchoring.provider_ref import provider_ref
 from app.services.anchoring.recorder import record_transaction_created
 from app.services.audit import (
     ACTOR_PROVIDER,
@@ -1276,13 +1277,9 @@ def confirm_payment_callback(
     _create_locked_notifications(
         db,
         transaction=transaction,
-        details={
-            "result_code": payload.result_code,
-            "result_desc": payload.result_desc,
-            "checkout_request_id": payload.checkout_request_id,
-            "merchant_request_id": payload.merchant_request_id,
-            "provider_reference": payload.provider_reference,
-        },
+        # No provider identifiers: the seller receives this payload too, and Daraja's
+        # CheckoutRequestID ends with the buyer's number (#241).
+        details={"result_code": payload.result_code, "result_desc": payload.result_desc},
     )
     db.commit()
     db.refresh(transaction)
@@ -1290,10 +1287,10 @@ def confirm_payment_callback(
     audit_logger.info(
         "transaction_transition transaction_id=%s "
         "from_status=awaiting_payment to_status=locked result_code=%s "
-        "checkout_request_id=%s",
+        "provider_ref=%s",
         transaction.id,
         payload.result_code,
-        payload.checkout_request_id or "",
+        provider_ref(payload.checkout_request_id) or "",
     )
 
     return PaymentCallbackResult(
@@ -1338,10 +1335,10 @@ def lock_transaction_after_custody_funding(
     )
     audit_logger.info(
         "transaction_transition transaction_id=%s "
-        "from_status=awaiting_payment to_status=locked rail=%s provider_reference=%s",
+        "from_status=awaiting_payment to_status=locked rail=%s provider_ref=%s",
         transaction.id,
         rail_name,
-        provider_reference or "",
+        provider_ref(provider_reference) or "",
     )
     return True
 

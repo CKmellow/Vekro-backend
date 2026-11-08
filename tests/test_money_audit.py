@@ -14,6 +14,7 @@ from app.models.money_audit_event import MoneyAuditEvent
 from app.models.transaction import TransactionStatus
 from app.models.user import UserRole
 from app.models.user_session import UserSession
+from app.services.anchoring.provider_ref import provider_ref
 from app.services.audit import (
     ACTOR_ADMIN,
     ACTOR_SYSTEM,
@@ -160,7 +161,8 @@ def test_audit_log_line_carries_correlation_fields(caplog: pytest.LogCaptureFixt
         # Table is absent in this schema; the log line must still be emitted.
         assert result is None
         assert f"transaction_id={transaction_id}" in caplog.text
-        assert "provider_reference=loop-ref-77" in caplog.text
+        assert f"provider_reference={provider_ref('loop-ref-77')}" in caplog.text
+        assert "loop-ref-77" not in caplog.text
         assert "rail=loop" in caplog.text
     finally:
         db.close()

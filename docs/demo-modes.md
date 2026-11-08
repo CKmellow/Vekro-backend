@@ -67,32 +67,36 @@ exact-amount result locks the order and records funding. A callback alone never 
 
 ### 4. No tunnel or flaky Wi-Fi: the fallback
 
-If the callback never arrives, or its query was rate-limited (the sandbox answers HTTP 429 often,
-see `docs/daraja-observed.md`), confirm open prompts directly:
+The callback is the primary path. The sandbox rate-limits the STK query (HTTP 429, often within
+the first minute; see `docs/daraja-observed.md`), so a callback's own query can be refused and
+the order left waiting. Run the fallback watcher alongside the demo:
 
 ```bash
-make confirm-mpesa          # python -m app.cli confirm-mpesa-payments
+make confirm-mpesa-watch    # python -m app.cli confirm-mpesa-payments --watch [SECONDS], default 900
 ```
 
-It queries every open prompt from the last 24 hours and locks the orders Daraja confirms. Run it
-whenever an order seems stuck in "waiting for payment". The scheduler (M24 B4) will run it on an
-interval.
+It looks for open prompts every few seconds, including new orders. It queries each one about 5s
+after first seeing it, then at doubling intervals up to 30s, each with ±20% jitter. It never sends
+two queries less than 2s apart, and a prompt the callback settles meanwhile just drops out. A 429
+or a pending answer only backs off; it never fails a payment. With a few payments in a class demo
+that keeps Vekro well under the limit. `make confirm-mpesa` does a single pass instead. The
+scheduler (M24 B4) will run this on its own.
 
 ### 5. Opt-in live test
 
 ```bash
 # .env: DARAJA_* credentials, DARAJA_LIVE_TEST_PHONE=2547XXXXXXXX (never committed)
-RUN_DARAJA_LIVE_TESTS=1 .venv/bin/pytest -m live -k daraja -s
+RUN_DARAJA_LIVE_TESTS=1 DARAJA_LIVE_MODE=callback|fallback DARAJA_LIVE_DB=<path> \
+  .venv/bin/pytest -m live -k daraja -s
 ```
 
-It sends **one KES 1** STK push through `create_transaction` into a scratch SQLite database, then
-polls the STK query, backing off on 429, and saves sanitised fixtures to
-`tests/fixtures/daraja/`. Straight after the push it copies the database to
-`<db>.fallback`, so one payment can be confirmed both ways:
+Each run sends **one KES 1** STK push through `create_transaction` into a scratch SQLite
+database and funds that one order by one path:
 
-- with `DARAJA_LIVE_DB=<path>`, `DARAJA_LIVE_EXPECT_CALLBACK=1`, the backend running on that
-  database (`DATABASE_URL` and `ALEMBIC_DATABASE_URL`) and the tunnel up, the test waits for the
-  callback to lock the order;
-- then, with the tunnel stopped, run `confirm-mpesa-payments` against the `.fallback` copy.
+- `callback`: start the backend on the same database (`DATABASE_URL` and `ALEMBIC_DATABASE_URL`
+  = `sqlite:///<path>`, `DARAJA_ENABLED=true`) with `make tunnel` up. The test sends no query of
+  its own and waits for the callback to lock the order.
+- `fallback`: stop the tunnel. The test runs the watcher (`stop_when_idle`) until the order locks.
 
-Only run it with the account owner's go-ahead: it sends a real prompt to a real phone.
+Sanitised fixtures go to `tests/fixtures/daraja/`. Only run it with the account owner's go-ahead:
+it sends a real prompt to a real phone.

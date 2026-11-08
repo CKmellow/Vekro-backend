@@ -17,6 +17,8 @@ Idempotent.
 confirm-mpesa-payments: query Daraja for open STK prompts from the last day whose callback never
 arrived, and lock the orders it confirms (#224). Needs DARAJA_ENABLED=true. This is the fallback
 when the callback cannot reach Vekro (no tunnel, flaky network): funding never depends on it.
+With --watch [SECONDS] it keeps going, querying each open prompt at backed-off intervals (about
+5s doubling to 30s, with jitter, never two queries at once) so the sandbox rate limit is not hit.
 
 payment-rails: print which rail collects M-Pesa, card and USSD payments under the current
 configuration, and where the money sits (docs/demo-modes.md).
@@ -129,17 +131,22 @@ def anchor_sales_backfill() -> int:
     return 0
 
 
-def confirm_mpesa_payments() -> int:
+def confirm_mpesa_payments(*, watch_seconds: float | None = None) -> int:
     from app.core.settings import get_settings
     from app.services.daraja import DarajaClient
-    from app.services.daraja_confirmation import confirm_pending_payments
+    from app.services.daraja_confirmation import confirm_pending_payments, watch_pending_payments
 
     settings = get_settings()
     if not settings.daraja_enabled:
         print("Daraja is disabled (DARAJA_ENABLED=false); nothing to do.", file=sys.stderr)
         return 2
+    client = DarajaClient.from_settings(settings)
     with _session() as db:
-        outcomes = confirm_pending_payments(db, client=DarajaClient.from_settings(settings))
+        if watch_seconds is None:
+            outcomes = confirm_pending_payments(db, client=client)
+        else:
+            print(f"Watching open M-Pesa prompts for {watch_seconds:.0f}s (Ctrl+C to stop).")
+            outcomes = watch_pending_payments(db, client=client, duration_seconds=watch_seconds)
     for transaction_id, outcome in outcomes.items():
         print(f"{transaction_id} {outcome}")
     print(f"Checked {len(outcomes)} open payment prompt(s).")
@@ -176,8 +183,16 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser(
         "anchor-sales-backfill", help="Record completed sales for the sellers' track records."
     )
-    commands.add_parser(
+    confirm = commands.add_parser(
         "confirm-mpesa-payments", help="Confirm open STK prompts whose callback never arrived."
+    )
+    confirm.add_argument(
+        "--watch",
+        nargs="?",
+        type=float,
+        const=900.0,
+        metavar="SECONDS",
+        help="Keep confirming, with backoff, for SECONDS (default 900); picks up new prompts.",
     )
     commands.add_parser("payment-rails", help="Show which rail collects each payment method.")
     args = parser.parse_args(argv)
@@ -191,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "anchor-sales-backfill":
         return anchor_sales_backfill()
     if args.command == "confirm-mpesa-payments":
-        return confirm_mpesa_payments()
+        return confirm_mpesa_payments(watch_seconds=args.watch)
     if args.command == "payment-rails":
         return payment_rails()
 

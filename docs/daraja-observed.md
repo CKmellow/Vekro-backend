@@ -69,7 +69,9 @@ documented. The callback is unsigned, so Vekro treats it only as a trigger
   answered the 1032 result normally, and the prompt was marked `failed (cancelled)`.
 
 So the fallback command is not only for a missing tunnel: it also settles prompts whose
-callback-triggered query was rate-limited. The scheduler (M24 B4) runs it on an interval.
+callback-triggered query was rate-limited. `confirm-mpesa-payments --watch` (#243) does this with
+backoff (5s doubling to 30s, jitter, at least 2s between queries); the scheduler (M24 B4) will run
+it on its own.
 
 ## 5. Not yet observed
 

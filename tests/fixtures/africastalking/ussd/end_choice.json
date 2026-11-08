@@ -1,0 +1,20 @@
+{
+  "observed": "2026-11-08, AT sandbox web simulator, channel *384*83579#",
+  "reply": "END Bye",
+  "reply_length": 7,
+  "request": {
+    "content_type": "application/x-www-form-urlencoded",
+    "form": {
+      "networkCode": "99999",
+      "phoneNumber": "+254700000000",
+      "serviceCode": "*384*83579#",
+      "sessionId": "ATUid_dd55dfee894f22a856624fa4e196b17e",
+      "text": "2*3"
+    },
+    "headers": {
+      "at-ussd-hop-metadata": "step-1",
+      "user-agent": "at-ussd-api/1.0"
+    },
+    "method": "POST"
+  }
+}

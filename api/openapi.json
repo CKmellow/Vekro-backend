@@ -3379,6 +3379,52 @@
         }
       }
     },
+    "/ussd/africastalking/{token}": {
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Africa's Talking USSD callback",
+        "description": "Africa's Talking posts every step of a USSD session here (form-encoded sessionId, serviceCode, phoneNumber, networkCode, text). The requests are unsigned, so the path carries USSD_CALLBACK_TOKEN; USSD_ALLOWED_IPS optionally limits callers. Answers text/plain CON or END screens of at most 160 characters (docs/ussd.md).",
+        "operationId": "africastalking_ussd_ussd_africastalking__token__post",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Wrong token, caller not allowed, or USSD is off."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/public/orders/{key}": {
       "get": {
         "tags": [
@@ -4025,6 +4071,44 @@
           },
           "403": {
             "description": "Not a seller."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/ussd-pin": {
+      "post": {
+        "tags": [
+          "Account"
+        ],
+        "summary": "Set or change the USSD PIN",
+        "description": "The 4-digit PIN asked for before sensitive actions over USSD (*384*\u2026#). Needs the account password. Three wrong PINs over USSD lock USSD actions for 15 minutes.",
+        "operationId": "post_ussd_pin_account_ussd_pin_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UssdPinRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Wrong password."
           },
           "422": {
             "description": "Validation Error",
@@ -9848,6 +9932,29 @@
           "admin"
         ],
         "title": "UserRole"
+      },
+      "UssdPinRequest": {
+        "properties": {
+          "pin": {
+            "type": "string",
+            "pattern": "^\\d{4}$",
+            "title": "Pin",
+            "description": "4 digits, for sensitive actions over USSD."
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password",
+            "description": "The account password."
+          }
+        },
+        "type": "object",
+        "required": [
+          "pin",
+          "password"
+        ],
+        "title": "UssdPinRequest"
       },
       "ValidationError": {
         "properties": {

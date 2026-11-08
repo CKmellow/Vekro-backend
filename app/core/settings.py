@@ -59,6 +59,15 @@ class Settings(BaseSettings):
     daraja_enabled: bool = False
     daraja_timeout_seconds: float = 15.0
 
+    # M23 USSD: AT's requests are unsigned, so the callback URL carries this secret
+    # (/ussd/africastalking/<token>). Blank turns the USSD endpoint off.
+    ussd_callback_token: SecretStr = SecretStr("")
+    # Optional extra check, off when blank: comma-separated client IPs allowed to call.
+    ussd_allowed_ips: str = ""
+    # Read the client IP from X-Forwarded-For (only behind a proxy you control: ngrok, Caddy).
+    ussd_trust_forwarded_for: bool = False
+    ussd_session_seconds: int = 180
+
     africastalking_username: str = "sandbox"
     africastalking_api_key: str = ""
     africastalking_sender_id: str = ""

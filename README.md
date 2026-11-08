@@ -193,6 +193,23 @@ eConfirm test layers (all offline unless noted):
 - Funding-flow wiring (eConfirm, simulated fallback, Daraja default): `tests/test_econfirm_funding_flow.py`
 - Live smoke, opt-in: `RUN_ECONFIRM_LIVE_TESTS=1 .venv/bin/pytest -m live -k econfirm -s`. Without further variables only `ping` runs. The KES 100 fund-and-reverse round trip moves real money and also needs `ECONFIRM_LIVE_MONEY_CONFIRM=KES100`, `ECONFIRM_LIVE_PAYER_PHONE`, `ECONFIRM_LIVE_RECEIVER_PHONE`, and `ECONFIRM_FALLBACK_EMAIL`.
 
+## Verifiable Escrow Ledger (M21)
+
+Vekro holds the money; a public blockchain holds Vekro to account. Every money fact (ledger
+postings, payouts, funding, status changes, dispute steps, admin decisions) is hash-chained per
+order in the same DB transaction, batched into keccak Merkle roots, and anchored on an immutable
+`AnchorRegistry` on Base (`contracts/`). Buyers and sellers verify their order in the browser
+against the chain, with no wallet and no crypto, and sellers' completed sales are publicly
+countable. With `ANCHOR_GATE_PAYOUTS=true`, no payout leaves escrow until its authorisation is
+anchored and its proof matches the on-chain root, so a database edit cannot move money. The money
+itself stays in M-Pesa and eConfirm.
+
+- How it works, threat model and honest limits: `docs/anchoring.md`
+- Design decisions and event inventory: `docs/anchoring-design.md`
+- Browser verifier contract and golden vectors: `docs/frontend-verification-contract.md`,
+  `tests/fixtures/anchoring/vectors.json`
+- Runbooks RB-7 to RB-10 (`docs/runbooks.md`) and demo Scenario 6 (`docs/demo-script.md`)
+
 ## Local Runbook
 
 ### Start API server

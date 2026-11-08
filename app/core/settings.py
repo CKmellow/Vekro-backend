@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     daraja_shortcode: str = "174379"
     daraja_passkey: str = ""
     daraja_callback_url: str = ""
+    # #224: real STK push and STK-query confirmation. Off: the stub gateway, as before.
+    daraja_enabled: bool = False
+    daraja_timeout_seconds: float = 15.0
 
     africastalking_username: str = "sandbox"
     africastalking_api_key: str = ""
@@ -353,6 +356,27 @@ class Settings(BaseSettings):
             violations.append(
                 "ANCHOR_GATE_PAYOUTS=true needs ANCHOR_ENABLED=true (payouts would wait forever)"
             )
+
+        if self.daraja_enabled:
+            if self.daraja_env not in ("sandbox", "production"):
+                violations.append("DARAJA_ENV must be sandbox or production")
+            missing = [
+                name.upper()
+                for name in (
+                    "daraja_consumer_key",
+                    "daraja_consumer_secret",
+                    "daraja_shortcode",
+                    "daraja_passkey",
+                    "daraja_callback_url",
+                )
+                if not str(getattr(self, name)).strip()
+            ]
+            if missing:
+                violations.append(
+                    "DARAJA_ENABLED=true requires " + ", ".join(missing) + " (values not shown)"
+                )
+            if environment == "production" and not self.daraja_callback_url.startswith("https://"):
+                violations.append("DARAJA_CALLBACK_URL must use https:// in production")
 
         if self.allow_live_payouts and environment != "production":
             violations.append("ALLOW_LIVE_PAYOUTS=true requires ENVIRONMENT=production")

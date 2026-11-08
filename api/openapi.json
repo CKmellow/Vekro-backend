@@ -3089,6 +3089,52 @@
         }
       }
     },
+    "/payments/mpesa/callback": {
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Daraja STK callback",
+        "description": "Where Safaricom posts the M-Pesa Express result (DARAJA_CALLBACK_URL). The callback is unsigned, so it is only a trigger: Vekro confirms the payment with an STK query before locking the order and recording funding. Always answers Accepted, as Daraja expects.",
+        "operationId": "daraja_stk_callback_payments_mpesa_callback_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Body"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Daraja Stk Callback Payments Mpesa Callback Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/public/orders/{key}": {
       "get": {
         "tags": [

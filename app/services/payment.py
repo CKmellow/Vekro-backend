@@ -50,4 +50,11 @@ class MpesaStkStubGateway:
 
 
 def get_payment_gateway() -> PaymentGateway:
+    from app.core.settings import get_settings
+
+    settings = get_settings()
+    if settings.daraja_enabled:
+        from app.services.daraja import DarajaClient, DarajaStkGateway
+
+        return DarajaStkGateway(DarajaClient.from_settings(settings))
     return MpesaStkStubGateway()

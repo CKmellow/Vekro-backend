@@ -3225,6 +3225,110 @@
         }
       }
     },
+    "/admin/refunds/manual": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Card refunds waiting for support (admin only)",
+        "description": "Refunds of card-funded orders. Card money sits in the merchant's Pesapal account and is refunded by support in Pesapal (merchant approval, then Pesapal's processing), never over M-Pesa. Each item is marked 'manual refund required' in the order's record.",
+        "operationId": "admin_list_manual_refunds_admin_refunds_manual_get",
+        "parameters": [
+          {
+            "name": "include_completed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Completed"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualRefundListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/refunds/{attempt_id}/complete": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Mark a card refund as done in Pesapal (admin only)",
+        "description": "Records that support refunded the card payment in Pesapal. It settles the refund like an executed payout (ledger, escrow totals, payout status) and anchors 'manual refund completed'. Idempotent. With ANCHOR_GATE_PAYOUTS it waits until the refund's approval is anchored.",
+        "operationId": "admin_complete_manual_refund_admin_refunds__attempt_id__complete_post",
+        "parameters": [
+          {
+            "name": "attempt_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Attempt Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteManualRefundRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualRefundResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No manual refund with this id."
+          },
+          "409": {
+            "description": "Not completable yet: approval not anchored, or not enough held money."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/public/orders/{key}": {
       "get": {
         "tags": [
@@ -5517,6 +5621,35 @@
         ],
         "title": "CollectionOutcome"
       },
+      "CompleteManualRefundRequest": {
+        "properties": {
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Note",
+            "description": "What support did, for the audit trail."
+          },
+          "provider_refund_reference": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Refund Reference",
+            "description": "Pesapal's reference for the refund, if any."
+          }
+        },
+        "type": "object",
+        "required": [
+          "note"
+        ],
+        "title": "CompleteManualRefundRequest"
+      },
       "CreateListingRequest": {
         "properties": {
           "title": {
@@ -6631,6 +6764,87 @@
         ],
         "title": "LoopCollectionWebhookResponse",
         "description": "Acknowledgement payload for LOOP collection callbacks."
+      },
+      "ManualRefundListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ManualRefundResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "ManualRefundListResponse"
+      },
+      "ManualRefundResponse": {
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Attempt Id"
+          },
+          "transaction_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Transaction Id"
+          },
+          "reference": {
+            "type": "string",
+            "title": "Reference",
+            "description": "The order reference, as on Pesapal (merchant reference)."
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount"
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency"
+          },
+          "queued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Queued At"
+          },
+          "pesapal_order_tracking_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pesapal Order Tracking Id",
+            "description": "The Pesapal order that took the card payment; refund it in Pesapal."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "completed"
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "attempt_id",
+          "transaction_id",
+          "reference",
+          "amount",
+          "currency",
+          "queued_at",
+          "pesapal_order_tracking_id",
+          "status"
+        ],
+        "title": "ManualRefundResponse"
       },
       "MarkAllReadResponse": {
         "properties": {

@@ -19,6 +19,7 @@ from app.routers.disputes import router as disputes_router
 from app.routers.health import router as health_router
 from app.routers.listings import router as listings_router
 from app.routers.loop_webhooks import router as loop_webhooks_router
+from app.routers.manual_refunds_admin import router as manual_refunds_admin_router
 from app.routers.money_audit_admin import router as money_audit_admin_router
 from app.routers.mpesa_webhooks import router as mpesa_webhooks_router
 from app.routers.notifications import router as notifications_router
@@ -218,6 +219,7 @@ app.include_router(loop_webhooks_router)
 app.include_router(pesapal_webhooks_router)
 app.include_router(mpesa_webhooks_router)
 app.include_router(pesapal_card_router)
+app.include_router(manual_refunds_admin_router)
 app.include_router(public_orders_router)
 app.include_router(seller_profile_router)
 app.include_router(account_router)

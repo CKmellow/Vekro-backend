@@ -329,3 +329,20 @@ def test_tier_1_registry_uses_econfirm_provider_and_rails_when_enabled() -> None
     assert capabilities.holds_funds_structurally is True
     assert capabilities.supports_split_payout is False
     assert capabilities.supports_partial_release is False
+
+
+def test_card_only_pesapal_needs_no_callback_url_but_the_custody_rail_does() -> None:
+    """#253: card checkout returns buyers to FRONTEND_URL; only the M15 rail uses the URL."""
+    card_only = {
+        "secret_key": "test-secret",
+        "database_url": "sqlite://",
+        "alembic_database_url": "sqlite://",
+        "pesapal_enabled": True,
+        "pesapal_base_url": "https://cybqa.pesapal.com/pesapalv3",
+        "pesapal_consumer_key": "k",
+        "pesapal_consumer_secret": "s",
+        "pesapal_callback_url": "",
+    }
+    Settings(**card_only)  # starts
+    with pytest.raises(ValueError, match="PESAPAL_CALLBACK_URL must be set"):
+        Settings(**card_only, custody_collection_rail_priority="pesapal,simulated")

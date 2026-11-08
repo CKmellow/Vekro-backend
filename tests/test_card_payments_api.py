@@ -84,3 +84,15 @@ def test_api_ipn_answers_pesapals_documented_shape(monkeypatch, db, world) -> No
         "status": 500,
     }
     assert posted.json()["status"] == 500
+
+
+def test_api_manual_refunds_are_admin_only(monkeypatch, db, world) -> None:
+    client = _client_as(monkeypatch, db, world["buyer"])
+
+    assert client.get("/admin/refunds/manual").status_code == 403
+    assert (
+        client.post(
+            "/admin/refunds/00000000-0000-4000-8000-000000000000/complete", json={"note": "done"}
+        ).status_code
+        == 403
+    )

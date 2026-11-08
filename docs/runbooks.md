@@ -304,3 +304,26 @@ registry.
    reviewed and done in a migration, never ad hoc.
 6. Rotating `ANCHOR_ADMIN_REF_SECRET`: put the new key first and keep the old ones after it. Old
    `admin_ref`, `destination_ref` and `sale_ref` values still resolve.
+
+## RB-11: Card refund waiting for support (M22, #253)
+
+Card money is collected into the merchant's Pesapal account, so it cannot be paid back over M-Pesa,
+and Pesapal refunds need the merchant's approval and Pesapal's own processing. When a card-funded
+order ends in a refund (a dispute outcome, a door rejection, or the refund part of a split), the
+refund is queued to `manual_card_refund`. The payout executor never sends it, and the order's
+record shows `manual_refund_required`.
+
+1. List the queue: `GET /admin/refunds/manual`. Each item has the order reference (Pesapal's
+   merchant reference), the amount and the Pesapal order tracking id.
+2. In the Pesapal merchant dashboard, find the payment by reference or tracking id and refund
+   it. You can also call Pesapal's `RefundRequest` API (`docs/pesapal-observed.md` section 7).
+   Mobile-money payments can only be refunded in full, and only once.
+3. When Pesapal confirms the refund, call `POST /admin/refunds/{attempt_id}/complete` with a note
+   and Pesapal's refund reference. This settles the refund like any payout: ledger
+   `BUYER_REFUNDABLE` / `ESCROW_HELD`, the escrow's refunded total and the payout status. It also
+   anchors `manual_refund_completed`, naming the admin only as `admin_ref`. It is idempotent.
+4. A 409 means it cannot complete yet. Either the refund's approval is not anchored (with
+   `ANCHOR_GATE_PAYOUTS`; wait for the next batch, see RB-9), or the escrow's held balance does
+   not cover it (investigate before refunding anything in Pesapal).
+
+Never complete a refund before Pesapal has actually paid it back.

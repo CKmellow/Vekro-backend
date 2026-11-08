@@ -200,6 +200,39 @@ def test_create_prompts_the_account_phone_when_no_mpesa_phone(monkeypatch, db, w
     assert sent == ["+254712345678"]
 
 
+class _CapturingGateway:
+    def __init__(self) -> None:
+        self.requests: list[payment_prompts.PaymentRequest] = []
+
+    def initiate_stk_push(self, request):
+        self.requests.append(request)
+        return payment_prompts.PaymentResponse(
+            provider="fake",
+            status="queued",
+            provider_request_id="r",
+            merchant_request_id="m",
+            checkout_request_id=f"c-{len(self.requests)}",
+            customer_message="ok",
+        )
+
+
+def test_prompts_show_the_order_reference_within_darajas_limits(monkeypatch, db, world) -> None:
+    gateway = _CapturingGateway()
+    monkeypatch.setattr("app.services.transaction.get_payment_gateway", lambda: gateway)
+    monkeypatch.setattr(payment_prompts, "get_payment_gateway", lambda: gateway)
+    created = _create(monkeypatch, db, world)
+    client = _client_as(monkeypatch, db, world["buyer"])
+    _callback(client, created["id"], 1032)
+    _age_prompts(db, RESEND_COOLDOWN)
+    assert client.post(f"/transactions/{created['id']}/payment/resend").status_code == 200
+
+    assert [r.account_reference for r in gateway.requests] == [created["reference"]] * 2
+    for request in gateway.requests:
+        # Daraja: AccountReference max 12 characters, TransactionDesc max 13.
+        assert len(request.account_reference) <= 12
+        assert len(request.transaction_desc) <= 13
+
+
 @pytest.mark.parametrize(
     ("code", "reason"),
     [

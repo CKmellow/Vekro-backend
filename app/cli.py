@@ -15,7 +15,11 @@ anchor-sales-backfill: record track-record events for completed sales from befor
 Idempotent.
 
 confirm-mpesa-payments: query Daraja for open STK prompts from the last day whose callback never
-arrived, and lock the orders it confirms (#224). Needs DARAJA_ENABLED=true.
+arrived, and lock the orders it confirms (#224). Needs DARAJA_ENABLED=true. This is the fallback
+when the callback cannot reach Vekro (no tunnel, flaky network): funding never depends on it.
+
+payment-rails: print which rail collects M-Pesa, card and USSD payments under the current
+configuration, and where the money sits (docs/demo-modes.md).
 """
 
 from __future__ import annotations
@@ -142,6 +146,15 @@ def confirm_mpesa_payments() -> int:
     return 0
 
 
+def payment_rails() -> int:
+    from app.core.settings import get_settings
+    from app.services.payment_rails import describe_collection_rails
+
+    for route in describe_collection_rails(get_settings()):
+        print(f"{route.method:<6} {route.rail:<10} {route.when:<32} {route.money_sits}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -166,6 +179,7 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser(
         "confirm-mpesa-payments", help="Confirm open STK prompts whose callback never arrived."
     )
+    commands.add_parser("payment-rails", help="Show which rail collects each payment method.")
     args = parser.parse_args(argv)
 
     if args.command == "repair-return-cases":
@@ -178,6 +192,8 @@ def main(argv: list[str] | None = None) -> int:
         return anchor_sales_backfill()
     if args.command == "confirm-mpesa-payments":
         return confirm_mpesa_payments()
+    if args.command == "payment-rails":
+        return payment_rails()
 
     password = os.environ.get(PASSWORD_ENV, "")
     if not password:

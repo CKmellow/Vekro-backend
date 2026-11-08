@@ -57,7 +57,12 @@ from app.services.dispute_summary import OPEN_DISPUTE_STATUSES, latest_dispute
 from app.services.escrow_service import EscrowService
 from app.services.ledger import post_escrow_funding
 from app.services.listing_content import listing_is_sold
-from app.services.payment import PaymentGateway, PaymentRequest, get_payment_gateway
+from app.services.payment import (
+    STK_DESCRIPTION,
+    PaymentGateway,
+    PaymentRequest,
+    get_payment_gateway,
+)
 from app.services.payment_prompts import (
     econfirm_payment_response,
     record_payment_prompt,
@@ -380,8 +385,9 @@ def create_transaction(
                 amount=f"{transaction.amount:.2f}",
                 # Buyers register with one phone; it is also their M-Pesa number unless set apart.
                 phone_number=buyer.mpesa_phone or buyer.phone,
-                account_reference=str(transaction.id),
-                transaction_desc=f"Escrow payment for listing {listing.id}",
+                # Daraja shows AccountReference in the prompt (max 12 chars): the order reference.
+                account_reference=transaction.reference,
+                transaction_desc=STK_DESCRIPTION,
             )
         )
     except Exception as exc:  # pragma: no cover

@@ -6,6 +6,7 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import httpx2 as httpx
@@ -322,6 +323,15 @@ def test_unknown_or_unreadable_callbacks_change_nothing() -> None:
     assert parsed is not None and parsed.amount == Decimal("2500")
 
 
+def test_unknown_checkout_ids_are_logged_without_the_subscriber_number(caplog) -> None:
+    # Observed in the sandbox: the ID ends with the payer's 9-digit subscriber number.
+    checkout = "ws_CO_081120261437512712345678"
+    with caplog.at_level("WARNING", logger="app.payments.daraja"):
+        handle_callback(_db(), _callback(checkout, amount="1"), client=FakeDaraja().client())
+    assert "ws_CO_08112026143751…" in caplog.text
+    assert "712345678" not in caplog.text
+
+
 def test_the_webhook_always_answers_accepted(monkeypatch) -> None:
     from app.main import app
     from fastapi.testclient import TestClient
@@ -329,3 +339,13 @@ def test_the_webhook_always_answers_accepted(monkeypatch) -> None:
     response = TestClient(app).post("/payments/mpesa/callback", json={"Body": {}})
     assert response.status_code == 200
     assert response.json() == {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+
+def test_observed_sandbox_shapes_parse() -> None:
+    """tests/fixtures/daraja: shapes the sandbox actually sent (docs/daraja-observed.md)."""
+    fixtures = Path(__file__).parent / "fixtures" / "daraja"
+    cancelled = parse_callback(json.loads((fixtures / "stk_callback_cancelled.json").read_text()))
+    assert cancelled is not None
+    assert (cancelled.result_code, cancelled.amount, cancelled.receipt) == (1032, None, None)
+    token = json.loads((fixtures / "oauth_token.json").read_text())
+    assert isinstance(token["expires_in"], str)  # a string, not a number

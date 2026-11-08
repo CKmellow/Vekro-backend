@@ -56,8 +56,34 @@ class TransactionResponse(BaseModel):
     payment_method: Literal["mpesa", "card"] = Field(
         default="mpesa", description="How the buyer pays: mpesa (STK prompt) or card (Pesapal)."
     )
+    collection_rail: Literal["simulated", "daraja", "pesapal", "econfirm"] = Field(
+        default="simulated",
+        description=(
+            "The rail that collects the money. daraja and pesapal collect into the merchant's "
+            "account (collection, not third-party escrow); econfirm is third-party custody; "
+            "simulated moves no money."
+        ),
+    )
+    payment_mode: Literal["sandbox", "live"] = Field(
+        default="sandbox",
+        description=(
+            "sandbox: a test payment, no real money moves. live: real money was collected. "
+            "Show sandbox payments as tests, never as real money."
+        ),
+    )
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("collection_rail", mode="before")
+    @classmethod
+    def _default_collection_rail(cls, value: Any) -> str:
+        rail = str(value or "").strip().lower()
+        return rail if rail in {"daraja", "pesapal", "econfirm"} else "simulated"
+
+    @field_validator("payment_mode", mode="before")
+    @classmethod
+    def _default_payment_mode(cls, value: Any) -> str:
+        return "live" if str(value or "").strip().lower() == "live" else "sandbox"
 
     @field_validator("payment_method", mode="before")
     @classmethod

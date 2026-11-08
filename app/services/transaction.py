@@ -75,6 +75,13 @@ from app.services.payment_prompts import (
     record_payment_prompt,
     resolve_open_prompt,
 )
+from app.services.payment_rails import (
+    RAIL_ECONFIRM,
+    RAIL_PESAPAL,
+    collection_facts,
+    mpesa_rail,
+    set_collection,
+)
 from app.services.transitions import record_dispute_event, transition_transaction
 
 audit_logger = logging.getLogger("app.transactions.audit")
@@ -257,6 +264,8 @@ def _fund_via_econfirm(
     )
     if landed == PROVIDER_SIMULATED:
         transaction.custody_provider = PROVIDER_SIMULATED
+        # eConfirm refused: the buyer pays through the M-Pesa gateway instead (#257).
+        set_collection(transaction, settings, mpesa_rail(settings))
         db.add(transaction)
         db.commit()
         db.refresh(transaction)
@@ -353,6 +362,15 @@ def create_transaction(
         status=TransactionStatus.AWAITING_PAYMENT,
         custody_provider=selection.provider,
         payment_method=payload.payment_method,
+    )
+    set_collection(
+        transaction,
+        runtime_settings,
+        (
+            RAIL_PESAPAL
+            if pays_by_card
+            else RAIL_ECONFIRM if selection.is_econfirm else mpesa_rail(runtime_settings)
+        ),
     )
     db.add(transaction)
     record_transaction_created(db, transaction)
@@ -1180,6 +1198,7 @@ def _record_simulated_callback_funding(db: Session, transaction: Transaction, *,
             rail_name=PROVIDER_SIMULATED,
             amount=escrow.amount_total,
             currency=escrow.currency,
+            details=collection_facts(transaction),
         )
 
 
@@ -1209,6 +1228,7 @@ def _record_confirmed_callback_funding(
             rail_name=rail,
             amount=escrow.amount_total,
             currency=escrow.currency,
+            details=collection_facts(transaction),
         )
 
 

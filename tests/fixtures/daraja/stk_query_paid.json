@@ -1,0 +1,11 @@
+{
+  "body": {
+    "CheckoutRequestID": "ws_CO_081120261529250700000000",
+    "MerchantRequestID": "135b-4679-8ea6-1c3dca88c6a41534181",
+    "ResponseCode": "0",
+    "ResponseDescription": "The service request has been accepted successfully",
+    "ResultCode": "0",
+    "ResultDesc": "The service request is processed successfully."
+  },
+  "http_status": 200
+}

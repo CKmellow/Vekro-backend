@@ -1,0 +1,11 @@
+{
+  "body": {
+    "fault": {
+      "detail": {
+        "errorcode": "policies.ratelimit.SpikeArrestViolation"
+      },
+      "faultstring": "Spike arrest violation. Allowed rate : MessageRate{messagesPerPeriod=30, periodInMicroseconds=60000000, maxBurstMessageCount=3.0}"
+    }
+  },
+  "http_status": 429
+}

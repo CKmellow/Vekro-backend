@@ -105,12 +105,36 @@ requests". Consequences (#245):
   code cannot eat the query budget;
 - in a demo, leave at least a minute between payments from the same phone.
 
-## 7. Not yet observed
+## 7. A paid order, funded by the fallback with no callback (2026-11-08)
 
-- A query answering `ResultCode` 0 captured as a fixture, and the fallback path funding an order
-  live (the fallback run collided with the previous prompt, section 6).
-- The exact `ResultCode` for "similar transaction underway".
+`DARAJA_LIVE_MODE=fallback`, KES 1, order `VK-N97VNK`, with the tunnel stopped, so no callback
+could reach Vekro. The watcher (`watch_pending_payments`, #243) ran:
 
-## 8. Account Balance (for M24 reserves)
+1. its first query (about 5s after the push) got HTTP 429;
+2. it backed off 8.8s;
+3. the next query answered `ResultCode` 0;
+4. the order locked, the escrow was funded with KES 1, and the ledger posting was balanced.
+
+Anchored payloads were clean. Captures:
+
+- `stk_push_accepted.json`;
+- `stk_query_paid.json` (`ResultCode` and `ResponseCode` are strings);
+- `stk_query_rate_limited.json`.
+
+**The rate limit, as Daraja states it in the 429 body:**
+`{"fault": {"faultstring": "Spike arrest violation. Allowed rate : MessageRate{messagesPerPeriod=30, periodInMicroseconds=60000000, maxBurstMessageCount=3.0}", "detail": {"errorcode": "policies.ratelimit.SpikeArrestViolation"}}}`.
+
+That is 30 requests a minute, smoothed to one every 2 seconds, with a burst of 3. It appears to
+count every call the app makes (OAuth, push and query): a push needs an OAuth call too, and a query
+a few seconds later can still be refused. The watcher's 2-second minimum gap matches the smoothed
+rate. Its backoff absorbs the rest.
+
+Both paths have now funded an order live: the callback (section 5) and the fallback (this section).
+
+## 8. Not yet observed
+
+- The exact `ResultCode` for "similar transaction underway" (section 6).
+
+## 9. Account Balance (for M24 reserves)
 
 Not read: the portal page loaded without content. To be checked before M24 B2.

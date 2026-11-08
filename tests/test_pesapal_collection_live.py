@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import time
+import uuid
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from app.core.settings import get_settings
@@ -66,7 +68,8 @@ def test_pesapal_live_card_checkout_opens_and_reads_as_pending() -> None:
     if not card_payments_available(settings):
         pytest.skip("Card payments need PESAPAL_* (with PESAPAL_IPN_ID) and FRONTEND_URL.")
     reference = f"VK-LIVE{int(time.time()) % 100000}"
-    rail = build_rail(settings, reference=reference)
+    order = SimpleNamespace(id=uuid.uuid4(), reference=reference)
+    rail = build_rail(settings, transaction=order)
 
     opened = rail.request_funding(
         FundingRequest(

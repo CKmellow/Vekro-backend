@@ -2,9 +2,11 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.auth_context import get_client_identifier, get_current_user, require_seller_user
+from app.core.security import verify_password
 from app.core.settings import get_settings
 from app.db.session import get_db
 from app.models.user import User
@@ -36,6 +38,7 @@ from app.services.phone_auth import (
     PhoneCodeInvalidError,
     PhoneCodeRateLimitedError,
 )
+from app.services.ussd import set_ussd_pin
 
 router = APIRouter(tags=["Account"])
 AUTH = {status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."}}
@@ -236,3 +239,29 @@ def put_preferences(
     set_preferences(user, payload.model_dump())
     db.commit()
     return NotificationPreferences.model_validate(preferences(user))
+
+
+class UssdPinRequest(BaseModel):
+    pin: str = Field(pattern=r"^\d{4}$", description="4 digits, for sensitive actions over USSD.")
+    password: str = Field(min_length=1, max_length=128, description="The account password.")
+
+
+@router.post(
+    "/account/ussd-pin",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Set or change the USSD PIN",
+    description=(
+        "The 4-digit PIN asked for before sensitive actions over USSD (*384*…#). Needs the "
+        "account password. Three wrong PINs over USSD lock USSD actions for 15 minutes."
+    ),
+    responses={status.HTTP_403_FORBIDDEN: {"description": "Wrong password."}},
+)
+def post_ussd_pin(
+    payload: UssdPinRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    if not verify_password(payload.password, current_user.password_hash):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Wrong password.")
+    set_ussd_pin(db, current_user, payload.pin)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

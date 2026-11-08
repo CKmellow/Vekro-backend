@@ -1,0 +1,20 @@
+{
+  "observed": "2026-11-08, AT sandbox web simulator, channel *384*83579#",
+  "reply": "CON Word000 Word001 Word002 Word003 Word004 Word005 Word006 Word007 Word008 Word\u2026",
+  "reply_length": 323,
+  "request": {
+    "content_type": "application/x-www-form-urlencoded",
+    "form": {
+      "networkCode": "99999",
+      "phoneNumber": "+254700000000",
+      "serviceCode": "*384*83579#",
+      "sessionId": "ATUid_dd55dfee894f22a856624fa4e196b17e",
+      "text": "2"
+    },
+    "headers": {
+      "at-ussd-hop-metadata": "step-0",
+      "user-agent": "at-ussd-api/1.0"
+    },
+    "method": "POST"
+  }
+}

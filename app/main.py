@@ -32,6 +32,7 @@ from app.routers.seller_analytics import router as seller_analytics_router
 from app.routers.seller_profile import router as seller_profile_router
 from app.routers.simulated_custody_admin import router as simulated_custody_admin_router
 from app.routers.transactions import router as transactions_router
+from app.routers.ussd import router as ussd_router
 from app.routers.verification import router as verification_router
 from app.services.auth import is_valid_csrf_for_session, resolve_active_session
 from app.services.custody.registry import build_custody_registry
@@ -220,6 +221,7 @@ app.include_router(pesapal_webhooks_router)
 app.include_router(mpesa_webhooks_router)
 app.include_router(pesapal_card_router)
 app.include_router(manual_refunds_admin_router)
+app.include_router(ussd_router)
 app.include_router(public_orders_router)
 app.include_router(seller_profile_router)
 app.include_router(account_router)

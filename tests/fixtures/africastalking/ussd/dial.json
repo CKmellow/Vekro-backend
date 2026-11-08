@@ -1,0 +1,19 @@
+{
+  "observed": "2026-11-08, AT sandbox web simulator, channel *384*83579#",
+  "reply": "CON Vekro discovery\n1. Continue\n2. Long reply\n3. Quit",
+  "reply_length": 53,
+  "request": {
+    "content_type": "application/x-www-form-urlencoded",
+    "form": {
+      "networkCode": "99999",
+      "phoneNumber": "+254700000000",
+      "serviceCode": "*384*83579#",
+      "sessionId": "ATUid_45ab2662002dfbb2b3f7ae109bead048",
+      "text": ""
+    },
+    "headers": {
+      "user-agent": "at-ussd-api/1.0"
+    },
+    "method": "POST"
+  }
+}

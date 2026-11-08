@@ -72,6 +72,16 @@ class User(Base):
         index=True,
     )
 
+    # M23 USSD: a short PIN for sensitive USSD actions (hashed like passwords), with its own
+    # lockout so guessing it over USSD cannot lock the web login.
+    ussd_pin_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ussd_pin_failures: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    ussd_pin_locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

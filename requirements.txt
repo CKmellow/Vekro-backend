@@ -1,4 +1,5 @@
 fastapi
+python-multipart==0.0.20
 uvicorn[standard]
 pydantic-settings
 sqlalchemy

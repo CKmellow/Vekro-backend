@@ -28,6 +28,7 @@ from app.models.rail_health import RailBreakerState, RailHealth
 from app.models.transaction import Transaction, TransactionPayoutStatus, TransactionStatus
 from app.models.user import User, UserRole
 from app.models.user_session import UserSession
+from app.models.ussd_session import UssdSession
 
 __all__ = [
     "AnchorBatch",
@@ -65,5 +66,6 @@ __all__ = [
     "NotificationChannel",
     "NotificationEventType",
     "UserSession",
+    "UssdSession",
     "PhoneCode",
 ]

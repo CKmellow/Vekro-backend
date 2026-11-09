@@ -50,3 +50,6 @@ alembic/versions/*.pyc
 contracts/out/
 contracts/cache/
 contracts/broadcast/
+
+# Local screenshots for Cyprian's report (not committed)
+docs/report-assets/

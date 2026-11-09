@@ -37,9 +37,15 @@ M15's adapter also sent a `reference` field that is not in the documented reques
 Changed 2026-11-09 (#282): the sandbox now refuses an order without a billing first name, as HTTP
 200 with `{"error": {"error_type": "api_error", "code": "INVALID_INPUT_01", "message": "First Name
 cannot be null or empty"}, "status": "500"}` (fixture
-`tests/fixtures/pesapal/observed/submit_order_missing_first_name.json`). Vekro now sends
-`first_name` and `last_name` from the buyer's display name (a one-word name is repeated as the last
-name). The name goes only to Pesapal: it is not part of any audit snapshot or anchored payload.
+`tests/fixtures/pesapal/observed/submit_order_missing_first_name.json`). Probing with KES 1 sandbox
+orders then showed the full set it now requires besides the phone: `first_name`, `middle_name`,
+`last_name`, `line_1`, `line_2`, `city`, `state` and `postal_code` (each refused one at a time, e.g.
+`Middle Name cannot be null or empty`), and that it accepts `-` for each.
+
+Vekro sends the buyer's display name split into first / middle / last (first word, words between,
+last word; `-` where a part is missing) and `-` for the address fields, which Vekro does not collect;
+the buyer can fill them in on Pesapal's page. The name goes only to Pesapal: it is not part of any
+audit snapshot or anchored payload. Whether live Pesapal requires the same is not yet observed.
 
 ## 4. Hosted page: card payments are offered (go for P2)
 

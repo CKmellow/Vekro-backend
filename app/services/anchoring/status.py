@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from decimal import Decimal
 from functools import lru_cache
 from typing import Any
 
@@ -12,7 +14,12 @@ from sqlalchemy.orm import Session
 from app.models.anchor_batch import IN_FLIGHT_STATUSES, AnchorBatch, AnchorBatchStatus
 from app.models.collection_attempt import AttemptOutcome
 from app.models.payout_attempt import PayoutAttempt
-from app.schemas.anchoring import AnchorBatchSummary, AnchoringStatusResponse
+from app.schemas.anchoring import (
+    AnchorBatchSummary,
+    AnchoringStatusResponse,
+    LiabilitiesStatus,
+    ReservesStatus,
+)
 from app.services.anchoring.batcher import unbatched_summary
 from app.services.anchoring.canonical import hex32
 from app.services.anchoring.chain_config import SUPPORTED_CHAINS, secret_value
@@ -80,8 +87,56 @@ def anchoring_status(db: Session, settings: Any) -> AnchoringStatusResponse:
         payouts_waiting_for_anchor=waiting,
         oldest_payout_waiting_since=waiting_since,
         payouts_halted=halted_payouts,
+        liabilities=_latest_liabilities(db),
+        reserves=(reserves := _latest_reserves(db)),
+        reserves_shortfall=any(r.status == "shortfall" for r in reserves),
         server_time=datetime.now(UTC),
     )
+
+
+def _latest_liabilities(db: Session) -> LiabilitiesStatus | None:
+    from app.models.liabilities import LiabilitiesSnapshot
+
+    if not inspect(db.get_bind()).has_table(LiabilitiesSnapshot.__tablename__):
+        return None  # a schema from before M24 B2 (older test databases)
+    snapshot = db.execute(
+        select(LiabilitiesSnapshot).order_by(LiabilitiesSnapshot.id.desc()).limit(1)
+    ).scalar()
+    if snapshot is None:
+        return None
+    return LiabilitiesStatus(
+        snapshot_id=snapshot.id,
+        total=f"{Decimal(int(snapshot.total_cents)) / 100:.2f}",
+        leaf_count=snapshot.leaf_count,
+        at=snapshot.created_at,
+        anchored=snapshot.anchor_event_id is not None,
+    )
+
+
+def _latest_reserves(db: Session) -> list[ReservesStatus]:
+    from app.models.anchor_event import AnchorEvent
+    from app.services.anchoring.payloads import RESERVES_RECONCILIATION
+
+    events = db.execute(
+        select(AnchorEvent)
+        .where(AnchorEvent.event_type == RESERVES_RECONCILIATION)
+        .order_by(AnchorEvent.id.desc())
+        .limit(50)
+    ).scalars()
+    latest: dict[str, ReservesStatus] = {}
+    for event in events:
+        body = json.loads(event.payload)
+        if body["provider"] not in latest:
+            latest[body["provider"]] = ReservesStatus(
+                provider=body["provider"],
+                status=body["status"],
+                method=body["method"],
+                liability_total=body["liability_total"],
+                attested_total=body["attested_total"],
+                difference=body["difference"],
+                at=body["at"],
+            )
+    return sorted(latest.values(), key=lambda r: r.provider)
 
 
 def _gated_payouts(db: Session) -> tuple[int, datetime | None, int]:

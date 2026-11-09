@@ -327,3 +327,17 @@ record shows `manual_refund_required`.
    not cover it (investigate before refunding anything in Pesapal).
 
 Never complete a refund before Pesapal has actually paid it back.
+
+## RB-12: Reserves shortfall (M24 B2)
+
+`GET /admin/anchoring/status` shows `reserves_shortfall: true`, or a `reserves_shortfall` money audit
+event appears: a provider attested less than Vekro owes buyers.
+
+1. Read the latest `reserves` entry for the provider: liability, attested total, difference.
+2. For eConfirm, re-run `python -m app.cli reserves-reconcile`. An escrow eConfirm reports as not
+   funded is either a real loss or a state Vekro has wrong. Check each open eConfirm escrow in
+   eConfirm's dashboard against `escrows.funded_amount`.
+3. Do not release or refund anything for the affected escrows until the difference is explained.
+   Record the explanation as an admin note on the case.
+4. The anchored result stays on the chain; a later reconciliation records the corrected position.
+   Never try to remove the shortfall record.

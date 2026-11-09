@@ -72,6 +72,7 @@ from app.services.payment_prompts import (
     resolve_open_prompt,
 )
 from app.services.payment_rails import (
+    RAIL_DARAJA,
     RAIL_ECONFIRM,
     RAIL_PESAPAL,
     collection_facts,
@@ -1253,6 +1254,18 @@ def confirm_payment_callback(
             transitioned=False,
             duplicate=False,
             detail="Callback ignored; eConfirm funding is confirmed by eConfirm only.",
+        )
+
+    if confirmed_by == RAIL_DARAJA and transaction.payment_method == PAYMENT_METHOD_CARD:
+        # A card order is funded by card only (#280); see payment_switch.
+        audit_logger.warning(
+            "payment_callback_ignored_card_order transaction_id=%s", transaction.id
+        )
+        return PaymentCallbackResult(
+            transaction=transaction,
+            transitioned=False,
+            duplicate=False,
+            detail="Callback ignored; this order is paid by card.",
         )
 
     if payload.result_code != 0:

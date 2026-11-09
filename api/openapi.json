@@ -1375,6 +1375,68 @@
         }
       }
     },
+    "/transactions/{transaction_id}/payment/card": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Pay by card instead (buyer only)",
+        "description": "Switch an unpaid M-Pesa order to a Pesapal card checkout and return the REDIRECT instruction. Allowed only while the order awaits payment and no M-Pesa prompt is open: a prompt still inside its lifetime answers 409 with Retry-After; an older pending one is first checked with M-Pesa (if it was paid, the order is locked and the switch refused). The switch is recorded on the order's public record. From then on the order is paid by card only; resend restarts a failed card checkout.",
+        "operationId": "pay_transaction_by_card_instead_transactions__transaction_id__payment_card_post",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentInstructionResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Switched, but Pesapal refused the checkout (failed_to_initiate); POST /payment/resend starts a new one."
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "403": {
+            "description": "Authenticated user is not a buyer."
+          },
+          "404": {
+            "description": "Transaction not found, or the caller is not its buyer."
+          },
+          "409": {
+            "description": "Not awaiting payment, already a card order, an eConfirm order, or an M-Pesa prompt is still open (with a Retry-After header)."
+          },
+          "503": {
+            "description": "Card payments are not available right now."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/transactions/{transaction_id}/payment/resend": {
       "post": {
         "tags": [

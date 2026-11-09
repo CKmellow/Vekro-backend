@@ -91,6 +91,8 @@ def run_full_audit(db: Session, root_of: Callable[[int], bytes] | None = None) -
     bodies = _audit_chains(report, events)
     _audit_sources(db, report, events, bodies)
     _audit_live_state(db, report, events, bodies)
+    _audit_liabilities(db, report, events, bodies)
+    _audit_reserves(report, events, bodies)
     if report.findings:
         report.verdict = "TAMPERED"
     return report
@@ -333,3 +335,60 @@ def _audit_live_state(
                     f"Escrow {name} total {value} differs from the ledger {ledger[name]}.",
                     escrow.transaction_id,
                 )
+
+
+def _audit_liabilities(
+    db: Session, report: AuditReport, events: list[AnchorEvent], bodies: dict[int, dict[str, Any]]
+) -> None:
+    """Each anchored liabilities snapshot against its stored leaves (M24 B2): editing an amount or
+    dropping an order after the fact changes the rebuilt root, total or count."""
+    from sqlalchemy import inspect as sa_inspect
+
+    from app.models.liabilities import LiabilitiesLeaf
+    from app.services.anchoring.sum_tree import SumTree, leaf
+
+    if not sa_inspect(db.get_bind()).has_table(LiabilitiesLeaf.__tablename__):
+        return
+    for event in events:
+        if event.event_type != payloads.LIABILITIES_SNAPSHOT:
+            continue
+        body = bodies.get(event.id) or {}
+        rows = list(
+            db.execute(
+                select(LiabilitiesLeaf)
+                .where(LiabilitiesLeaf.snapshot_id == body.get("snapshot_id"))
+                .order_by(LiabilitiesLeaf.leaf_index)
+            ).scalars()
+        )
+        if rows:
+            root = SumTree([leaf(r.salt, r.order_commit, int(r.amount_cents)) for r in rows]).root
+            rebuilt = (payloads.hex32(root.hash), payloads.money(Decimal(root.sum) / 100))
+        else:
+            rebuilt = (None, payloads.money(Decimal(0)))
+        if (body.get("root"), body.get("total"), body.get("leaf_count")) != (*rebuilt, len(rows)):
+            report.add(
+                "liabilities_mismatch",
+                f"Liabilities snapshot {body.get('snapshot_id')} no longer matches its anchored "
+                "root, total or count.",
+            )
+
+
+def _audit_reserves(
+    report: AuditReport, events: list[AnchorEvent], bodies: dict[int, dict[str, Any]]
+) -> None:
+    for event in events:
+        if event.event_type != payloads.RESERVES_RECONCILIATION:
+            continue
+        body = bodies.get(event.id) or {}
+        attested, liability = body.get("attested_total"), body.get("liability_total")
+        if attested is None:
+            consistent = body.get("difference") is None
+        else:
+            consistent = body.get("difference") == payloads.money(
+                Decimal(attested) - Decimal(liability)
+            )
+        if not consistent:
+            report.add(
+                "reserves_inconsistent",
+                f"Reserves reconciliation event {event.id} has a difference that does not add up.",
+            )

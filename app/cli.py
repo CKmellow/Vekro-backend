@@ -26,6 +26,10 @@ lock the orders it reports completed for the exact amount (#251). Needs card pay
 liabilities-snapshot: put every open escrow into a Merkle sum tree and anchor its root and total
 (M24 B2, docs/anchoring.md). The scheduler runs it on an interval.
 
+seed-ussd-demo: one demo buyer and one demo seller on the numbers typed into Africa's Talking's
+simulator, with a USSD PIN and orders in every state worth showing (docs/ussd.md). Never in
+production.
+
 payment-rails: print which rail collects M-Pesa, card and USSD payments under the current
 configuration, and where the money sits (docs/demo-modes.md).
 """
@@ -192,6 +196,32 @@ def liabilities_snapshot() -> int:
     return 0
 
 
+def seed_ussd_demo(*, buyer_phone: str, seller_phone: str, pin: str) -> int:
+    from app.core.settings import get_settings
+    from app.services.ussd_demo import DemoSeedRefusedError
+    from app.services.ussd_demo import seed_ussd_demo as seed
+
+    with _session() as db:
+        try:
+            result = seed(
+                db,
+                buyer_phone=buyer_phone,
+                seller_phone=seller_phone,
+                pin=pin,
+                environment=get_settings().environment,
+            )
+        except (DemoSeedRefusedError, ValueError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+    print(f"Buyer {result.buyer_phone}, seller {result.seller_phone}, USSD PIN {pin}.")
+    if result.password:
+        print(f"Web password for the new account(s): {result.password}")
+    for order in result.orders:
+        code = f" (delivery code {order.delivery_code})" if order.delivery_code else ""
+        print(f"  {order.reference}  {order.state}{code}")
+    return 0
+
+
 def payment_rails() -> int:
     from app.core.settings import get_settings
     from app.services.payment_rails import describe_collection_rails
@@ -237,6 +267,10 @@ def main(argv: list[str] | None = None) -> int:
         "confirm-card-payments", help="Confirm open Pesapal card checkouts (status query)."
     )
     commands.add_parser("payment-rails", help="Show which rail collects each payment method.")
+    demo = commands.add_parser("seed-ussd-demo", help="Demo buyer, seller and orders for USSD.")
+    demo.add_argument("--buyer-phone", required=True)
+    demo.add_argument("--seller-phone", required=True)
+    demo.add_argument("--pin", default="1234")
     commands.add_parser(
         "liabilities-snapshot", help="Anchor the total held for buyers (Merkle sum tree)."
     )
@@ -256,6 +290,10 @@ def main(argv: list[str] | None = None) -> int:
         return confirm_card_payments()
     if args.command == "liabilities-snapshot":
         return liabilities_snapshot()
+    if args.command == "seed-ussd-demo":
+        return seed_ussd_demo(
+            buyer_phone=args.buyer_phone, seller_phone=args.seller_phone, pin=args.pin
+        )
     if args.command == "payment-rails":
         return payment_rails()
 

@@ -61,6 +61,21 @@ STATUS_LABELS = {
     "resolved_refund": "Refund issued",
     "resolved_split": "Settled by support",
 }
+BUYER_ACTION_STATUSES = frozenset(
+    {
+        TransactionStatus.AT_DOOR_PENDING_INSPECTION,
+        TransactionStatus.HOLD_24H,
+        TransactionStatus.DISPUTED_FUNCTIONAL,
+        TransactionStatus.AWAITING_BUYER_RECONFIRMATION,
+    }
+)
+SELLER_ACTION_STATUSES = frozenset(
+    {
+        TransactionStatus.LOCKED,
+        TransactionStatus.OUT_FOR_DELIVERY,
+        TransactionStatus.RETURN_IN_TRANSIT,
+    }
+)
 DOOR_REASONS = [
     ("damaged", "Damaged"),
     ("wrong_item", "Wrong item"),
@@ -172,15 +187,22 @@ class _Ussd:
         return end(done, "done")
 
     def orders(self) -> list[Transaction]:
-        column = Transaction.buyer_id if self.user.role == UserRole.BUYER else Transaction.seller_id
-        return list(
+        """The latest orders that need this caller first, then the latest others: on a feature
+        phone, what to act on should not be hidden behind finished orders."""
+        buyer = self.user.role == UserRole.BUYER
+        column = Transaction.buyer_id if buyer else Transaction.seller_id
+        needs_me = BUYER_ACTION_STATUSES if buyer else SELLER_ACTION_STATUSES
+        latest = list(
             self.db.execute(
                 select(Transaction)
                 .where(column == self.user.id)
                 .order_by(Transaction.created_at.desc())
-                .limit(ORDERS_SHOWN)
+                .limit(50)
             ).scalars()
         )
+        first = [t for t in latest if t.status in needs_me]
+        rest = [t for t in latest if t.status not in needs_me]
+        return (first + rest)[:ORDERS_SHOWN]
 
     def chosen(self, choice: str) -> Transaction | None:
         ids = (self.session.context or {}).get("orders") or []

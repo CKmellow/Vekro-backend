@@ -537,6 +537,7 @@ Migration notes:
 
 - See Local Runbook for the authoritative local run, lint/test, and migration workflow commands.
 - See `docs/runbooks.md` for custody incident procedures and `docs/demo-script.md` for the demo walkthrough.
+- Hosting (M26): one VPS with Docker Compose (Postgres, API, scheduler, web app, Caddy for HTTPS), nightly backups and a restore drill. Files in `deploy/` and `Dockerfile`; runbook in `docs/hosting.md`.
 
 ## Repository Hygiene
 

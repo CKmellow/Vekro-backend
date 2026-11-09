@@ -1,0 +1,22 @@
+# Caddy obtains and renews TLS certificates for both names once DNS points at the server
+# (docs/hosting.md). Security headers for the app come from the web image's nginx.
+{
+	email {$ACME_EMAIL}
+}
+
+{$APP_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy web:8080
+}
+
+# Provider callbacks and direct API access. Same API as APP_DOMAIN/api.
+{$API_DOMAIN} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+	reverse_proxy api:8000
+}

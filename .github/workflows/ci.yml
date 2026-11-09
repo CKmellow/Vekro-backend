@@ -228,3 +228,47 @@ jobs:
       # (evm_snapshot/evm_revert), a crash between record and broadcast, and fee bumps.
       - name: Chain integration tests
         run: pytest -q -m chain
+
+  # M26 (#285): the deployment image builds, its health check answers, and the Compose files and
+  # Caddyfile are valid. Nothing is pushed or deployed.
+  docker:
+    name: Docker image and Compose
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t vekro-api:ci .
+      - name: Validate Compose and Caddyfile
+        run: |
+          cp deploy/env.production.example deploy/.env
+          sed -i -e 's/^ACME_EMAIL=.*/ACME_EMAIL=ops@example.com/' \
+                 -e 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=ci-only/' deploy/.env
+          docker compose -f deploy/compose.yaml --env-file deploy/.env config -q
+          docker run --rm -e APP_DOMAIN=app.example.com -e API_DOMAIN=api.example.com \
+            -e ACME_EMAIL=ops@example.com -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.8-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Boot in production mode and check /health
+        run: |
+          docker network create vekro-ci
+          docker run -d --name pg --network vekro-ci -e POSTGRES_USER=vekro -e POSTGRES_PASSWORD=ci \
+            -e POSTGRES_DB=vekro postgres:16-alpine
+          until docker exec pg pg_isready -U vekro -d vekro; do sleep 1; done
+          env_args=(
+            -e ENVIRONMENT=production -e SECRET_KEY="$(openssl rand -hex 32)"
+            -e DATABASE_URL=postgresql://vekro:ci@pg:5432/vekro
+            -e ALEMBIC_DATABASE_URL=postgresql://vekro:ci@pg:5432/vekro
+            -e FRONTEND_URL=https://app.example.com -e CORS_ORIGINS=https://app.example.com
+            -e CORS_ALLOW_CREDENTIALS=true -e SESSION_COOKIE_SECURE=true -e CSRF_COOKIE_SECURE=true
+            -e PHONE_CODE_DEV_ECHO=false -e ANCHOR_ADMIN_REF_SECRET="$(openssl rand -hex 32)"
+          )
+          docker run --rm --network vekro-ci "${env_args[@]}" vekro-api:ci alembic upgrade head
+          docker run -d --name api --network vekro-ci "${env_args[@]}" vekro-api:ci
+          for i in $(seq 1 30); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' api)
+            [ "$status" = healthy ] && break
+            sleep 3
+          done
+          docker logs api | tail -20
+          [ "$(docker inspect -f '{{.State.Health.Status}}' api)" = healthy ]

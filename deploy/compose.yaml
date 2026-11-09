@@ -1,0 +1,96 @@
+# Vekro on one VPS (M26, #285). Runbook: docs/hosting.md.
+#
+#   cp deploy/env.production.example deploy/.env   # fill it in (never commit it)
+#   docker compose -f deploy/compose.yaml --env-file deploy/.env up -d
+#
+# Only Caddy publishes ports (80 and 443). Postgres, the API and the web app are on the private
+# network. The browser reaches the API through the web app's /api proxy (first-party cookies);
+# API_DOMAIN exists for provider callbacks (Daraja, Pesapal IPN, Africa's Talking).
+name: vekro
+
+x-backend: &backend
+  image: ${VEKRO_API_IMAGE:-vekro-api:local}
+  build:
+    context: ..
+    dockerfile: Dockerfile
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql://vekro:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/vekro
+    ALEMBIC_DATABASE_URL: postgresql://vekro:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/vekro
+  restart: unless-stopped
+  logging: &logging
+    driver: json-file
+    options: { max-size: 10m, max-file: "5" }
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: vekro
+      POSTGRES_USER: vekro
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vekro -d vekro"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    logging: *logging
+
+  # One-shot: brings the schema to head before the API and scheduler start.
+  migrate:
+    <<: *backend
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    healthcheck: { disable: true }
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api:
+    <<: *backend
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  # Every periodic job (timeouts, payouts, M-Pesa and card confirmation, anchoring, liabilities,
+  # reserves), each under a Postgres advisory lock, so a second copy would be harmless.
+  scheduler:
+    <<: *backend
+    command: ["python", "-m", "app.jobs.scheduler"]
+    healthcheck: { disable: true }
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  # The web app (CKmellow/Vekro, docs/DEPLOY.md): static files plus the /api proxy to api:8000.
+  web:
+    image: ${VEKRO_WEB_IMAGE:-ghcr.io/ckmellow/vekro-web:latest}
+    environment:
+      API_UPSTREAM: http://api:8000
+    depends_on:
+      api: { condition: service_healthy }
+    restart: unless-stopped
+    logging: *logging
+
+  caddy:
+    image: caddy:2.8-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [web, api]
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

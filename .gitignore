@@ -53,3 +53,7 @@ contracts/broadcast/
 
 # Local screenshots for Cyprian's report (not committed)
 docs/report-assets/
+
+# Deployment: the filled-in env file and local backups (M26)
+deploy/.env
+deploy/backups/

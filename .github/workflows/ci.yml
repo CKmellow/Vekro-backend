@@ -136,10 +136,30 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+      # Pinned release archive, checksum-verified, with retries: the foundryup installer failed
+      # whole jobs on transient GitHub 503/504s (#267).
+      - name: Cache Foundry
+        id: foundry-cache
+        uses: actions/cache@v4
         with:
-          version: v1.7.1
+          path: ~/.foundry/bin
+          key: foundry-v1.7.1-cf7e688e
+
+      - name: Install Foundry
+        env:
+          FOUNDRY_VERSION: v1.7.1
+          FOUNDRY_SHA256: cf7e688ed0c4c48adffca788b496076e31060b67ac5afe1e43dbb5499c20c88b
+        run: |
+          mkdir -p ~/.foundry/bin
+          if [ "${{ steps.foundry-cache.outputs.cache-hit }}" != "true" ]; then
+            archive="foundry_${FOUNDRY_VERSION}_linux_amd64.tar.gz"
+            curl -fsSL --retry 6 --retry-all-errors --retry-delay 10 -o "/tmp/$archive" \
+              "https://github.com/foundry-rs/foundry/releases/download/${FOUNDRY_VERSION}/$archive"
+            echo "${FOUNDRY_SHA256}  /tmp/$archive" | sha256sum -c -
+            tar -xzf "/tmp/$archive" -C ~/.foundry/bin
+          fi
+          echo "$HOME/.foundry/bin" >> "$GITHUB_PATH"
+          ~/.foundry/bin/forge --version
 
       - name: Format check
         working-directory: contracts
@@ -179,10 +199,30 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+      # Pinned release archive, checksum-verified, with retries: the foundryup installer failed
+      # whole jobs on transient GitHub 503/504s (#267).
+      - name: Cache Foundry
+        id: foundry-cache
+        uses: actions/cache@v4
         with:
-          version: v1.7.1
+          path: ~/.foundry/bin
+          key: foundry-v1.7.1-cf7e688e
+
+      - name: Install Foundry
+        env:
+          FOUNDRY_VERSION: v1.7.1
+          FOUNDRY_SHA256: cf7e688ed0c4c48adffca788b496076e31060b67ac5afe1e43dbb5499c20c88b
+        run: |
+          mkdir -p ~/.foundry/bin
+          if [ "${{ steps.foundry-cache.outputs.cache-hit }}" != "true" ]; then
+            archive="foundry_${FOUNDRY_VERSION}_linux_amd64.tar.gz"
+            curl -fsSL --retry 6 --retry-all-errors --retry-delay 10 -o "/tmp/$archive" \
+              "https://github.com/foundry-rs/foundry/releases/download/${FOUNDRY_VERSION}/$archive"
+            echo "${FOUNDRY_SHA256}  /tmp/$archive" | sha256sum -c -
+            tar -xzf "/tmp/$archive" -C ~/.foundry/bin
+          fi
+          echo "$HOME/.foundry/bin" >> "$GITHUB_PATH"
+          ~/.foundry/bin/forge --version
 
       # The batcher and submitter against the real AnchorRegistry: confirmations, reorgs
       # (evm_snapshot/evm_revert), a crash between record and broadcast, and fee bumps.

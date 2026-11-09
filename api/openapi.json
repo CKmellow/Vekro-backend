@@ -5662,6 +5662,31 @@
             "title": "Payouts Halted",
             "description": "Payouts stopped because they disagree with their anchored authorisation."
           },
+          "liabilities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LiabilitiesStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest liabilities snapshot (what Vekro owes buyers)."
+          },
+          "reserves": {
+            "items": {
+              "$ref": "#/components/schemas/ReservesStatus"
+            },
+            "type": "array",
+            "title": "Reserves",
+            "description": "The latest reserves reconciliation per provider."
+          },
+          "reserves_shortfall": {
+            "type": "boolean",
+            "title": "Reserves Shortfall",
+            "description": "A provider attests less than Vekro owes: investigate now.",
+            "default": false
+          },
           "server_time": {
             "type": "string",
             "format": "date-time",
@@ -6564,6 +6589,40 @@
         ],
         "title": "LiabilitiesProofResponse",
         "description": "Proof that this order's held amount is counted in Vekro's anchored total (M24 B2)."
+      },
+      "LiabilitiesStatus": {
+        "properties": {
+          "snapshot_id": {
+            "type": "integer",
+            "title": "Snapshot Id"
+          },
+          "total": {
+            "type": "string",
+            "title": "Total"
+          },
+          "leaf_count": {
+            "type": "integer",
+            "title": "Leaf Count"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "anchored": {
+            "type": "boolean",
+            "title": "Anchored"
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshot_id",
+          "total",
+          "leaf_count",
+          "at",
+          "anchored"
+        ],
+        "title": "LiabilitiesStatus"
       },
       "ListingListResponse": {
         "properties": {
@@ -8389,6 +8448,71 @@
         ],
         "title": "ReportFunctionalIssueRequest",
         "description": "Buyer dispute intake payload used during serialized hold window."
+      },
+      "ReservesStatus": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "covered",
+              "shortfall",
+              "incomplete",
+              "unavailable",
+              "not_applicable"
+            ],
+            "title": "Status"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "liability_total": {
+            "type": "string",
+            "title": "Liability Total"
+          },
+          "attested_total": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested Total"
+          },
+          "difference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difference"
+          },
+          "at": {
+            "type": "string",
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "status",
+          "method",
+          "liability_total",
+          "attested_total",
+          "difference",
+          "at"
+        ],
+        "title": "ReservesStatus",
+        "description": "The latest reserves reconciliation for one custody provider (M24 B2)."
       },
       "ResetCodeRequest": {
         "properties": {

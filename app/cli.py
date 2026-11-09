@@ -30,6 +30,9 @@ seed-ussd-demo: one demo buyer and one demo seller on the numbers typed into Afr
 simulator, with a USSD PIN and orders in every state worth showing (docs/ussd.md). Never in
 production.
 
+reserves-reconcile: compare, per custody provider, what it says it holds with what Vekro owes
+buyers, and anchor the result (M24 B2). A shortfall is flagged on the admin status page.
+
 payment-rails: print which rail collects M-Pesa, card and USSD payments under the current
 configuration, and where the money sits (docs/demo-modes.md).
 """
@@ -222,6 +225,26 @@ def seed_ussd_demo(*, buyer_phone: str, seller_phone: str, pin: str) -> int:
     return 0
 
 
+def reserves_reconcile() -> int:
+    from app.core.settings import get_settings
+    from app.services.anchoring.reserves import reconcile_reserves
+    from app.services.custody.registry import build_econfirm_provider
+    from app.services.payment_rails import _econfirm_usable
+
+    settings = get_settings()
+    status_of = (
+        build_econfirm_provider(settings).get_funding_status if _econfirm_usable(settings) else None
+    )
+    with _session() as db:
+        results = reconcile_reserves(db, econfirm_status_of=status_of)
+    for r in results:
+        attested = f"KES {r.attested:.2f}" if r.attested is not None else "n/a"
+        print(f"{r.provider:<10} {r.status:<15} owed KES {r.liability:.2f}, attested {attested}")
+    if not results:
+        print("Nothing is held right now.")
+    return 1 if any(r.status == "shortfall" for r in results) else 0
+
+
 def payment_rails() -> int:
     from app.core.settings import get_settings
     from app.services.payment_rails import describe_collection_rails
@@ -267,6 +290,9 @@ def main(argv: list[str] | None = None) -> int:
         "confirm-card-payments", help="Confirm open Pesapal card checkouts (status query)."
     )
     commands.add_parser("payment-rails", help="Show which rail collects each payment method.")
+    commands.add_parser(
+        "reserves-reconcile", help="Check providers hold what Vekro owes; anchor the result."
+    )
     demo = commands.add_parser("seed-ussd-demo", help="Demo buyer, seller and orders for USSD.")
     demo.add_argument("--buyer-phone", required=True)
     demo.add_argument("--seller-phone", required=True)
@@ -294,6 +320,8 @@ def main(argv: list[str] | None = None) -> int:
         return seed_ussd_demo(
             buyer_phone=args.buyer_phone, seller_phone=args.seller_phone, pin=args.pin
         )
+    if args.command == "reserves-reconcile":
+        return reserves_reconcile()
     if args.command == "payment-rails":
         return payment_rails()
 

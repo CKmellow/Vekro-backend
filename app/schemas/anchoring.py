@@ -19,6 +19,26 @@ class AnchorBatchSummary(BaseModel):
     confirmed_at: datetime | None = None
 
 
+class ReservesStatus(BaseModel):
+    """The latest reserves reconciliation for one custody provider (M24 B2)."""
+
+    provider: str
+    status: Literal["covered", "shortfall", "incomplete", "unavailable", "not_applicable"]
+    method: str
+    liability_total: str
+    attested_total: str | None
+    difference: str | None
+    at: str
+
+
+class LiabilitiesStatus(BaseModel):
+    snapshot_id: int
+    total: str
+    leaf_count: int
+    at: datetime
+    anchored: bool
+
+
 class AnchoringStatusResponse(BaseModel):
     enabled: bool = Field(description="Whether the worker is allowed to submit (ANCHOR_ENABLED).")
     chain_id: int
@@ -43,6 +63,15 @@ class AnchoringStatusResponse(BaseModel):
     oldest_payout_waiting_since: datetime | None = None
     payouts_halted: int = Field(
         description="Payouts stopped because they disagree with their anchored authorisation."
+    )
+    liabilities: LiabilitiesStatus | None = Field(
+        default=None, description="The latest liabilities snapshot (what Vekro owes buyers)."
+    )
+    reserves: list[ReservesStatus] = Field(
+        default_factory=list, description="The latest reserves reconciliation per provider."
+    )
+    reserves_shortfall: bool = Field(
+        default=False, description="A provider attests less than Vekro owes: investigate now."
     )
     server_time: datetime
 

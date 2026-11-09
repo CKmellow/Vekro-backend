@@ -170,6 +170,38 @@ Golden vectors shared with the frontend: `tests/fixtures/anchoring/sum_tree_vect
 must-fail cases for a tampered amount, an omitted escrow, an understated total, negative and
 overflowing sums, and a wrong side.
 
+## 4c. Reserves reconciliation (M24 B2)
+
+`python -m app.cli reserves-reconcile` (the scheduler runs it on an interval) compares, for each
+custody provider, what Vekro owes buyers with what the provider says it holds. The result is
+anchored as a `reserves_reconciliation` event in the global chain: provider, method, status,
+liability, attested total, difference and escrow count, with no orders or buyers.
+
+| Provider | Method | Possible statuses |
+| --- | --- | --- |
+| eConfirm | no balance endpoint: each open eConfirm escrow's current status is asked for; only escrows eConfirm reports funded count | `covered`, `shortfall`, `incomplete` (some answers missing), `unavailable` (not configured) |
+| Daraja (M-Pesa) | the merchant's own account; Account Balance was not verified in the sandbox | `unavailable` |
+| Pesapal | the merchant's own account; Pesapal has no balance API | `unavailable` |
+| Simulated | no real money | `not_applicable` |
+
+A definite **shortfall** is an admin alert:
+
+- an anchored `reserves_shortfall` money audit event (`GET /admin/audit/money-events`);
+- a `reserves_shortfall` warning log line;
+- `reserves_shortfall: true` on `GET /admin/anchoring/status`, which also shows the latest result per
+  provider and the latest liabilities snapshot.
+
+A missing or unreachable answer is never treated as a shortfall. See runbook RB-12.
+
+**What it proves.** That on a given date Vekro published what each provider attested against what
+it owed, and cannot later change either figure: both are on the chain. A shortfall cannot be
+quietly hidden after the fact.
+
+**What it does not prove: that the provider's figures are true.** Provider answers are unsigned,
+so Vekro could misreport them, and nothing on the chain can tell. For Daraja and Pesapal there is
+no attested figure at all, because the money sits in the merchant's own account. Closing this gap
+needs a provider that signs its balance statements, or an independent auditor.
+
 ## 5. Threat model
 
 **Caught:**

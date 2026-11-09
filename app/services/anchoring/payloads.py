@@ -306,3 +306,29 @@ def liabilities_snapshot_payload(
         "total": money(Decimal(total_cents) / 100),
         "leaf_count": leaf_count,
     }
+
+
+RESERVES_RECONCILIATION = "reserves_reconciliation"
+
+
+def reserves_reconciliation_payload(
+    *,
+    at: datetime,
+    provider: str,
+    method: str,
+    status: str,
+    liability: Decimal,
+    attested: Decimal | None,
+    escrows: int,
+) -> dict[str, Any]:
+    """Public by design: per-provider totals only, no order or buyer."""
+    return {
+        **envelope(RESERVES_RECONCILIATION, None, at),
+        "provider": provider,
+        "method": method,
+        "status": status,
+        "liability_total": money(liability),
+        "attested_total": money(attested) if attested is not None else None,
+        "difference": money(attested - liability) if attested is not None else None,
+        "escrows": escrows,
+    }

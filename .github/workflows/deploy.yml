@@ -1,0 +1,75 @@
+# Deploy from main (M27, #288). Publishes the API image to GitHub Container Registry, then, once
+# the VM exists and the repository variable DEPLOY_ENABLED is "true", rolls it out over SSH:
+# check out this commit on the VM (Compose file and scripts), then deploy/deploy.sh, which pulls,
+# migrates while the old API still serves, restarts and rolls back if unhealthy.
+# Secrets and variables: docs/hosting.md section 7. The web app's repository does the same for
+# the web image.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/ckmellow/vekro-api:${{ github.sha }}
+            ghcr.io/ckmellow/vekro-api:latest
+
+  roll-out:
+    needs: image
+    if: vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+    steps:
+      - name: SSH key and known host
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: cloudflared (SSH through Cloudflare Access, no inbound port on the VM)
+        if: env.CF_ACCESS_CLIENT_ID != ''
+        run: |
+          curl -fsSLo cloudflared.deb \
+            https://github.com/cloudflare/cloudflared/releases/download/2026.10.1/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb
+      - name: Roll out
+        run: |
+          proxy=()
+          if [ -n "$CF_ACCESS_CLIENT_ID" ]; then
+            proxy=(-o "ProxyCommand=cloudflared access ssh --hostname %h --id $CF_ACCESS_CLIENT_ID --secret $CF_ACCESS_CLIENT_SECRET")
+          fi
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes "${proxy[@]}" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "set -e; cd '${DEPLOY_PATH:-vekro}' && git fetch --quiet origin main && git checkout --quiet --detach '${{ github.sha }}' && deploy/deploy.sh api '${{ github.sha }}'"

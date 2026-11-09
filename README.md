@@ -537,7 +537,7 @@ Migration notes:
 
 - See Local Runbook for the authoritative local run, lint/test, and migration workflow commands.
 - See `docs/runbooks.md` for custody incident procedures and `docs/demo-script.md` for the demo walkthrough.
-- Hosting (M26): one VPS with Docker Compose (Postgres, API, scheduler, web app, Caddy for HTTPS), nightly backups and a restore drill. Files in `deploy/` and `Dockerfile`; runbook in `docs/hosting.md`.
+- Hosting (M26, M27): `vekro.me` on one Azure VM with Docker Compose (Postgres, API, scheduler, web app), reached through a Cloudflare Tunnel (no inbound ports) or Caddy; images built by GitHub Actions and rolled out by `deploy/deploy.sh` (migrate, restart, health check, automatic rollback); nightly backups and a restore drill. Files in `deploy/`, `Dockerfile` and `.github/workflows/deploy.yml`; runbook, costs and the go-live checklist in `docs/hosting.md`.
 
 ## Repository Hygiene
 

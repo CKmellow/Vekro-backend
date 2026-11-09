@@ -506,7 +506,7 @@ def handle_ussd(
     user = _find_user(db, phone)
     if user is None or not user.is_active or user.role == UserRole.ADMIN:
         db.commit()
-        return end("This number has no Vekro account. Sign up at vekro.co.ke", "no_account")
+        return end("This number has no Vekro account. Sign up at app.vekro.me", "no_account")
     session.user_id = user.id
     steps = [step.strip() for step in text.split("*")] if text else []
     reply = _Ussd(db, session, user, current).route(steps)

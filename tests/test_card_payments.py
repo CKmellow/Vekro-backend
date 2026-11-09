@@ -325,3 +325,12 @@ def test_card_money_facts_are_anchored_without_provider_ids() -> None:
 def test_card_amounts_compare_as_money() -> None:
     assert card_payments._decimal("1.0") == Decimal("1.00")
     assert card_payments._decimal("abc") is None
+
+
+def test_the_checkout_sends_the_buyers_name_for_pesapals_billing_details() -> None:
+    db, fake = _db(), FakePesapal()
+    transaction, _prompt = _card_order(db, "59", fake)
+    buyer = db.get(User, transaction.buyer_id)
+
+    (submitted,) = fake.submitted
+    assert submitted.payer_name == buyer.name

@@ -178,3 +178,55 @@ def test_status_inquiry_classifies_finality(
     assert result.raw_status == fixture_body["payment_status_description"].lower()
     assert observed["method"] == "GET"
     assert "orderTrackingId=pesapal-track-9002" in str(observed["url"])
+
+
+def _capturing_rail(body: dict[str, Any], observed: dict[str, Any]) -> PesapalCollectionRail:
+    def _transport(method, url, headers, payload, timeout_seconds):
+        observed["payload"] = payload
+        return PesapalHttpResponse(status_code=200, body=body, text="ok")
+
+    return PesapalCollectionRail(
+        base_url="https://cybqa.pesapal.com/pesapalv3",
+        callback_url="https://app.example/pay/return",
+        ipn_id="ipn-123",
+        token_manager=_TokenManagerStub(),
+        transport=_transport,
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("Wanjiku Kamau", {"first_name": "Wanjiku", "last_name": "Kamau"}),
+        ("Amina Wairimu Otieno", {"first_name": "Amina", "last_name": "Wairimu Otieno"}),
+        ("Cyp", {"first_name": "Cyp", "last_name": "Cyp"}),
+    ],
+)
+def test_submit_order_sends_the_billing_name_pesapal_requires(
+    name: str, expected: dict[str, str]
+) -> None:
+    """#282: since 2026-11-09 Pesapal refuses an order without a first name."""
+    observed: dict[str, Any] = {}
+    rail = _capturing_rail(_fixture("submit_order_success.json"), observed)
+    request = FundingRequest(
+        escrow_reference="VK-ABC123",
+        amount=Decimal("10.00"),
+        phone_number="+254712345678",
+        account_reference="VK-ABC123",
+        payer_name=name,
+    )
+
+    assert rail.request_funding(request).outcome == CollectionOutcome.SUCCEEDED
+    assert observed["payload"]["billing_address"] == {"phone_number": "+254712345678", **expected}
+    # Snapshots and anchored data never carry the name.
+    assert name not in json.dumps(request.to_payload())
+
+
+def test_the_observed_missing_first_name_refusal_is_not_a_checkout() -> None:
+    observed: dict[str, Any] = {}
+    rail = _capturing_rail(_fixture("observed/submit_order_missing_first_name.json"), observed)
+
+    result = rail.request_funding(_funding_request())
+
+    assert result.outcome != CollectionOutcome.SUCCEEDED
+    assert "first_name" not in observed["payload"]["billing_address"]

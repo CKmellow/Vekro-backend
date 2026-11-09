@@ -34,6 +34,13 @@ Documented constraints that matter to Vekro: `id` up to 50 characters (alphanume
 
 M15's adapter also sent a `reference` field that is not in the documented request; removed in #249.
 
+Changed 2026-11-09 (#282): the sandbox now refuses an order without a billing first name, as HTTP
+200 with `{"error": {"error_type": "api_error", "code": "INVALID_INPUT_01", "message": "First Name
+cannot be null or empty"}, "status": "500"}` (fixture
+`tests/fixtures/pesapal/observed/submit_order_missing_first_name.json`). Vekro now sends
+`first_name` and `last_name` from the buyer's display name (a one-word name is repeated as the last
+name). The name goes only to Pesapal: it is not part of any audit snapshot or anchored payload.
+
 ## 4. Hosted page: card payments are offered (go for P2)
 
 `redirect_url` (`.../pesapaliframe/PesapalIframe3/Index?OrderTrackingId=...`) shows four options for

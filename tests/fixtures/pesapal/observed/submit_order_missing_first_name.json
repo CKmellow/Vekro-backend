@@ -1,0 +1,8 @@
+{
+  "error": {
+    "error_type": "api_error",
+    "code": "INVALID_INPUT_01",
+    "message": "First Name cannot be null or empty"
+  },
+  "status": "500"
+}

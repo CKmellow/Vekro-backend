@@ -45,13 +45,29 @@ class PesapalAccessTokenProvider(Protocol):
     def get_access_token(self) -> str: ...
 
 
+# Billing fields the sandbox requires since 2026-11-09 (#282) that Vekro does not collect. Pesapal
+# accepts "-" for each, and the buyer can fill them in on Pesapal's page.
+NOT_COLLECTED = "-"
+REQUIRED_UNCOLLECTED = ("line_1", "line_2", "city", "state", "postal_code")
+
+
 def billing_name(name: str) -> dict[str, str]:
-    """Pesapal refuses an order without a first name (INVALID_INPUT_01, observed 2026-11-09,
-    #282). A one-word name is repeated as the last name; no name sends nothing extra."""
+    """The buyer's names as Pesapal's billing fields: first word, last word, anything between as
+    the middle name; "-" where the name has no such part."""
     parts = name.split()
-    if not parts:
-        return {}
-    return {"first_name": parts[0], "last_name": " ".join(parts[1:]) or parts[0]}
+    first = parts[0] if parts else NOT_COLLECTED
+    last = parts[-1] if len(parts) > 1 else NOT_COLLECTED
+    middle = " ".join(parts[1:-1]) or NOT_COLLECTED
+    return {"first_name": first, "middle_name": middle, "last_name": last}
+
+
+def billing_address(phone_number: str, name: str) -> dict[str, str]:
+    """Pesapal refuses an order missing any of these (INVALID_INPUT_01, observed 2026-11-09)."""
+    return {
+        "phone_number": phone_number,
+        **billing_name(name),
+        **{field: NOT_COLLECTED for field in REQUIRED_UNCOLLECTED},
+    }
 
 
 class PesapalCollectionRail:
@@ -99,10 +115,7 @@ class PesapalCollectionRail:
             "description": f"Vekro escrow {request.escrow_reference}"[:100],
             "callback_url": self._callback_url,
             "notification_id": self._ipn_id,
-            "billing_address": {
-                "phone_number": request.phone_number,
-                **billing_name(request.payer_name),
-            },
+            "billing_address": billing_address(request.phone_number, request.payer_name),
         }
 
         response = self._send(

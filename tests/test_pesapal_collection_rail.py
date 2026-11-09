@@ -197,15 +197,19 @@ def _capturing_rail(body: dict[str, Any], observed: dict[str, Any]) -> PesapalCo
 @pytest.mark.parametrize(
     ("name", "expected"),
     [
-        ("Wanjiku Kamau", {"first_name": "Wanjiku", "last_name": "Kamau"}),
-        ("Amina Wairimu Otieno", {"first_name": "Amina", "last_name": "Wairimu Otieno"}),
-        ("Cyp", {"first_name": "Cyp", "last_name": "Cyp"}),
+        ("Wanjiku Kamau", {"first_name": "Wanjiku", "middle_name": "-", "last_name": "Kamau"}),
+        (
+            "Amina Wairimu Otieno",
+            {"first_name": "Amina", "middle_name": "Wairimu", "last_name": "Otieno"},
+        ),
+        ("Cyp", {"first_name": "Cyp", "middle_name": "-", "last_name": "-"}),
+        ("", {"first_name": "-", "middle_name": "-", "last_name": "-"}),
     ],
 )
 def test_submit_order_sends_the_billing_name_pesapal_requires(
     name: str, expected: dict[str, str]
 ) -> None:
-    """#282: since 2026-11-09 Pesapal refuses an order without a first name."""
+    """#282: since 2026-11-09 Pesapal refuses an order missing any of these fields."""
     observed: dict[str, Any] = {}
     rail = _capturing_rail(_fixture("submit_order_success.json"), observed)
     request = FundingRequest(
@@ -217,9 +221,20 @@ def test_submit_order_sends_the_billing_name_pesapal_requires(
     )
 
     assert rail.request_funding(request).outcome == CollectionOutcome.SUCCEEDED
-    assert observed["payload"]["billing_address"] == {"phone_number": "+254712345678", **expected}
+    assert observed["payload"]["billing_address"] == {
+        "phone_number": "+254712345678",
+        **expected,
+        # Required by the sandbox since 2026-11-09; Vekro collects no address.
+        "line_1": "-",
+        "line_2": "-",
+        "city": "-",
+        "state": "-",
+        "postal_code": "-",
+    }
     # Snapshots and anchored data never carry the name.
-    assert name not in json.dumps(request.to_payload())
+    assert "payer_name" not in request.to_payload()
+    if name:
+        assert name not in json.dumps(request.to_payload())
 
 
 def test_the_observed_missing_first_name_refusal_is_not_a_checkout() -> None:
@@ -229,4 +244,3 @@ def test_the_observed_missing_first_name_refusal_is_not_a_checkout() -> None:
     result = rail.request_funding(_funding_request())
 
     assert result.outcome != CollectionOutcome.SUCCEEDED
-    assert "first_name" not in observed["payload"]["billing_address"]

@@ -77,7 +77,7 @@ move money without the edit failing against a public commitment made before it.
 | --- | --- | --- | --- |
 | Buyer or seller | "Verified record" panel on the order page (in the browser), or a downloaded receipt and `scripts/verify_transaction.py` | their order's chain, every proof against the registry root, live status and amount against the last anchored facts | the registry address built into the web app, and a public RPC |
 | Anyone | a seller's Trust Link: `GET /sellers/{id}/track-record` | each completed sale's proof against the registry | the same |
-| Operators and auditors | `scripts/audit_anchoring.py` | every batch (count, gapless seq, root, on-chain root), every chain, every source row against its anchored payload, statuses, admin decisions, escrow totals against the ledger, sales against orders | the database snapshot they audit |
+| Operators and auditors | `scripts/audit_anchoring.py` | every batch (count, gapless seq, root, on-chain root), every chain, every source row against its anchored payload, statuses, admin decisions, escrow totals against the ledger, sales against orders, each liabilities snapshot against its stored leaves, each reserves result for consistency | the database snapshot they audit |
 
 Verdicts: **VERIFIED**, **PARTIALLY_PENDING** (intact, some events not anchored yet), **TAMPERED**,
 **UNAVAILABLE** (registry unreachable). The server never states a verdict. It serves data

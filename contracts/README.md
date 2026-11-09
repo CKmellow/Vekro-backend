@@ -46,3 +46,20 @@ CONFIRM_PUBLIC_DEPLOY=base-sepolia BASE_SEPOLIA_RPC_URL=... ANCHORER_ADDRESS=0x.
 
 `deployments/<network>.json` records `chainId`, `registry`, `anchorer` and `fromBlock` (where to start
 scanning `BatchAnchored` logs). Commit it after a deploy.
+
+**Deployed** (#279, `docs/anchoring.md` section 8): `0xD8094faf2B44711dD372A59C288130FA8113E4DB`
+(`deployments/base-sepolia.json`, active), verified on Blockscout and Sourcify. The pilot
+`0x8B3Fd6B4b31a24a6922A14Beb892BD695054de68` is retired (`deployments/base-sepolia-pilot-retired.json`).
+A redeploy writes `deployments/base-sepolia.json`: rename the previous file to a `-retired` name and
+mark it `"status": "retired"` first. `scripts/demo_tamper.py` reads every non-local deployment here
+and refuses to run while the settings name one of them.
+
+Verify the source after a deploy (no API key needed):
+
+```bash
+ARGS=$(cast abi-encode "constructor(address)" <anchorer>)
+forge verify-contract <registry> src/AnchorRegistry.sol:AnchorRegistry --chain 84532 \
+  --constructor-args $ARGS --verifier sourcify
+forge verify-contract <registry> src/AnchorRegistry.sol:AnchorRegistry --chain 84532 \
+  --constructor-args $ARGS --verifier blockscout --verifier-url https://base-sepolia.blockscout.com/api/
+```

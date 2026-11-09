@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """Verify one order's tamper-evident record against the AnchorRegistry (M21 A6).
 
-    .venv/bin/python scripts/verify_transaction.py --transaction-id <uuid>
+    .venv/bin/python scripts/verify_transaction.py --transaction-id <uuid> [--database NAME]
     .venv/bin/python scripts/verify_transaction.py --bundle receipt.json \
         --rpc-url http://... --registry 0x...
 
 The bundle comes from the database (operators) or from a file a buyer or seller downloaded
 (GET /transactions/{id}/verification). Batch roots are read from the registry, never taken from
 the bundle. Prints VERIFIED, PARTIALLY_PENDING, TAMPERED or UNAVAILABLE with the findings.
+
+With --transaction-id it first prints which database it reads, and which setting chose it
+(ALEMBIC_DATABASE_URL is used before DATABASE_URL). --database NAME reads another database on
+the same server, for example a tamper copy.
 
 Exit codes: 0 VERIFIED, 1 TAMPERED, 2 UNAVAILABLE, 3 PARTIALLY_PENDING.
 """
@@ -24,13 +28,19 @@ from typing import Any
 EXIT_CODES = {"VERIFIED": 0, "TAMPERED": 1, "UNAVAILABLE": 2, "PARTIALLY_PENDING": 3}
 
 
-def _bundle_from_db(transaction_id: uuid.UUID) -> dict[str, Any] | None:
+def _bundle_from_db(
+    transaction_id: uuid.UUID, database: str | None = None
+) -> dict[str, Any] | None:
     from app.core.settings import get_settings
-    from app.db.session import _get_session_factory
+    from app.db.session import database_target, session_factory_for
     from app.models.transaction import Transaction
     from app.services.anchoring.verification import build_transaction_verification
 
-    with _get_session_factory()() as db:
+    target = database_target()
+    if database:
+        target = target.with_name(database)
+    print(f"Reading {target.describe()}.", file=sys.stderr)
+    with session_factory_for(target)() as db:
         transaction = db.get(Transaction, transaction_id)
         if transaction is None:
             return None
@@ -56,7 +66,7 @@ def main(
     argv: list[str] | None = None,
     *,
     root_of: Callable[[int], bytes] | None = None,
-    load_bundle: Callable[[uuid.UUID], dict[str, Any] | None] = _bundle_from_db,
+    load_bundle: Callable[..., dict[str, Any] | None] = _bundle_from_db,
 ) -> int:
     from app.services.anchoring.verify import verify_bundle
 
@@ -66,13 +76,14 @@ def main(
     source.add_argument("--bundle", help="A verification JSON file.")
     parser.add_argument("--rpc-url", help="Defaults to ANCHOR_RPC_URL.")
     parser.add_argument("--registry", help="Defaults to ANCHOR_REGISTRY_ADDRESS.")
+    parser.add_argument("--database", help="Database name on the same server (default: settings).")
     args = parser.parse_args(argv)
 
     if args.bundle:
         with open(args.bundle, encoding="utf-8") as handle:
             bundle = json.load(handle)
     else:
-        bundle = load_bundle(args.transaction_id)
+        bundle = load_bundle(args.transaction_id, args.database)
         if bundle is None:
             print("Transaction not found.", file=sys.stderr)
             return EXIT_CODES["UNAVAILABLE"]
@@ -94,4 +105,9 @@ def main(
 
 
 if __name__ == "__main__":
+    # Run as `python scripts/<name>.py` from anywhere: the repo root holds the app package.
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
     raise SystemExit(main())

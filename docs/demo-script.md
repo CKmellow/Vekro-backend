@@ -193,10 +193,16 @@ make run &
 2. **Independent check.** Download the receipt from the order page, then run
    `.venv/bin/python scripts/verify_transaction.py --bundle receipt.json` → `VERIFIED`. The roots
    come from Anvil, not from Vekro.
-3. **Insider edits history.** `.venv/bin/python scripts/demo_tamper.py edit-ledger --reference
-   VK-… --i-understand-this-corrupts-data`, then `scripts/audit_anchoring.py` → `TAMPERED:
-   source_row_changed`. Repeat with `change-status`: the order page now says "This record doesn't
-   match its seal", and the script reports `status_mismatch`.
+3. **Insider edits history.** Stop the API, worker and scheduler, then
+   `ANCHOR_ENABLED=false ANCHOR_GATE_PAYOUTS=false ANCHOR_REGISTRY_ADDRESS= .venv/bin/python
+   scripts/demo_tamper.py edit-ledger --reference VK-… --from-db <db>
+   --i-understand-this-corrupts-data`. It copies the database to `<db>_tamper_copy`, says so, and
+   edits only the copy (`docs/anchoring.md` 8.3). Then `scripts/audit_anchoring.py --database
+   <db>_tamper_copy` → `TAMPERED: source_row_changed`. Repeat with `change-status` and
+   `--from-db <db>_tamper_copy`: the script reports `status_mismatch`. To show the order page
+   saying "This record doesn't match its seal", start the API on the copy (both `DATABASE_URL` and
+   `ALEMBIC_DATABASE_URL` set to it, anchoring off); the browser still reads the roots from the
+   chain. Drop the copy afterwards.
 4. **Insider redirects a payout.** Create a second order up to release. Before the executor runs,
    change the payout attempt's `request_snapshot.destination_phone` in the database. The executor
    **halts** the payout (`anchor_mismatch_halted`, audited once), and no money moves.

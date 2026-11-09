@@ -1,0 +1,10 @@
+{
+  "anchorer": "0x7fA08E3f34De07950b78C7A463DAFa91e31eE391",
+  "chainId": 84532,
+  "fromBlock": 56600573,
+  "network": "base-sepolia",
+  "registry": "0xD8094faf2B44711dD372A59C288130FA8113E4DB",
+  "deployTx": "0xdaa2c15cebbbc1c97cee83f5e8c81ac0c4090264e09491fec90641ee6df7adad",
+  "deployBlock": 56600610,
+  "status": "active"
+}

@@ -206,3 +206,23 @@ make run &
 Talking points: only Merkle roots go on-chain, so no personal data is published. Each anchor costs
 a fraction of a cent on Base. The registry cannot overwrite or reorder history. The honest limits
 are in `docs/anchoring.md` section 5.
+
+## Scenario 7: A buyer accepts at the door over USSD (M23)
+
+Shows that a feature-phone buyer acts on the same order as the web app, through the same rules.
+
+1. Seed the demo (non-production only), with the numbers you will type into the simulator:
+   `.venv/bin/python -m app.cli seed-ussd-demo --buyer-phone +2547XXXXXXXX --seller-phone +2547YYYYYYYY --pin 1234`.
+   Note the at-the-door order's reference and delivery code.
+2. Run the backend and `make tunnel`. The AT sandbox channel's callback must be
+   `https://<tunnel host>/ussd/africastalking/<USSD_CALLBACK_TOKEN>` (docs/ussd.md).
+3. In a browser, sign in to the web app as the buyer (the seed printed the password) and open
+   that order: "At your door".
+4. In AT's simulator ("Launch Simulator"), **type the buyer's number with +254**. The country
+   selector defaults to +93, and a number without +254 silently gets AT's generic reply. Dial
+   `*384*83579#`, then: `1` My orders, the order's line, `1` Accept, the delivery code.
+5. The simulator answers "Accepted. Payment goes to the seller." Within one poll (15 seconds) the
+   web order page shows the order complete. The order's verified record has the same events as a
+   web acceptance: USSD went through the same service.
+6. Optional: dial as the seller and mark the "on the way" order arrived (PIN 1234). The buyer gets
+   the delivery code by SMS, and the web page moves to "At your door".

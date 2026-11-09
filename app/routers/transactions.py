@@ -55,6 +55,14 @@ from app.services.payment_prompts import (
     prompt_state,
     resend_payment_prompt,
 )
+from app.services.payment_switch import (
+    SwitchInitiationError,
+    SwitchInvalidStateError,
+    SwitchNotFoundError,
+    SwitchPromptOpenError,
+    SwitchUnavailableError,
+    switch_to_card,
+)
 from app.services.transaction import (
     InvalidTransactionOtpError,
     ListingNotFoundForTransactionError,
@@ -159,7 +167,7 @@ def require_payment_callback_auth(
         status.HTTP_404_NOT_FOUND: {"description": "Listing not found."},
         status.HTTP_503_SERVICE_UNAVAILABLE: {
             "description": (
-                "Payment initiation failed before a partial-success response " "could be returned."
+                "Payment initiation failed before a partial-success response could be returned."
             )
         },
         status.HTTP_422_UNPROCESSABLE_CONTENT: {
@@ -415,6 +423,68 @@ def refresh_transaction_card_payment(
     if instruction is None:  # pragma: no cover - a card order always has a checkout
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No card checkout.")
     return instruction
+
+
+@router.post(
+    "/{transaction_id}/payment/card",
+    response_model=PaymentInstructionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Pay by card instead (buyer only)",
+    description=(
+        "Switch an unpaid M-Pesa order to a Pesapal card checkout and return the REDIRECT "
+        "instruction. Allowed only while the order awaits payment and no M-Pesa prompt is open: "
+        "a prompt still inside its lifetime answers 409 with Retry-After; an older pending one is "
+        "first checked with M-Pesa (if it was paid, the order is locked and the switch refused). "
+        "The switch is recorded on the order's public record. From then on the order is paid by "
+        "card only; resend restarts a failed card checkout."
+    ),
+    responses={
+        status.HTTP_202_ACCEPTED: {
+            "description": "Switched, but Pesapal refused the checkout (failed_to_initiate); "
+            "POST /payment/resend starts a new one."
+        },
+        status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
+        status.HTTP_403_FORBIDDEN: {"description": "Authenticated user is not a buyer."},
+        status.HTTP_404_NOT_FOUND: {
+            "description": "Transaction not found, or the caller is not its buyer."
+        },
+        status.HTTP_409_CONFLICT: {
+            "description": "Not awaiting payment, already a card order, an eConfirm order, or an "
+            "M-Pesa prompt is still open (with a Retry-After header)."
+        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "description": "Card payments are not available right now."
+        },
+    },
+)
+def pay_transaction_by_card_instead(
+    transaction_id: uuid.UUID,
+    current_user: Annotated[User, Depends(require_buyer_user)],
+    db: Annotated[Session, Depends(get_db)],
+    response: Response,
+) -> PaymentInstructionResponse:
+    try:
+        prompt = switch_to_card(db, transaction_id=transaction_id, buyer=current_user)
+    except SwitchNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except SwitchPromptOpenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
+    except SwitchInvalidStateError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except SwitchUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except SwitchInitiationError as exc:
+        response.status_code = status.HTTP_202_ACCEPTED
+        if exc.prompt is None:  # pragma: no cover - a failed checkout is always recorded
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        return PaymentInstructionResponse.from_state(prompt_state(exc.prompt))
+    return PaymentInstructionResponse.from_state(prompt_state(prompt))
 
 
 @router.post(
@@ -774,7 +844,7 @@ def withhold_delivery_otp(
         status.HTTP_401_UNAUTHORIZED: {"description": "Authentication required."},
         status.HTTP_403_FORBIDDEN: {
             "description": (
-                "Authenticated user is not allowed to report an issue " "for this transaction."
+                "Authenticated user is not allowed to report an issue for this transaction."
             )
         },
         status.HTTP_404_NOT_FOUND: {"description": "Transaction or listing not found."},

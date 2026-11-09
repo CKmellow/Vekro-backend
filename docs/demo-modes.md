@@ -42,6 +42,11 @@ Notes:
    are triggers only. Vekro asks Pesapal for the status and funds the order only for a COMPLETED
    payment of the exact amount, currency and reference. A mismatch is refused and audited.
    `python -m app.cli confirm-card-payments` settles open checkouts if neither arrives.
+5. Pay by card instead (#280): an unpaid M-Pesa order can be switched to card with
+   `POST /transactions/{id}/payment/card`, which answers the same `REDIRECT` instruction. It is
+   refused (409) while an M-Pesa prompt is still open (Retry-After) and for eConfirm orders. The
+   switch is anchored (`payment_method_switched`); afterwards the order is funded by card only and
+   a late M-Pesa payment goes to support for a refund (`docs/runbooks.md` RB-13).
 
 What it proves and what it does not: the buyer sees a real card form and a real authorisation in
 Pesapal's sandbox. The money is collected into the merchant's Pesapal account, so it is not held by

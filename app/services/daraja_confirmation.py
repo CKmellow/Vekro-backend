@@ -22,10 +22,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.payment_prompt import PaymentPrompt, PaymentPromptStatus
+from app.models.payment_prompt import PaymentPrompt, PaymentPromptKind, PaymentPromptStatus
 from app.models.transaction import Transaction, TransactionStatus
 from app.schemas.transaction import PaymentCallbackRequest
 from app.services.audit import ACTOR_PROVIDER, record_money_audit_event
+from app.services.card_payments import PAYMENT_METHOD_CARD
 from app.services.daraja import DarajaClient, DarajaUnavailableError
 from app.services.payment_prompts import resolve_open_prompt
 
@@ -81,7 +82,8 @@ def handle_callback(db: Session, body: Any, *, client: DarajaClient) -> str:
         return "unreadable"
     prompt = db.execute(
         select(PaymentPrompt).where(
-            PaymentPrompt.checkout_request_id == callback.checkout_request_id
+            PaymentPrompt.kind == PaymentPromptKind.STK_PROMPT.value,
+            PaymentPrompt.checkout_request_id == callback.checkout_request_id,
         )
     ).scalar()
     if prompt is None:
@@ -113,6 +115,9 @@ def confirm_payment(
 ) -> str:
     from app.services.transaction import confirm_payment_callback
 
+    if transaction.payment_method == PAYMENT_METHOD_CARD:
+        # Switched to card after this prompt (#280): never funds the order, paid or not.
+        return _late_payment_on_card_order(db, transaction, prompt, client=client, receipt=receipt)
     if transaction.status != TransactionStatus.AWAITING_PAYMENT:
         return "already_processed"
     if claimed_amount is not None and claimed_amount != Decimal(transaction.amount):
@@ -163,6 +168,28 @@ def confirm_payment(
     return "confirmed"
 
 
+def _late_payment_on_card_order(
+    db: Session,
+    transaction: Transaction,
+    prompt: PaymentPrompt,
+    *,
+    client: DarajaClient,
+    receipt: str | None,
+) -> str:
+    from app.services.payment_switch import record_mpesa_after_card_switch
+
+    if not prompt.checkout_request_id:
+        return "unknown_checkout"
+    try:
+        result = client.stk_query(prompt.checkout_request_id)
+    except DarajaUnavailableError as exc:
+        _logger.warning("daraja_query_unavailable transaction_id=%s error=%s", transaction.id, exc)
+        return "unconfirmed"
+    if result.state != "succeeded":
+        return result.state  # pending or failed: nothing was paid
+    return record_mpesa_after_card_switch(db, transaction, prompt, receipt=receipt)
+
+
 def _open_prompts(
     db: Session, now: datetime, *, window: timedelta = RECONCILE_WINDOW
 ) -> list[tuple[Transaction, PaymentPrompt]]:
@@ -171,6 +198,8 @@ def _open_prompts(
         .join(PaymentPrompt, PaymentPrompt.transaction_id == Transaction.id)
         .where(
             Transaction.status == TransactionStatus.AWAITING_PAYMENT,
+            # Card checkouts are Pesapal's to confirm, never an STK query.
+            PaymentPrompt.kind == PaymentPromptKind.STK_PROMPT.value,
             PaymentPrompt.status == PaymentPromptStatus.PENDING.value,
             PaymentPrompt.checkout_request_id.is_not(None),
             PaymentPrompt.sent_at >= now - window,
@@ -211,7 +240,9 @@ def next_delay(previous: float | None, backoff: Backoff, rng: random.Random) -> 
 
 
 DEFAULT_BACKOFF = Backoff()
-SETTLED = frozenset({"confirmed", "failed", "already_processed", "amount_mismatch"})
+SETTLED = frozenset(
+    {"confirmed", "failed", "already_processed", "amount_mismatch", "extra_payment"}
+)
 
 
 def watch_pending_payments(

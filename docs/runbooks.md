@@ -341,3 +341,24 @@ event appears: a provider attested less than Vekro owes buyers.
    Record the explanation as an admin note on the case.
 4. The anchored result stays on the chain; a later reconciliation records the corrected position.
    Never try to remove the shortfall record.
+
+## RB-13: M-Pesa payment after a switch to card (#280)
+
+A `mpesa_payment_after_card_switch` money audit event appears (`GET /admin/audit/money-events`):
+the buyer switched an unpaid order to card ("Pay by card instead"), and M-Pesa still confirmed a
+payment for one of the order's earlier STK prompts. Vekro checks every M-Pesa prompt before it
+allows the switch, so this should be rare (an STK query that answered wrongly, or a prompt older
+than ten minutes that M-Pesa had not settled).
+
+A switched order is funded by card only. The M-Pesa payment never locks or funds it, whether it
+lands before or after the card payment, so the order is funded once and the M-Pesa money is
+extra.
+
+1. Find the order by `transaction_id` and the payment in the Daraja (M-Pesa) portal by the order
+   reference (the STK prompt's AccountReference) and the amount. The audit row holds only keyed
+   references (`provider_ref`), never the receipt itself.
+2. Refund the M-Pesa payment to the buyer's number through the M-Pesa portal (reversal), in full.
+3. Record what was done as an admin note on the order. The audit event is anchored and stays on
+   the record; a repeat callback for the same prompt is not audited twice.
+
+Never refund the card payment for this: it is the one that funds the order.

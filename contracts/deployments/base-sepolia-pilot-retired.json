@@ -1,0 +1,12 @@
+{
+  "anchorer": "0x7fA08E3f34De07950b78C7A463DAFa91e31eE391",
+  "chainId": 84532,
+  "fromBlock": 56594765,
+  "network": "base-sepolia",
+  "registry": "0x8B3Fd6B4b31a24a6922A14Beb892BD695054de68",
+  "status": "retired",
+  "deployTx": "0xc9b5457d16b7d0e060d2d64b3ce0a2d4373073b174f33206e88462cca3060edc",
+  "deployBlock": 56594799,
+  "retiredOn": "2026-11-09",
+  "retiredReason": "Pilot. Its owning database was corrupted by a tamper demo run on the wrong database (two anchored events deleted); the full audit detected it. Replaced by base-sepolia.json. Do not anchor to it."
+}

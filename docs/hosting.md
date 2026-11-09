@@ -196,7 +196,7 @@ portals for anything older.
       Pesapal live, Africa's Talking live (and a registered sender ID), eConfirm after the KES 100
       smoke test
 - [ ] `ECONFIRM_MAX_AMOUNT` decision
-- [ ] Anchoring: Base Sepolia deploy (M24 B1, #279), then `ANCHOR_*` here and `VITE_ANCHOR_*` on the
-      web build, and the RPC origin in the web CSP
+- [x] Anchoring: Base Sepolia registry deployed (#279); restore the `vekro_base_sepolia` database
+      onto the server before switching it on (`docs/anchoring.md` section 8)
 - [ ] Support contact values for the web build (`VITE_SUPPORT_*`, `docs/DEPLOY.md` in the frontend)
 - [ ] Off-server backup destination

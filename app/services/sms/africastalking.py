@@ -245,6 +245,14 @@ class AfricasTalkingSmsSender:
             return self._uniform(batch, outcome, status=f"HTTP {response.status_code}")
 
         reported = _extract_recipients(response.body)
+        if not reported:
+            reason = _top_level_message(response.body)
+            if reason in _REJECTIONS:
+                # AT refused the whole request (observed: "InvalidSenderId" when the sender ID is
+                # not registered for this username); retrying cannot help, so say why, once.
+                self._logger.warning("africastalking_request_rejected reason=%s", reason)
+                return self._uniform(batch, SmsOutcome.FAILED_DEFINITE, status=reason)
+            self._logger.warning("africastalking_no_recipients message=%s", reason or "-")
         outcomes: dict[str, SmsRecipientResult] = {}
         for item in batch:
             entry = reported.get(item.phone)
@@ -296,6 +304,15 @@ def _extract_recipients(body: dict[str, Any]) -> dict[str, dict[str, Any]]:
         except ValueError:
             reported[number] = entry
     return reported
+
+
+# Whole-request refusals seen from AT (docs/africastalking-ussd-observed.md, SMS section).
+_REJECTIONS = frozenset({"InvalidSenderId"})
+
+
+def _top_level_message(body: dict[str, Any]) -> str:
+    data = body.get("SMSMessageData") if isinstance(body, dict) else None
+    return str(data.get("Message") or "").strip()[:80] if isinstance(data, dict) else ""
 
 
 def _recipient_result(item: _PendingRecipient, entry: dict[str, Any]) -> SmsRecipientResult:

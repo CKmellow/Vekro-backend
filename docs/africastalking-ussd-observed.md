@@ -58,3 +58,17 @@ shows only "You have reached Africa's Talking USSD Services". AT's session log s
 the number with `+254` (the flag switches to Kenya). The sandbox simulator lets anyone type any
 number, so the caller's number is only as trustworthy as the simulator; on a live network it is
 asserted by the operator.
+
+## 5. SMS in the sandbox (observed 2026-11-09)
+
+- The sandbox (`AFRICASTALKING_USERNAME=sandbox`) never delivers to a real phone. Messages appear
+  only in the web simulator: connect a phone number (typed with `+254`), then open the speech-bubble
+  icon on the simulator's home screen. Only messages sent while that number is connected show up.
+- A sender ID that is not registered for the username is refused for the whole request: HTTP 201
+  with `{"SMSMessageData": {"Message": "InvalidSenderId", "Recipients": []}}`
+  (`tests/fixtures/africastalking/send_invalid_sender_id.json`). Since then the sender treats this
+  as a definite failure and logs `africastalking_request_rejected reason=InvalidSenderId`. For the
+  sandbox, leave `AFRICASTALKING_SENDER_ID` blank.
+- Without a sender ID the same request succeeds: `statusCode: 101`, `status: "Success"`, sender
+  shown in the simulator as `AFRICASTKNG`.
+

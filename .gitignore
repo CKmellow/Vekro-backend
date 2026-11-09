@@ -57,3 +57,4 @@ docs/report-assets/
 # Deployment: the filled-in env file and local backups (M26)
 deploy/.env
 deploy/backups/
+deploy/.deploy.lock

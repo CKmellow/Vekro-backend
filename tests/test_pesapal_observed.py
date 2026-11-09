@@ -9,6 +9,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import pytest
 from app.services.custody.dto import FundingRequest
 from app.services.custody.enums import CollectionOutcome
 from app.services.custody.pesapal_auth import PesapalHttpResponse
@@ -107,3 +108,23 @@ def test_a_disabled_rail_without_an_ipn_id_logs_nothing(caplog) -> None:
     with caplog.at_level(logging.WARNING):
         _rail(_observed("submit_order.json"), ipn_id="")
     assert "pesapal_ipn_id_missing" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("fixture", "card_last4"),
+    [
+        ("get_transaction_status_completed_frictionless.json", "0010"),
+        ("get_transaction_status_completed_3ds_card.json", "1091"),
+        ("get_transaction_status_completed_declined_card.json", "1018"),
+    ],
+)
+def test_observed_sandbox_card_payments_read_as_funded(fixture: str, card_last4: str) -> None:
+    """2026-11-09: all three published test cards came back Completed (pesapal-observed.md 8)."""
+    result = _rail(_observed(fixture)).get_funding_status("t-1")
+    assert result.outcome == CollectionOutcome.SUCCEEDED
+    assert result.metadata["amount"] == "10.0" and result.metadata["currency"] == "KES"
+    assert result.metadata["payment_method"] == "Visa"
+    assert result.metadata["confirmation_code"]
+    _status, body = _observed(fixture)
+    assert body["payment_account"].endswith(card_last4)
+    assert set(body["payment_account"][:-4]) == {"X"}

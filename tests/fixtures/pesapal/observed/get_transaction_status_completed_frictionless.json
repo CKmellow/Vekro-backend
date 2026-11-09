@@ -1,0 +1,26 @@
+{
+  "body": {
+    "account_number": null,
+    "amount": 10.0,
+    "call_back_url": "http://localhost:5173/pay/return?order=686cd696-d37c-485c-b586-d952f1d684ab&ref=VK-CW45VV&OrderTrackingId=b683b63b-6546-4a4c-993f-d9af179eb306&OrderMerchantReference=VK-CW45VV",
+    "confirmation_code": "7942105884166222304005",
+    "created_date": "2026-11-09T10:49:50.387",
+    "currency": "KES",
+    "description": "Transaction successfully processed.",
+    "error": {
+      "code": null,
+      "error_type": null,
+      "message": null
+    },
+    "merchant_reference": "VK-CW45VV",
+    "message": "Request processed successfully",
+    "order_tracking_id": "b683b63b-6546-4a4c-993f-d9af179eb306",
+    "payment_account": "XXXXXXXXXXXX0010",
+    "payment_method": "Visa",
+    "payment_status_code": "",
+    "payment_status_description": "Completed",
+    "status": "200",
+    "status_code": 1
+  },
+  "http_status": 200
+}

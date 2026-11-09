@@ -279,3 +279,20 @@ def test_env_example_documents_africastalking_settings() -> None:
 
     assert "RUN_AFRICASTALKING_LIVE_TESTS" in env_example
     assert "AFRICASTALKING_LIVE_DESTINATION_PHONE" in env_example
+
+
+def test_a_rejected_sender_id_fails_at_once_and_says_why(caplog) -> None:
+    """Observed in the sandbox: an unregistered sender ID gets "InvalidSenderId", no recipients."""
+    transport = _FakeTransport([_fixture_response("send_invalid_sender_id.json")])
+    sleeps: list[float] = []
+    sender = _sender(transport, sleeps)
+
+    result = sender.send("Your code is 1234", ["+254712345678"])
+
+    assert result.all_sent is False
+    failed = result.for_phone("+254712345678")
+    assert failed is not None
+    assert failed.outcome == SmsOutcome.FAILED_DEFINITE
+    assert failed.status == "InvalidSenderId"
+    assert len(transport.calls) == 1 and sleeps == []
+    assert "africastalking_request_rejected reason=InvalidSenderId" in caplog.text

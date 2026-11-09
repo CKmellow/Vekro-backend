@@ -102,7 +102,27 @@ The brief says Pesapal refunds cannot be automated. The docs describe
 So a refund can be *requested* by API, but its completion is manual and asynchronous. P2 keeps the
 brief's design (admin queue, "manual refund required") and records the API as an option for later.
 
-## 8. Not yet observed
+## 8. Card payments observed (2026-11-09, sandbox, KES 10 each)
 
-- A paid order (status 1), the IPN call itself, and the buyer's return redirect.
-- These need a sandbox card payment with a test card: the next step after Cyprian's go-ahead.
+Three orders, each paid on Pesapal's hosted page with one of the published test cards from section
+4. Status responses are saved, with the card number masked to its last four digits, in
+`tests/fixtures/pesapal/observed/get_transaction_status_completed_*.json`.
+
+| Test card (section 4) | Expected | Observed |
+|---|---|---|
+| Visa ...0010 "no authorization" | completes | `status_code: 1`, `Completed`; the hosted page then spun on "Processing" and never redirected; the scheduler's card fallback funded the order within a minute |
+| Visa ...1091 "3D Secure challenge" | challenge, then completes | **no challenge page shown**; `status_code: 1`, `Completed`; redirected back to `/pay/return` |
+| Visa ...1018 "card failure" | declined | **`status_code: 1`, `Completed`**; redirected back; Vekro funded the order |
+
+So in this sandbox, on this day, neither the 3D Secure challenge nor the decline could be
+reproduced: Pesapal itself reports all three as completed, and Vekro read them correctly. The
+declined path (`status_code: 2`) stays covered by the unit fixtures only. Other observed fields: the
+status body carries `payment_method: "Visa"`, `payment_account` (masked card), a 22-digit
+`confirmation_code`, `description: "Transaction successfully processed."` and an `error` object with
+all-null fields.
+
+## 9. Not yet observed
+
+- A real decline (`status_code: 2`) and a reversal (`3`).
+- The IPN call itself (the tunnel showed no Pesapal IPN for these three; status came from the
+  return page's refresh and the scheduler).

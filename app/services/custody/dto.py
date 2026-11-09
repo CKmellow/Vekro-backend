@@ -84,6 +84,9 @@ class FundingRequest:
     phone_number: str
     account_reference: str
     currency: str = "KES"
+    # The payer's display name, for providers that need billing details (Pesapal, #282). Never
+    # part of to_payload: snapshots and anchored data carry no names.
+    payer_name: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "phone_number", normalize_phone(self.phone_number))

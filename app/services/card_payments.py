@@ -96,6 +96,7 @@ def start_card_checkout(
                 amount=Decimal(transaction.amount),
                 phone_number=buyer.mpesa_phone or buyer.phone,
                 account_reference=transaction.reference,
+                payer_name=buyer.name or "",
             )
         )
     except (PesapalAuthError, RuntimeError, ValueError) as exc:

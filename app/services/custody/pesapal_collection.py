@@ -45,6 +45,15 @@ class PesapalAccessTokenProvider(Protocol):
     def get_access_token(self) -> str: ...
 
 
+def billing_name(name: str) -> dict[str, str]:
+    """Pesapal refuses an order without a first name (INVALID_INPUT_01, observed 2026-11-09,
+    #282). A one-word name is repeated as the last name; no name sends nothing extra."""
+    parts = name.split()
+    if not parts:
+        return {}
+    return {"first_name": parts[0], "last_name": " ".join(parts[1:]) or parts[0]}
+
+
 class PesapalCollectionRail:
     def __init__(
         self,
@@ -92,6 +101,7 @@ class PesapalCollectionRail:
             "notification_id": self._ipn_id,
             "billing_address": {
                 "phone_number": request.phone_number,
+                **billing_name(request.payer_name),
             },
         }
 

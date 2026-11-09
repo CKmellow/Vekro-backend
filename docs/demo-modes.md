@@ -128,3 +128,44 @@ database and funds that one order by one path:
 
 Sanitised fixtures go to `tests/fixtures/daraja/`. Only run it with the account owner's go-ahead:
 it sends a real prompt to a real phone.
+
+## Scheduler (M24 B4)
+
+One process runs every periodic job:
+
+```bash
+make scheduler              # .venv/bin/python -m app.jobs.scheduler (run forever)
+.venv/bin/python -m app.jobs.scheduler --once    # each enabled job once
+```
+
+| Job | Every | Runs when |
+|---|---|---|
+| anchoring worker (batch, submit, confirm) | 30 s | `ANCHOR_ENABLED=true` |
+| payout executor and payout reconciliation | 30 s | always |
+| eConfirm funding poller | 60 s | eConfirm configured |
+| confirm M-Pesa payments (Daraja STK query) | 60 s | `DARAJA_ENABLED=true` |
+| confirm card payments (Pesapal status) | 60 s | card payments configured |
+| order timeouts | 60 s | always |
+| liabilities snapshot | 5 min | always |
+| reserves reconciliation | 15 min | always |
+
+On PostgreSQL each run holds an advisory lock named after the job, so a second scheduler instance
+skips a job the first is running. A failing job is logged (`scheduler_job_failed`) and retried at
+its next interval; the others carry on. During a live demo, `confirm-mpesa-payments --watch` is
+still the faster fallback for a single payment (backoff from 5 s).
+
+### DEMO_FAST_TIMEOUTS (class demo only)
+
+`DEMO_FAST_TIMEOUTS=true` keeps the same rules but shortens the state windows. The backend refuses
+to start with it in production.
+
+| Window | Normal | Demo |
+|---|---|---|
+| at the door, before the code is withheld automatically | 1 hour | 2 min |
+| paid, before an undispatched order is refunded | 48 hours | 5 min |
+| 24-hour hold before automatic release | 24 hours | 3 min |
+| buyer to send a return back | 3 days | 3 min |
+| seller to confirm a return arrived | 3 days | 3 min |
+
+The deadlines the web app shows follow the same windows, so countdowns match what the scheduler
+does.

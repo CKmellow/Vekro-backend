@@ -54,11 +54,7 @@ from app.services.custody.selection import (
     select_custody_provider,
 )
 from app.services.deadlines import (
-    AT_DOOR_INSPECTION_WINDOW,
-    HOLD_WINDOW,
-    NO_DISPATCH_WINDOW,
-    RETURN_RECEIPT_WINDOW,
-    RETURN_SEND_WINDOW,
+    timeout_windows,
 )
 from app.services.dispute_summary import OPEN_DISPUTE_STATUSES, latest_dispute
 from app.services.escrow_service import EscrowService
@@ -2412,11 +2408,12 @@ def run_timeout_jobs(
     now: datetime | None = None,
 ) -> TimeoutSweepResult:
     current_time = now or datetime.now(UTC)
-    at_door_cutoff = current_time - AT_DOOR_INSPECTION_WINDOW
-    no_dispatch_cutoff = current_time - NO_DISPATCH_WINDOW
-    hold_auto_release_cutoff = current_time - HOLD_WINDOW
-    dispute_buyer_sent_back_cutoff = current_time - RETURN_SEND_WINDOW
-    seller_received_cutoff = current_time - RETURN_RECEIPT_WINDOW
+    windows = timeout_windows()
+    at_door_cutoff = current_time - windows.at_door
+    no_dispatch_cutoff = current_time - windows.no_dispatch
+    hold_auto_release_cutoff = current_time - windows.hold
+    dispute_buyer_sent_back_cutoff = current_time - windows.return_send
+    seller_received_cutoff = current_time - windows.return_receipt
 
     at_door_due = _get_due_at_door_timeout_transactions(db, at_door_cutoff)
     locked_due = _get_due_locked_timeout_transactions(db, no_dispatch_cutoff)

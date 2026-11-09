@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     ussd_trust_forwarded_for: bool = False
     ussd_session_seconds: int = 180
 
+    # M24 B4: the state timeouts in minutes instead of hours and days, for a class demo. Refused
+    # in production. The scheduler intervals are in docs/demo-modes.md.
+    demo_fast_timeouts: bool = False
+
     africastalking_username: str = "sandbox"
     africastalking_api_key: str = ""
     africastalking_sender_id: str = ""
@@ -398,6 +402,9 @@ class Settings(BaseSettings):
             callback = self.daraja_callback_url.strip()
             if callback and not callback.startswith("https://"):
                 violations.append("DARAJA_CALLBACK_URL must use https://")
+
+        if self.demo_fast_timeouts and environment == "production":
+            violations.append("DEMO_FAST_TIMEOUTS=true is never allowed in production")
 
         if self.allow_live_payouts and environment != "production":
             violations.append("ALLOW_LIVE_PAYOUTS=true requires ENVIRONMENT=production")

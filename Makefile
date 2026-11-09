@@ -1,7 +1,11 @@
-.PHONY: run tunnel confirm-mpesa confirm-mpesa-watch lint format rails-selftest pesapal-register-ipn contracts-test contracts-abi anvil-deploy
+.PHONY: run scheduler tunnel confirm-mpesa confirm-mpesa-watch lint format rails-selftest pesapal-register-ipn contracts-test contracts-abi anvil-deploy
 
 run:
 	.venv/bin/uvicorn app.main:app --reload
+
+# Every periodic job in one process (docs/demo-modes.md "Scheduler").
+scheduler:
+	.venv/bin/python -m app.jobs.scheduler
 
 # HTTPS tunnel for Daraja callbacks (docs/demo-modes.md); host from DARAJA_CALLBACK_URL in .env.
 tunnel:

@@ -52,6 +52,16 @@ def register_pesapal_ipn(
             "Pesapal IPN registration failed. " f"HTTP {response.status_code} {response.text[:180]}"
         )
 
+    # Pesapal reports refusals in the body with HTTP 200, e.g. invalid_url while the callback host
+    # does not resolve yet (#301).
+    error = response.body.get("error") if isinstance(response.body, dict) else None
+    if isinstance(error, dict) and (error.get("code") or error.get("message")):
+        code = str(error.get("code") or "error").strip()
+        message = str(error.get("message") or "").strip()
+        raise PesapalIpnRegistrationError(
+            f"Pesapal refused the IPN registration: {code}: {message}"[:300]
+        )
+
     ipn_id = _extract_ipn_id(response.body)
     if not ipn_id:
         raise PesapalIpnRegistrationError(

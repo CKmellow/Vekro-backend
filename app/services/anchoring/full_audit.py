@@ -34,7 +34,7 @@ from app.models.ledger_entry import LedgerEntry, LedgerEntrySide
 from app.models.money_audit_event import MoneyAuditEvent
 from app.models.transaction import Transaction
 from app.services.anchoring import payloads
-from app.services.anchoring.admin_ref import admin_ref
+from app.services.anchoring.admin_ref import admin_ref, configured_keys
 from app.services.anchoring.canonical import (
     ZERO_HASH,
     CanonicalEncodingError,
@@ -168,6 +168,7 @@ def _audit_sources(
     events: list[AnchorEvent],
     bodies: dict[int, dict[str, Any]],
 ) -> None:
+    keys = configured_keys()
     by_source = {
         (event.source_table, event.source_id): event
         for event in events
@@ -175,8 +176,11 @@ def _audit_sources(
     }
     escrow_txn = dict(db.execute(select(Escrow.id, Escrow.transaction_id)).tuples().all())
 
-    def compare(event: AnchorEvent, rebuilt: dict[str, Any], label: str) -> None:
-        if canonical_json(rebuilt) != event.payload:
+    def compare(
+        event: AnchorEvent, rebuilt: dict[str, Any] | list[dict[str, Any]], label: str
+    ) -> None:
+        candidates = rebuilt if isinstance(rebuilt, list) else [rebuilt]
+        if all(canonical_json(item) != event.payload for item in candidates):
             report.add(
                 "source_row_changed",
                 f"{label} no longer matches what was anchored.",
@@ -201,9 +205,13 @@ def _audit_sources(
             report.add("event_missing", f"Audit row {audit.id} has no event.", audit.transaction_id)
             continue
         backfilled = bool(bodies.get(event.id, {}).get("backfilled"))
+        # An admin's actor_ref was made with the key that was newest then (#295).
         compare(
             event,
-            payloads.money_audit_payload(audit, backfilled=backfilled),
+            [
+                payloads.money_audit_payload(audit, backfilled=backfilled, admin_keys=[key])
+                for key in keys
+            ],
             f"Audit row {audit.id}",
         )
     for transaction in db.execute(select(Transaction)).scalars():
@@ -219,7 +227,9 @@ def _audit_sources(
     transactions = {str(item.id): item for item in db.execute(select(Transaction)).scalars()}
     for (table, source_id), event in by_source.items():
         if table == SELLER_SALES_SOURCE:
-            _audit_sale(report, transactions.get(source_id), bodies.get(event.id, {}), source_id)
+            _audit_sale(
+                report, transactions.get(source_id), bodies.get(event.id, {}), source_id, keys
+            )
             continue
         report.add(
             "source_missing",
@@ -241,13 +251,15 @@ def _audit_sale(
     transaction: Transaction | None,
     body: dict[str, Any],
     source_id: str,
+    keys: list[str],
 ) -> None:
-    """A public sale must be a real completed sale of the seller it names, under its own ref."""
+    """A public sale must be a real completed sale of the seller it names, under its own ref
+    (made with whichever configured key was newest when the sale was recorded, #295)."""
     if (
         transaction is None
         or transaction.status not in SALE_STATUSES
         or body.get("seller_id") != str(transaction.seller_id)
-        or body.get("sale_ref") != payloads.sale_ref(transaction.id)
+        or body.get("sale_ref") not in {payloads.sale_ref(transaction.id, keys=[k]) for k in keys}
         or body.get("amount_band") != payloads.amount_band(transaction.amount)
     ):
         report.add(
@@ -263,6 +275,7 @@ def _audit_live_state(
     events: list[AnchorEvent],
     bodies: dict[int, dict[str, Any]],
 ) -> None:
+    keys = configured_keys()
     expected_status: dict[Any, str] = {}
     expected_amount: dict[Any, str] = {}
     decisions: dict[str, dict[str, Any]] = {}
@@ -299,9 +312,13 @@ def _audit_live_state(
             "decision": getattr(dispute.admin_decision, "value", dispute.admin_decision),
             "reason": dispute.admin_reason,
             "seller_share": payloads.ratio(dispute.split_ratio),
-            "admin_ref": admin_ref(dispute.decided_by_user_id),
         }
-        if any(decision.get(key) != value for key, value in live.items()):
+        # The anchored admin_ref may be under an older key (#295).
+        admin_refs = {admin_ref(dispute.decided_by_user_id, keys=[key]) for key in keys}
+        if (
+            any(decision.get(key) != value for key, value in live.items())
+            or decision.get("admin_ref") not in admin_refs
+        ):
             report.add(
                 "admin_decision_changed",
                 "The admin decision differs from the anchored one.",

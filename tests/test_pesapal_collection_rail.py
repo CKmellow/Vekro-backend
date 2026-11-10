@@ -203,6 +203,17 @@ def _capturing_rail(body: dict[str, Any], observed: dict[str, Any]) -> PesapalCo
             {"first_name": "Amina", "middle_name": "Wairimu", "last_name": "Otieno"},
         ),
         ("Cyp", {"first_name": "Cyp", "middle_name": "-", "last_name": "-"}),
+        # #303: Pesapal refuses anything but letters, digits and - _ . : in a name.
+        (
+            "Cyprian (demo buyer)",
+            {"first_name": "Cyprian", "middle_name": "demo", "last_name": "buyer"},
+        ),
+        ("Seán O'Brien", {"first_name": "Sean", "middle_name": "-", "last_name": "OBrien"}),
+        (
+            "Wanjiru Njeri Mary (Shop)",
+            {"first_name": "Wanjiru", "middle_name": "Njeri-Mary", "last_name": "Shop"},
+        ),
+        ("!!! ???", {"first_name": "-", "middle_name": "-", "last_name": "-"}),
         ("", {"first_name": "-", "middle_name": "-", "last_name": "-"}),
     ],
 )

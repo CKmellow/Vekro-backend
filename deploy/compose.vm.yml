@@ -1,0 +1,17 @@
+# The Azure VM's way in (#291, docs/hosting.md section 4.3): cloudflared runs on the host as a
+# systemd service (dashboard-managed tunnel), not in Compose. It reaches the web app and the API on
+# the loopback interface only, so nothing is published on 0.0.0.0 and the NSG keeps no inbound rule.
+#
+#   deploy/.env:  COMPOSE_PROFILES=                 (empty: no cloudflared or caddy container)
+#                 VEKRO_COMPOSE_OVERRIDE=compose.vm.yml   (deploy.sh, backup.sh, restore.sh add it)
+#   by hand:      docker compose -f deploy/compose.yaml -f deploy/compose.vm.yml --env-file deploy/.env ...
+#
+# Tunnel public hostnames (Cloudflare dashboard): app.vekro.me -> http://localhost:8080,
+# api.vekro.me -> http://localhost:8000. Postgres stays on the private network.
+services:
+  api:
+    ports:
+      - "127.0.0.1:8000:8000"
+  web:
+    ports:
+      - "127.0.0.1:8080:8080"

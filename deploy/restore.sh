@@ -9,7 +9,11 @@ set -euo pipefail
 dump="${1:?usage: restore.sh <file.dump> [--replace]}"
 mode="${2:-}"
 here="$(cd "$(dirname "$0")" && pwd)"
-compose=(docker compose -f "$here/compose.yaml" --env-file "$here/.env")
+compose=(docker compose -f "$here/compose.yaml")
+# An override named in deploy/.env (the VM: compose.vm.yml, loopback ports for the host cloudflared).
+override=$(grep -E '^VEKRO_COMPOSE_OVERRIDE=' "$here/.env" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)
+if [ -n "$override" ]; then compose+=(-f "$here/$override"); fi
+compose+=(--env-file "$here/.env")
 psql=("${compose[@]}" exec -T postgres psql -U vekro -v ON_ERROR_STOP=1)
 
 [ -s "$dump" ] || { echo "no such backup: $dump" >&2; exit 1; }

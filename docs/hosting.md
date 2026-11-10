@@ -1,9 +1,12 @@
 # Hosting Vekro on vekro.me (M26, M27)
 
-Everything runs on one Azure VM with Docker Compose: Postgres, the API, the scheduler, the web app,
-and either a Cloudflare Tunnel (recommended) or Caddy. The files are in `deploy/`. **Nothing here
-has been provisioned yet**: steps marked **(Cyprian)** create cloud resources, cost money or change
-DNS, and are yours to do. The full order is the checklist in section 15.
+Everything runs on one Azure VM with Docker Compose: Postgres, the API, the scheduler and the web
+app. The files are in `deploy/`. Steps marked **(Cyprian)** create cloud resources, cost money or
+change DNS, and are yours to do. The full order is the checklist in section 15.
+
+**The live setup (`vekro-vm`, #291)** uses the VM's own `cloudflared` systemd service (section 4.3):
+no `cloudflared` or Caddy container, and the web app and API published on `127.0.0.1` only through
+`deploy/compose.vm.yml`. Sections 4.1 and 4.2 are the alternatives the files still support.
 
 ```
                       Cloudflare (DNS, TLS, proxy)
@@ -19,10 +22,10 @@ Africa's Talking   ssh.vekro.me ─┘   from cloudflared    ├──> api:8000
 |---|---|
 | Domain | `vekro.me` (Namecheap, paid until Nov 2027). DNS moves to Cloudflare (Free plan). |
 | Names | `app.vekro.me` (the app, `/api` proxied), `api.vekro.me` (provider callbacks, direct API checks), `ssh.vekro.me` (tunnel SSH for CD and admin). The apex and `www` stay on GitHub Pages. |
-| Server | One Azure for Students VM, South Africa North, about 2 GB RAM (for example `B1ms`: 1 vCPU, 2 GiB), Ubuntu 24.04 LTS. |
-| Way in | **Cloudflare Tunnel** (`COMPOSE_PROFILES=tunnel`): no inbound port is open. Caddy (`COMPOSE_PROFILES=caddy`, ports 80 and 443) stays as the alternative. |
+| Server | `vekro-vm` (resource group `vekro`), South Africa North, `Standard_B2als_v2` (2 vCPU, 4 GB) plus 2 GB swap, 32 GB Standard SSD, Ubuntu 24.04, timezone Africa/Nairobi. Auto-shutdown 23:00 EAT. |
+| Way in | **Host cloudflared** (section 4.3): tunnel `vekro-vm`, dashboard-managed, a systemd service on the VM. No inbound port is open (the NSG has no inbound rule). The Compose `tunnel` profile and Caddy remain alternatives. |
 | Images | Built by GitHub Actions and published to GHCR: `ghcr.io/ckmellow/vekro-api`, `ghcr.io/ckmellow/vekro-web`. The VM never builds. |
-| Deploys | On every merge to `main` in either repo, once enabled (section 7). Migrations run before the new API starts. |
+| Deploys | By hand over SSH with `deploy/deploy.sh` (section 7.1). CD stays off (`DEPLOY_ENABLED` unset) until Cloudflare Access service tokens exist. Migrations run before the new API starts. |
 | Public record | Base Sepolia registry `0xD8094faf2B44711dD372A59C288130FA8113E4DB`; the VM takes over the `vekro_base_sepolia` database that owns it (section 6). |
 | Card payments | Pesapal stays a **redirect**: the buyer leaves for Pesapal's page and comes back to `https://app.vekro.me/pay/return`. Nothing is embedded, so the CSP keeps `frame-ancestors 'none'` and needs no Pesapal frame source. |
 
@@ -133,6 +136,27 @@ hostnames come back through that connection. The VM opens no port, and its IP ne
 TLS is Cloudflare's, at the edge. Inside the VM the tunnel speaks plain HTTP to `web` and `api` on
 the private Compose network.
 
+### 4.3 Host cloudflared (the live setup on `vekro-vm`)
+
+`cloudflared` is installed from Cloudflare's apt repository and runs as the systemd service
+`cloudflared` with the dashboard-managed tunnel `vekro-vm`. Compose runs no tunnel and no Caddy.
+`deploy/compose.vm.yml` publishes the two services the tunnel needs on the loopback interface only:
+
+| Container | Published on | Tunnel public hostname (Zero Trust → Networks → Tunnels → `vekro-vm`) |
+|---|---|---|
+| `web` | `127.0.0.1:8080` | `app.vekro.me` → `http://localhost:8080` |
+| `api` | `127.0.0.1:8000` | `api.vekro.me` → `http://localhost:8000` |
+| VM sshd | `0.0.0.0:22` (no NSG rule: reachable only through the tunnel) | `ssh.vekro.me` → `ssh://localhost:22` |
+
+In `deploy/.env`: `COMPOSE_PROFILES=` (empty) and `VEKRO_COMPOSE_OVERRIDE=compose.vm.yml`.
+`deploy.sh`, `backup.sh` and `restore.sh` read that setting and add the override, so a rollout or a
+restore never drops the published ports. Check after any change: `sudo ss -tlnp` lists nothing on
+`0.0.0.0` or `[::]` except sshd.
+
+SSH from the laptop (WSL) is `ssh ssh.vekro.me` (`~/.ssh/config` runs `cloudflared access ssh`). It
+fails on networks that intercept TLS (Strathmore Wi-Fi: `x509: certificate signed by unknown
+authority`); use a phone hotspot. Never turn TLS verification off to get around it.
+
 ### 4.2 Caddy (alternative, `COMPOSE_PROFILES=caddy`)
 
 Caddy publishes 80 and 443 and requests the certificates itself. In Cloudflare, add A records `app`
@@ -160,8 +184,8 @@ your laptop, never from git:
 ```sh
 git clone https://github.com/CKmellow/Vekro-backend.git ~/vekro && cd ~/vekro
 cp deploy/env.production.example deploy/.env && chmod 600 deploy/.env && $EDITOR deploy/.env
-docker login ghcr.io            # only while the GHCR images are private (section 7)
-alias vk='docker compose -f deploy/compose.yaml --env-file deploy/.env'
+# the GHCR images are public (no docker login); on vekro-vm, with the loopback override:
+alias vk='docker compose -f deploy/compose.yaml -f deploy/compose.vm.yml --env-file deploy/.env'
 vk up -d postgres
 ```
 
@@ -241,6 +265,22 @@ no secrets, only public build values), or log the VM in once with a token that h
 
 Rolling back by hand: `deploy/deploy.sh api <older sha>` (or `web`), or `both <api-sha> <web-sha>`.
 
+### 7.1 Manual deploys (the live setup until CD is switched on)
+
+`DEPLOY_ENABLED` stays unset in both repositories until Cloudflare Access service tokens exist, so a
+merge only publishes the images. Roll them out from the laptop, after the **Deploy** workflow of the
+merged commit is green in each repository:
+
+```sh
+api=$(gh run list -R CKmellow/Vekro-backend -w Deploy -b main -s success -L 1 --json headSha -q '.[0].headSha')
+web=$(gh run list -R CKmellow/Vekro -w Deploy -b main -s success -L 1 --json headSha -q '.[0].headSha')
+ssh ssh.vekro.me "cd ~/vekro && git fetch --quiet origin main && git checkout --quiet --detach $api && deploy/deploy.sh both $api $web"
+```
+
+`deploy.sh api <sha>` or `web <sha>` rolls out one side only. The backend checkout on the VM must be
+the same commit as the API image, so the Compose file and scripts match it. The script prints
+`deploy: done`, or rolls back and exits 1.
+
 ## 8. Provider callbacks: from ngrok to the domain
 
 Each provider is told the public URL once. All use `api.vekro.me`. With the tunnel, nothing else is
@@ -288,10 +328,19 @@ Never downgrade past a migration that dropped data: restore a backup instead.
 refuses to keep an empty dump, and deletes dumps older than `KEEP_DAYS` (default 14). Files go to
 `deploy/backups/` (git-ignored, mode 700) or `BACKUP_DIR`.
 
-Nightly at 02:00 East Africa Time (23:00 UTC), with `crontab -e` for `vekro`:
+Nightly, with `crontab -e` for `vekro`, keeping 7 days on the VM. `vekro-vm` runs on East Africa Time
+and is deallocated at 23:00 EAT, so its backup runs at 22:30 EAT, while it is still up:
 
 ```
-0 23 * * * cd /home/vekro/vekro && deploy/backup.sh >> /home/vekro/vekro-backup.log 2>&1
+30 22 * * * cd /home/vekro/vekro && KEEP_DAYS=7 deploy/backup.sh >> /home/vekro/vekro-backup.log 2>&1
+```
+
+Copy the newest dump to the laptop (WSL), for example after a demo:
+
+```sh
+mkdir -p ~/vekro-backups && chmod 700 ~/vekro-backups
+latest=$(ssh ssh.vekro.me 'ls -1t ~/vekro/deploy/backups/vekro-*.dump | head -n 1')
+scp "ssh.vekro.me:$latest" ~/vekro-backups/
 ```
 
 Keep a copy off the VM too (for example `rclone copy deploy/backups remote:vekro-backups` to an

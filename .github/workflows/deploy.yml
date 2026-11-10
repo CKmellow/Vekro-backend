@@ -30,13 +30,23 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Build and load locally, scan, and push only a clean image: the package is public (#299).
       - uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
+          load: true
+          push: false
           tags: |
             ghcr.io/ckmellow/vekro-api:${{ github.sha }}
             ghcr.io/ckmellow/vekro-api:latest
+      - name: No secrets in the image
+        run: |
+          python3 -I scripts/scan_image_secrets.py --self-test
+          python3 -I scripts/scan_image_secrets.py "ghcr.io/ckmellow/vekro-api:${{ github.sha }}" --path /app
+      - name: Push
+        run: |
+          docker push "ghcr.io/ckmellow/vekro-api:${{ github.sha }}"
+          docker push ghcr.io/ckmellow/vekro-api:latest
 
   roll-out:
     needs: image

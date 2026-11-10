@@ -28,7 +28,7 @@ from app.models.payment_prompt import (
 )
 from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User
-from app.services.anchoring.provider_ref import provider_ref
+from app.services.anchoring.provider_ref import candidate_refs, provider_ref
 from app.services.audit import ACTOR_PROVIDER, ACTOR_USER, record_money_audit_event
 from app.services.card_payments import (
     PAYMENT_METHOD_CARD,
@@ -226,7 +226,8 @@ def record_mpesa_after_card_switch(
         select(MoneyAuditEvent.id).where(
             MoneyAuditEvent.transaction_id == transaction.id,
             MoneyAuditEvent.action == LATE_MPESA,
-            MoneyAuditEvent.provider_reference == provider_ref(reference),
+            # Any configured key: a row written before a key rotation still counts (#295).
+            MoneyAuditEvent.provider_reference.in_(candidate_refs(reference)),
         )
     ).first()
     if already is not None:

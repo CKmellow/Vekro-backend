@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import unicodedata
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -51,13 +53,23 @@ NOT_COLLECTED = "-"
 REQUIRED_UNCOLLECTED = ("line_1", "line_2", "city", "state", "postal_code")
 
 
+# Pesapal accepts only these in a name field (INVALID_INPUT_02 for "buyer)", observed 2026-11-10).
+_NAME_DISALLOWED = re.compile(r"[^A-Za-z0-9_.:-]")
+
+
+def _name_part(text: str) -> str:
+    ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    return _NAME_DISALLOWED.sub("", ascii_text)
+
+
 def billing_name(name: str) -> dict[str, str]:
     """The buyer's names as Pesapal's billing fields: first word, last word, anything between as
-    the middle name; "-" where the name has no such part."""
-    parts = name.split()
+    the middle name (joined with "-"); each part reduced to the characters Pesapal accepts (#303),
+    and "-" where the name has no such part."""
+    parts = [part for part in (_name_part(word) for word in name.split()) if part]
     first = parts[0] if parts else NOT_COLLECTED
     last = parts[-1] if len(parts) > 1 else NOT_COLLECTED
-    middle = " ".join(parts[1:-1]) or NOT_COLLECTED
+    middle = "-".join(parts[1:-1]) or NOT_COLLECTED
     return {"first_name": first, "middle_name": middle, "last_name": last}
 
 

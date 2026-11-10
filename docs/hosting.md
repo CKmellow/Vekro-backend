@@ -293,7 +293,9 @@ needed: there is no ngrok on the VM.
 | Pesapal return (redirect) | `FRONTEND_URL` (the buyer comes back to `/pay/return`) | `https://app.vekro.me/pay/return` |
 | Africa's Talking USSD | the service code's callback in the AT dashboard | `https://api.vekro.me/ussd/africastalking/<USSD_CALLBACK_TOKEN>` |
 
-Pesapal IPN registration (with `PESAPAL_ENABLED=true` and the keys set; it prints the id):
+Pesapal IPN registration (with `PESAPAL_ENABLED=true` and the keys set; it prints the id). The
+hostname must already resolve: add the `api.vekro.me` tunnel route first, or Pesapal refuses with
+`invalid_url`. On the VM, write the printed id into `deploy/.env` as `PESAPAL_IPN_ID`:
 
 ```sh
 vk exec api python -m app.services.custody.pesapal_ipn_registration \

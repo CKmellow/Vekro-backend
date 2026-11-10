@@ -72,6 +72,40 @@ def test_register_ipn_raises_when_response_missing_id(monkeypatch: pytest.Monkey
         )
 
 
+def test_register_ipn_reports_pesapals_own_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Observed 2026-11-10 while api.vekro.me had no DNS record yet (#301): HTTP 200, error body.
+    body = {
+        "error": {
+            "error_type": "api_error",
+            "code": "invalid_url",
+            "message": "The specified url provided is invalid. Please ensure that the url is a "
+            "public url, resolvable and not a local address",
+        },
+        "status": "500",
+    }
+    monkeypatch.setattr(
+        pesapal_ipn_registration,
+        "PesapalTokenManager",
+        lambda **kwargs: SimpleNamespace(get_access_token=lambda: "pesapal-token"),
+    )
+    monkeypatch.setattr(
+        pesapal_ipn_registration,
+        "default_pesapal_http_transport",
+        lambda *args, **kwargs: PesapalHttpResponse(status_code=200, body=body, text="x"),
+    )
+
+    with pytest.raises(
+        pesapal_ipn_registration.PesapalIpnRegistrationError,
+        match="refused the IPN registration: invalid_url: The specified url provided is invalid",
+    ):
+        pesapal_ipn_registration.register_pesapal_ipn(
+            base_url="https://cybqa.pesapal.com/pesapalv3",
+            consumer_key="pesapal-key",
+            consumer_secret="pesapal-secret",
+            callback_url="https://api.vekro.me/payments/pesapal/ipn",
+        )
+
+
 def test_persist_pesapal_ipn_id_replaces_existing_value(tmp_path: Path) -> None:
     env_file = tmp_path / ".env"
     env_file.write_text("APP_NAME=Vekro Backend\nPESAPAL_IPN_ID=old-id\n", encoding="utf-8")

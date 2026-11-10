@@ -18,3 +18,22 @@ class PublicOrderSummary(BaseModel):
         )
     )
     listing_status: ListingStatus
+
+
+class PublicCardPaymentStatus(BaseModel):
+    """What the card return page shows without a session (#308): status only, no personal data,
+    no ids and no amounts."""
+
+    reference: str = Field(description="Human order reference, such as VK-7K3P9Q.")
+    state_group: Literal["unpaid", "paid", "closed"] = Field(
+        description="As in the public order summary: paid once the payment is confirmed."
+    )
+    payment_status: Literal["pending", "failed", "succeeded"] = Field(
+        description=(
+            "This card checkout: pending (not confirmed yet), failed (declined or refused; a "
+            "declined card can still be retried on Pesapal's page) or succeeded."
+        )
+    )
+    failure_reason: Literal["declined", "provider_error"] | None = Field(
+        default=None, description="Why it failed: declined by the card, or refused by Vekro."
+    )

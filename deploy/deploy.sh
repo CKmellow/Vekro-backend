@@ -17,7 +17,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 env_file=deploy/.env
-compose=(docker compose -f deploy/compose.yaml --env-file "$env_file")
+compose=(docker compose -f deploy/compose.yaml)
+# An override named in deploy/.env (the VM: compose.vm.yml, loopback ports for the host cloudflared).
+override=$(grep -E '^VEKRO_COMPOSE_OVERRIDE=' "$env_file" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)
+if [[ -n $override ]]; then compose+=(-f "deploy/$override"); fi
+compose+=(--env-file "$env_file")
 api_repo=${VEKRO_API_REPO:-ghcr.io/ckmellow/vekro-api}
 web_repo=${VEKRO_WEB_REPO:-ghcr.io/ckmellow/vekro-web}
 health_timeout=${HEALTH_TIMEOUT:-180}

@@ -7,7 +7,11 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
-compose=(docker compose -f "$here/compose.yaml" --env-file "$here/.env")
+compose=(docker compose -f "$here/compose.yaml")
+# An override named in deploy/.env (the VM: compose.vm.yml, loopback ports for the host cloudflared).
+override=$(grep -E '^VEKRO_COMPOSE_OVERRIDE=' "$here/.env" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)
+if [ -n "$override" ]; then compose+=(-f "$here/$override"); fi
+compose+=(--env-file "$here/.env")
 backup_dir="${BACKUP_DIR:-$here/backups}"
 keep_days="${KEEP_DAYS:-14}"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"

@@ -78,7 +78,18 @@ class AuditReport:
         )
 
 
+def _use_one_snapshot(db: Session) -> None:
+    """Read every table from one snapshot (#305). Under READ COMMITTED a payout committing between
+    the events query and the source-table queries shows its rows without their events."""
+    if db.in_transaction() or db.get_bind().dialect.name != "postgresql":
+        return
+    db.connection(
+        execution_options={"isolation_level": "REPEATABLE READ", "postgresql_readonly": True}
+    )
+
+
 def run_full_audit(db: Session, root_of: Callable[[int], bytes] | None = None) -> AuditReport:
+    _use_one_snapshot(db)
     report = AuditReport()
     events = list(db.execute(select(AnchorEvent).order_by(AnchorEvent.id)).scalars())
     report.events = len(events)

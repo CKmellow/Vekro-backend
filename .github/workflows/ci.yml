@@ -240,6 +240,10 @@ jobs:
         uses: actions/checkout@v4
       - name: Build the image
         run: docker build -t vekro-api:ci .
+      - name: The image carries what anchoring loads (#293)
+        run: |
+          docker run --rm vekro-api:ci python -c \
+            "from app.services.anchoring.chain import registry_abi; names = {e.get('name') for e in registry_abi()}; assert {'anchor', 'getBatch', 'lastRoot'} <= names, names; print('registry ABI ok')"
       - name: Validate Compose (both ways in), Caddyfile and deploy scripts
         run: |
           cp deploy/env.production.example deploy/.env

@@ -18,6 +18,8 @@ COPY alembic.ini ./
 COPY alembic ./alembic
 COPY app ./app
 COPY api ./api
+# The registry ABI the anchoring worker loads (app/services/anchoring/chain.py ABI_PATH, #293).
+COPY contracts/abi ./contracts/abi
 # Operator scripts that run against the live database (docs/hosting.md, docs/anchoring.md).
 COPY scripts/audit_anchoring.py scripts/verify_transaction.py ./scripts/
 

@@ -70,8 +70,10 @@ services:
     image: ${VEKRO_WEB_IMAGE:-ghcr.io/ckmellow/vekro-web:latest}
     environment:
       API_UPSTREAM: http://api:8000
+    # nginx resolves api once at start: restart web whenever Compose recreates or restarts api,
+    # or it keeps proxying to the old container's address (#297).
     depends_on:
-      api: { condition: service_healthy }
+      api: { condition: service_healthy, restart: true }
     restart: unless-stopped
     logging: *logging
 

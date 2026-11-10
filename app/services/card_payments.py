@@ -358,3 +358,18 @@ def confirm_pending_card_payments(
             continue
         outcomes[transaction.id] = confirm_card_payment(db, transaction, prompt, rail=rail)
     return outcomes
+
+
+def card_checkout_for_return(
+    db: Session, reference: str, tracking_id: str
+) -> tuple[Transaction, PaymentPrompt] | None:
+    """The order and checkout behind a return URL (#308): both the order reference and the
+    Pesapal tracking id Pesapal appends must match one of the order's card checkouts. The
+    tracking id is known only to the buyer's browser, Pesapal and Vekro."""
+    reference, tracking_id = reference.strip().upper(), tracking_id.strip()
+    if not reference or not tracking_id:
+        return None
+    match = card_prompt_for_tracking_id(db, tracking_id)
+    if match is None or match[0].reference != reference:
+        return None
+    return match

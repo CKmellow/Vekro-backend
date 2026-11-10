@@ -3538,6 +3538,132 @@
         }
       }
     },
+    "/public/orders/{reference}/card-payment": {
+      "get": {
+        "tags": [
+          "Public"
+        ],
+        "summary": "Card payment status for the return page (no auth)",
+        "description": "What /pay/return shows after Pesapal's checkout, without a session: whether the order is paid and the checkout's status. Needs the order reference and the OrderTrackingId Pesapal appended to the return URL; anything else is 404. No names, phones, ids or amounts. Poll it; POST asks Pesapal first.",
+        "operationId": "public_card_payment_public_orders__reference__card_payment_get",
+        "parameters": [
+          {
+            "name": "reference",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 4,
+              "maxLength": 64,
+              "title": "Reference"
+            }
+          },
+          {
+            "name": "tracking_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "description": "The OrderTrackingId Pesapal appends to the return URL.",
+              "title": "Tracking Id"
+            },
+            "description": "The OrderTrackingId Pesapal appends to the return URL."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicCardPaymentStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No card checkout with this reference and tracking id."
+          },
+          "429": {
+            "description": "Too many lookups. See Retry-After."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Public"
+        ],
+        "summary": "Check a card payment with Pesapal now (no auth)",
+        "description": "The return page's check on arrival (and on 'Check again'), before Pesapal's IPN may have arrived: Vekro asks Pesapal for the order's status and records funding only for a COMPLETED payment of the exact amount, currency and reference, the same rule as the IPN. Nothing in the request is trusted as a result. Answers like the GET.",
+        "operationId": "check_public_card_payment_public_orders__reference__card_payment_post",
+        "parameters": [
+          {
+            "name": "reference",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 4,
+              "maxLength": 64,
+              "title": "Reference"
+            }
+          },
+          {
+            "name": "tracking_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "description": "The OrderTrackingId Pesapal appends to the return URL.",
+              "title": "Tracking Id"
+            },
+            "description": "The OrderTrackingId Pesapal appends to the return URL."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicCardPaymentStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No card checkout with this reference and tracking id."
+          },
+          "429": {
+            "description": "Too many lookups. See Retry-After."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/me/profile": {
       "get": {
         "tags": [
@@ -8295,6 +8421,59 @@
           "registry_address"
         ],
         "title": "PublicBatchResponse"
+      },
+      "PublicCardPaymentStatus": {
+        "properties": {
+          "reference": {
+            "type": "string",
+            "title": "Reference",
+            "description": "Human order reference, such as VK-7K3P9Q."
+          },
+          "state_group": {
+            "type": "string",
+            "enum": [
+              "unpaid",
+              "paid",
+              "closed"
+            ],
+            "title": "State Group",
+            "description": "As in the public order summary: paid once the payment is confirmed."
+          },
+          "payment_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "failed",
+              "succeeded"
+            ],
+            "title": "Payment Status",
+            "description": "This card checkout: pending (not confirmed yet), failed (declined or refused; a declined card can still be retried on Pesapal's page) or succeeded."
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "declined",
+                  "provider_error"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason",
+            "description": "Why it failed: declined by the card, or refused by Vekro."
+          }
+        },
+        "type": "object",
+        "required": [
+          "reference",
+          "state_group",
+          "payment_status"
+        ],
+        "title": "PublicCardPaymentStatus",
+        "description": "What the card return page shows without a session (#308): status only, no personal data,\nno ids and no amounts."
       },
       "PublicOrderSummary": {
         "properties": {

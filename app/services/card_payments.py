@@ -4,8 +4,10 @@ The buyer is sent to Pesapal's page (``PaymentInstruction`` REDIRECT) and comes 
 frontend return page. Pesapal's IPN and the buyer's return are only triggers: Vekro records the
 funding after its own GetTransactionStatus reports COMPLETED for the order's exact amount,
 currency and merchant reference, the same rule as the Daraja callback (#224). Anything else
-pending or unknown changes nothing; a definite failure closes the prompt; a mismatch is refused
-and audited. Card money is collected into the merchant's Pesapal account: collection, not
+pending or unknown changes nothing; a mismatch is refused and audited. A FAILED or REVERSED status
+marks the prompt declined but is not final: Pesapal's hosted page lets the buyer try again on the
+same order (same tracking id), so a declined checkout keeps being checked while the order awaits
+payment (#307). Card money is collected into the merchant's Pesapal account: collection, not
 third-party escrow custody.
 """
 
@@ -18,7 +20,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import quote
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.payment_prompt import (
@@ -156,10 +158,14 @@ def confirm_card_payment(
     """Ask Pesapal for the order's status; fund only on COMPLETED with the exact amount.
 
     Returns confirmed, failed, pending, mismatch, already_processed or unconfirmed.
+
+    Pesapal is asked whatever the prompt's status, as long as the order awaits payment: a declined
+    attempt can be followed by a paid one on the same order (#307). The order's status, not the
+    prompt's, is what makes funding happen at most once.
     """
     if transaction.status != TransactionStatus.AWAITING_PAYMENT:
         return "already_processed"
-    if prompt.status != PaymentPromptStatus.PENDING.value or not prompt.checkout_request_id:
+    if prompt.kind != PaymentPromptKind.REDIRECT.value or not prompt.checkout_request_id:
         return "already_processed"
     try:
         result = rail.get_funding_status(prompt.checkout_request_id)
@@ -170,7 +176,9 @@ def confirm_card_payment(
     if result.outcome == CollectionOutcome.UNKNOWN:
         return "pending"
     if result.outcome == CollectionOutcome.FAILED_DEFINITE:
-        _close_prompt(prompt, failed=True)
+        if prompt.status == PaymentPromptStatus.FAILED.value:
+            return "failed"  # already recorded; the buyer may still retry on Pesapal's page
+        _mark_declined(prompt)
         record_money_audit_event(
             db,
             action="card_payment_failed",
@@ -186,6 +194,8 @@ def confirm_card_payment(
 
     mismatch = _mismatch(transaction, result)
     if mismatch:
+        if prompt.failure_reason == PaymentFailureReason.PROVIDER_ERROR.value:
+            return "mismatch"  # already refused and audited; support resolves it with Pesapal
         record_money_audit_event(
             db,
             action="card_payment_mismatch",
@@ -198,8 +208,8 @@ def confirm_card_payment(
             currency=str(result.metadata.get("currency") or "") or None,
             details={"expected_amount": str(transaction.amount), "expected_currency": "KES"},
         )
-        # Closed so a replayed IPN or the next check cannot audit it twice; the order stays
-        # unpaid for support to resolve with Pesapal.
+        # Flagged so a replayed IPN or the next check cannot audit it twice, and the scheduler
+        # stops checking it; the order stays unpaid for support to resolve with Pesapal.
         prompt.status = PaymentPromptStatus.FAILED.value
         prompt.failure_reason = PaymentFailureReason.PROVIDER_ERROR.value
         prompt.resolved_at = datetime.now(UTC)
@@ -223,6 +233,13 @@ def confirm_card_payment(
         ),
         confirmed_by=RAIL,
     )
+    db.refresh(transaction)
+    if transaction.status != TransactionStatus.AWAITING_PAYMENT:
+        # The paid checkout, even one first declined, is the one that succeeded.
+        prompt.status = PaymentPromptStatus.SUCCEEDED.value
+        prompt.failure_reason = None
+        prompt.resolved_at = transaction.locked_at or datetime.now(UTC)
+        db.commit()
     return "confirmed"
 
 
@@ -246,10 +263,9 @@ def _decimal(value: Any) -> Decimal | None:
         return None
 
 
-def _close_prompt(prompt: PaymentPrompt, *, failed: bool) -> None:
-    if failed:
-        prompt.status = PaymentPromptStatus.FAILED.value
-        prompt.failure_reason = PaymentFailureReason.DECLINED.value
+def _mark_declined(prompt: PaymentPrompt) -> None:
+    prompt.status = PaymentPromptStatus.FAILED.value
+    prompt.failure_reason = PaymentFailureReason.DECLINED.value
     prompt.resolved_at = datetime.now(UTC)
 
 
@@ -310,7 +326,12 @@ def refresh_card_payment(
 def confirm_pending_card_payments(
     db: Session, *, rail: PesapalCollectionRail, now: datetime | None = None
 ) -> dict[uuid.UUID, str]:
-    """Settle open card checkouts from the last day (scheduler, or `confirm-card-payments`)."""
+    """Settle card checkouts from the last day (scheduler, or `confirm-card-payments`).
+
+    Open checkouts and declined ones: the buyer can retry a declined card on Pesapal's page, so
+    a declined checkout is checked until the order stops awaiting payment or leaves the window
+    (#307). A mismatch waits for support and is not polled.
+    """
     since = (now or datetime.now(UTC)) - RECONCILE_WINDOW
     rows = db.execute(
         select(Transaction, PaymentPrompt)
@@ -318,12 +339,22 @@ def confirm_pending_card_payments(
         .where(
             Transaction.status == TransactionStatus.AWAITING_PAYMENT,
             PaymentPrompt.kind == PaymentPromptKind.REDIRECT.value,
-            PaymentPrompt.status == PaymentPromptStatus.PENDING.value,
+            PaymentPrompt.checkout_request_id.is_not(None),
+            or_(
+                PaymentPrompt.status == PaymentPromptStatus.PENDING.value,
+                and_(
+                    PaymentPrompt.status == PaymentPromptStatus.FAILED.value,
+                    PaymentPrompt.failure_reason == PaymentFailureReason.DECLINED.value,
+                ),
+            ),
             PaymentPrompt.sent_at >= since,
         )
         .order_by(PaymentPrompt.sent_at)
     ).all()
-    return {
-        transaction.id: confirm_card_payment(db, transaction, prompt, rail=rail)
-        for transaction, prompt in rows
-    }
+    outcomes: dict[uuid.UUID, str] = {}
+    for transaction, prompt in rows:
+        # A resent order has several checkouts; once one funds it the others are not asked.
+        if outcomes.get(transaction.id) == "confirmed":
+            continue
+        outcomes[transaction.id] = confirm_card_payment(db, transaction, prompt, rail=rail)
+    return outcomes

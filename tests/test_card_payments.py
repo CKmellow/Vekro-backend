@@ -246,9 +246,12 @@ def test_a_completed_payment_that_does_not_match_is_refused_and_audited(change) 
     assert _funding(db, transaction) == []
     (refused,) = _audits(db, "card_payment_mismatch")
     assert refused.transaction_id == transaction.id
-    # Closed: checking again neither queries nor audits twice.
-    assert refresh_card_payment(db, transaction, rail=fake) == "already_processed"
+    # Checking again (an IPN always re-checks) neither funds nor audits twice, and the
+    # scheduler leaves it to support.
+    assert refresh_card_payment(db, transaction, rail=fake) == "mismatch"
     assert len(_audits(db, "card_payment_mismatch")) == 1
+    assert confirm_pending_card_payments(db, rail=fake) == {}
+    assert _funding(db, transaction) == []
 
 
 def test_an_unknown_status_changes_nothing() -> None:
@@ -273,6 +276,71 @@ def test_a_declined_card_closes_the_checkout_and_is_audited() -> None:
     db.refresh(prompt)
     assert (prompt.status, prompt.failure_reason) == ("failed", "declined")
     assert len(_audits(db, "card_payment_failed")) == 1
+    # Still declined on the next checks: recorded once.
+    assert handle_ipn(db, _ipn(transaction, prompt), rail=fake)["status"] == 200
+    assert confirm_pending_card_payments(db, rail=fake) == {transaction.id: "failed"}
+    assert len(_audits(db, "card_payment_failed")) == 1
+
+
+@pytest.mark.parametrize("trigger", ["ipn", "scheduler", "return page"])
+def test_a_declined_card_retried_on_the_same_pesapal_order_funds_exactly_once(trigger) -> None:
+    """#307 (VK-2N6HSK): Pesapal's "Try Again" reuses the tracking id after a decline."""
+    db, fake = _db(), FakePesapal()
+    transaction, prompt = _card_order(db, f"7{len(trigger)}", fake)
+    paid = fake.status
+    fake.status = FakePesapal.with_outcome(CollectionOutcome.FAILED_DEFINITE, "failed")
+    assert handle_ipn(db, _ipn(transaction, prompt), rail=fake)["status"] == 200
+    db.refresh(prompt)
+    assert (prompt.status, prompt.failure_reason) == ("failed", "declined")
+
+    fake.status = paid  # the second card went through on the same Pesapal order
+    queries = len(fake.queries)
+    if trigger == "ipn":
+        assert handle_ipn(db, _ipn(transaction, prompt), rail=fake)["status"] == 200
+    elif trigger == "scheduler":
+        assert confirm_pending_card_payments(db, rail=fake) == {transaction.id: "confirmed"}
+    else:
+        assert refresh_card_payment(db, transaction, rail=fake) == "confirmed"
+    assert fake.queries[queries:] == [prompt.checkout_request_id]
+
+    db.refresh(transaction)
+    db.refresh(prompt)
+    assert transaction.status == TransactionStatus.LOCKED
+    assert (prompt.status, prompt.failure_reason) == ("succeeded", None)
+    assert len(_audits(db, "callback_funding_confirmed")) == 1
+    assert len(_funding(db, transaction)) == 1
+
+    # Every later trigger leaves it funded once.
+    assert handle_ipn(db, _ipn(transaction, prompt), rail=fake)["status"] == 200
+    assert confirm_pending_card_payments(db, rail=fake) == {}
+    assert refresh_card_payment(db, transaction, rail=fake) == "already_processed"
+    assert len(_audits(db, "callback_funding_confirmed")) == 1
+    assert len(_funding(db, transaction)) == 1
+
+
+def test_a_declined_checkout_whose_retry_does_not_match_is_refused() -> None:
+    db, fake = _db(), FakePesapal()
+    transaction, prompt = _card_order(db, "79", fake)
+    fake.status = FakePesapal.with_outcome(CollectionOutcome.FAILED_DEFINITE, "failed")
+    handle_ipn(db, _ipn(transaction, prompt), rail=fake)
+    fake.status = FakePesapal.completed("1.00", reference=transaction.reference)
+
+    assert handle_ipn(db, _ipn(transaction, prompt), rail=fake)["status"] == 200
+    db.refresh(transaction)
+    assert transaction.status == TransactionStatus.AWAITING_PAYMENT
+    assert _funding(db, transaction) == []
+    assert len(_audits(db, "card_payment_mismatch")) == 1
+
+
+def test_a_declined_checkout_older_than_the_window_is_not_polled() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    db, fake = _db(), FakePesapal()
+    transaction, prompt = _card_order(db, "80", fake)
+    fake.status = FakePesapal.with_outcome(CollectionOutcome.FAILED_DEFINITE, "failed")
+    handle_ipn(db, _ipn(transaction, prompt), rail=fake)
+    later = datetime.now(UTC) + card_payments.RECONCILE_WINDOW + timedelta(minutes=1)
+    assert confirm_pending_card_payments(db, rail=fake, now=later) == {}
 
 
 def test_the_return_page_before_the_ipn_funds_once() -> None:

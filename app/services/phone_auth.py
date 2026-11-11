@@ -37,7 +37,7 @@ from app.services.notification_delivery import (
 )
 
 CODE_LENGTH = 6
-Purpose = Literal["sign_in", "payout", "reset", "signup"]
+Purpose = Literal["sign_in", "payout", "reset", "signup", "phone_change"]
 NEW_BUYER_NAME = "Vekro buyer"
 
 logger = logging.getLogger("app.auth.phone")
@@ -181,6 +181,14 @@ def signup_sms_text(code: str, ttl_seconds: int) -> str:
     )
 
 
+def phone_change_sms_text(code: str, ttl_seconds: int) -> str:
+    minutes = max(ttl_seconds // 60, 1)
+    return (
+        f"Vekro: your code to sign in with this number from now on is {code}. It expires in "
+        f"{minutes} minutes. If you didn't ask for it, ignore this message."
+    )
+
+
 def request_phone_code(
     db: Session,
     phone: str,
@@ -256,6 +264,7 @@ def request_phone_code(
         "payout": payout_sms_text,
         "reset": reset_sms_text,
         "signup": signup_sms_text,
+        "phone_change": phone_change_sms_text,
     }[purpose](code, settings.phone_code_ttl_seconds)
     dispatch(_send_job(phone, text, sender_provider or default_sender_provider))
     return IssuedCode(

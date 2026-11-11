@@ -1557,6 +1557,24 @@
               "title": "As"
             },
             "description": "buying: orders this account paid for; selling: its store's orders. Default: selling for an account with a store, else buying."
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/BuyerFilter"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Buying side (the buyer area's Orders): active, completed, refunded, disputed, or cases (any order with a return or dispute, open or past).",
+              "title": "Filter"
+            },
+            "description": "Buying side (the buyer area's Orders): active, completed, refunded, disputed, or cases (any order with a return or dispute, open or past)."
           }
         ],
         "responses": {
@@ -4751,6 +4769,131 @@
         }
       }
     },
+    "/account/profile": {
+      "patch": {
+        "tags": [
+          "Account"
+        ],
+        "summary": "Change the account's name",
+        "operationId": "patch_profile_account_profile_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/phone/request-code": {
+      "post": {
+        "tags": [
+          "Account"
+        ],
+        "summary": "Text a code to a new sign-in phone",
+        "operationId": "post_phone_change_code_account_phone_request_code_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneChangeCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResetCodeResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another account uses this number."
+          },
+          "422": {
+            "description": "Same number, or invalid."
+          },
+          "429": {
+            "description": "Too many codes."
+          }
+        }
+      }
+    },
+    "/account/phone": {
+      "put": {
+        "tags": [
+          "Account"
+        ],
+        "summary": "Change the sign-in phone with the code texted to it",
+        "description": "Signs out every other device and tells the old number by SMS. A store's payout number is separate (PUT /me/mpesa-number).",
+        "operationId": "put_phone_account_phone_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another account uses this number."
+          },
+          "410": {
+            "description": "No active code."
+          },
+          "422": {
+            "description": "Wrong code, or same number."
+          },
+          "429": {
+            "description": "Too many wrong tries."
+          }
+        }
+      }
+    },
     "/account/store": {
       "post": {
         "tags": [
@@ -4866,6 +5009,28 @@
           },
           "409": {
             "description": "The store is not closed."
+          }
+        }
+      }
+    },
+    "/buyer/home": {
+      "get": {
+        "tags": [
+          "Buyer"
+        ],
+        "summary": "The buyer area's Home: what needs you now, and recent orders",
+        "description": "For any member, about the orders it bought (never its store's sales). Admins have no buyer area (403).",
+        "operationId": "get_buyer_home_buyer_home_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuyerHomeResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -6453,6 +6618,60 @@
           "server_time"
         ],
         "title": "AnchoringStatusResponse"
+      },
+      "BuyerFilter": {
+        "type": "string",
+        "enum": [
+          "active",
+          "completed",
+          "refunded",
+          "disputed",
+          "cases"
+        ],
+        "title": "BuyerFilter",
+        "description": "The buyer area's Orders filters (M28). ``cases`` is Returns & disputes: every order that\nhad a dispute or return, open or past."
+      },
+      "BuyerHomeResponse": {
+        "properties": {
+          "needs_you": {
+            "items": {
+              "$ref": "#/components/schemas/NeedsYouItem"
+            },
+            "type": "array",
+            "title": "Needs You",
+            "description": "Soonest deadline first."
+          },
+          "recent": {
+            "items": {
+              "$ref": "#/components/schemas/TransactionSummaryResponse"
+            },
+            "type": "array",
+            "title": "Recent",
+            "description": "The 5 newest orders."
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Counts",
+            "description": "Orders per buyer filter (Orders tab badges)."
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Server Time",
+            "description": "Server clock; offset countdowns with it."
+          }
+        },
+        "type": "object",
+        "required": [
+          "needs_you",
+          "recent",
+          "counts",
+          "server_time"
+        ],
+        "title": "BuyerHomeResponse"
       },
       "BuyerReconfirmationRequest": {
         "properties": {
@@ -8306,6 +8525,45 @@
         ],
         "title": "MoneyTotal"
       },
+      "NeedsYouItem": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "pay",
+              "at_door",
+              "hold_check",
+              "send_return",
+              "confirm_return"
+            ],
+            "title": "Kind",
+            "description": "pay: complete payment; at_door: the item is at the door (inspect before due_at); hold_check: the 24-hour check on a serialized item (report before due_at); send_return: send the item back (before due_at); confirm_return: answer on a return."
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At",
+            "description": "When the order times out, if it does."
+          },
+          "order": {
+            "$ref": "#/components/schemas/TransactionSummaryResponse"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "due_at",
+          "order"
+        ],
+        "title": "NeedsYouItem"
+      },
       "NotificationAudience": {
         "type": "string",
         "enum": [
@@ -9065,6 +9323,45 @@
         "title": "PesapalIpnAnswer",
         "description": "The acknowledgement Pesapal documents for an IPN call."
       },
+      "PhoneChange": {
+        "properties": {
+          "phone": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 7,
+            "title": "Phone",
+            "description": "The new sign-in phone."
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^\\d{6}$",
+            "title": "Code",
+            "description": "The code texted to the new phone."
+          }
+        },
+        "type": "object",
+        "required": [
+          "phone",
+          "code"
+        ],
+        "title": "PhoneChange"
+      },
+      "PhoneChangeCodeRequest": {
+        "properties": {
+          "phone": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 7,
+            "title": "Phone",
+            "description": "The new sign-in phone."
+          }
+        },
+        "type": "object",
+        "required": [
+          "phone"
+        ],
+        "title": "PhoneChangeCodeRequest"
+      },
       "PhoneCodeRequest": {
         "properties": {
           "phone": {
@@ -9139,6 +9436,52 @@
         ],
         "title": "PhoneCodeVerifyRequest",
         "description": "Verify the SMS code and open a buyer session."
+      },
+      "ProfileResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone"
+          },
+          "google_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Google Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "phone",
+          "google_email"
+        ],
+        "title": "ProfileResponse"
+      },
+      "ProfileUpdate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 2,
+            "title": "Name",
+            "description": "The name sellers and Vekro see."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ProfileUpdate"
       },
       "ProofStepResponse": {
         "properties": {
@@ -10758,6 +11101,21 @@
             "type": "object",
             "title": "Status Counts",
             "description": "Per transaction status, before filters. Missing statuses are 0."
+          },
+          "filter_counts": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filter Counts",
+            "description": "Buying side only: orders per buyer filter (active, completed, refunded, disputed, cases), before filters."
           },
           "server_time": {
             "type": "string",

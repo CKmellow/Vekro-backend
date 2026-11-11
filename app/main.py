@@ -15,6 +15,7 @@ from app.routers.admin_cases import router as admin_cases_router
 from app.routers.admin_search import router as admin_search_router
 from app.routers.anchoring_admin import router as anchoring_admin_router
 from app.routers.auth import router as auth_router
+from app.routers.buyer import router as buyer_router
 from app.routers.disputes import router as disputes_router
 from app.routers.google_auth import router as google_auth_router
 from app.routers.health import router as health_router
@@ -235,4 +236,5 @@ app.include_router(public_orders_router)
 app.include_router(seller_profile_router)
 app.include_router(account_router)
 app.include_router(store_router)
+app.include_router(buyer_router)
 app.include_router(seller_analytics_router)

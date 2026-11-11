@@ -7,6 +7,7 @@ from enum import StrEnum
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.models.dispute import Dispute
 from app.models.listing import Listing
 from app.models.listing_photo import ListingPhoto
 from app.models.transaction import Transaction, TransactionStatus
@@ -65,6 +66,47 @@ SEGMENT_STATUSES: dict[OrderSegment, frozenset[TransactionStatus]] = {
 }
 
 
+class BuyerFilter(StrEnum):
+    """The buyer area's Orders filters (M28). ``cases`` is Returns & disputes: every order that
+    had a dispute or return, open or past."""
+
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    REFUNDED = "refunded"
+    DISPUTED = "disputed"
+    CASES = "cases"
+
+
+BUYER_FILTER_STATUSES: dict[BuyerFilter, frozenset[TransactionStatus]] = {
+    BuyerFilter.COMPLETED: frozenset(
+        {TransactionStatus.RELEASED, TransactionStatus.RESOLVED_RELEASE}
+    ),
+    # A split gives part of the money back, so it sits with the refunds.
+    BuyerFilter.REFUNDED: frozenset(
+        {
+            TransactionStatus.REFUNDED_BUYER,
+            TransactionStatus.RESOLVED_REFUND,
+            TransactionStatus.RESOLVED_SPLIT,
+            TransactionStatus.RETURNED_TO_SELLER,
+        }
+    ),
+    BuyerFilter.DISPUTED: frozenset(
+        {
+            TransactionStatus.DISPUTED_FUNCTIONAL,
+            TransactionStatus.RETURN_IN_TRANSIT,
+            TransactionStatus.RETURN_RECEIVED,
+            TransactionStatus.AWAITING_BUYER_RECONFIRMATION,
+            TransactionStatus.ESCALATED_ADMIN_REVIEW,
+        }
+    ),
+}
+BUYER_FILTER_STATUSES[BuyerFilter.ACTIVE] = frozenset(TransactionStatus) - (
+    BUYER_FILTER_STATUSES[BuyerFilter.COMPLETED]
+    | BUYER_FILTER_STATUSES[BuyerFilter.REFUNDED]
+    | BUYER_FILTER_STATUSES[BuyerFilter.DISPUTED]
+)
+
+
 class OrderSort(StrEnum):
     NEWEST = "newest"
     OLDEST = "oldest"
@@ -90,6 +132,7 @@ class OrderPage:
     viewer_role: PartyRole
     segment_counts: dict[OrderSegment, int]
     status_counts: dict[TransactionStatus, int]
+    filter_counts: dict[BuyerFilter, int] | None = None
 
 
 class OrderSide(StrEnum):
@@ -143,6 +186,7 @@ def list_orders_for_viewer(
     page: int = 1,
     page_size: int = 20,
     side: PartyRole | None = None,
+    buyer_filter: BuyerFilter | None = None,
 ) -> OrderPage:
     """One page of the viewer's orders. Counts cover all their orders, before any filter."""
     side = resolve_side(viewer, side)
@@ -159,8 +203,27 @@ def list_orders_for_viewer(
         for segment_key, members in SEGMENT_STATUSES.items()
     }
 
+    with_cases = select(Dispute.transaction_id)
+    filter_counts = None
+    if side == PartyRole.BUYER:
+        filter_counts = {
+            key: sum(status_counts.get(s, 0) for s in members)
+            for key, members in BUYER_FILTER_STATUSES.items()
+        }
+        filter_counts[BuyerFilter.CASES] = int(
+            db.execute(
+                select(func.count())
+                .select_from(Transaction)
+                .where(owner, Transaction.id.in_(with_cases))
+            ).scalar_one()
+        )
+
     query = select(Transaction, Listing).join(Listing, Listing.id == Transaction.listing_id)
     query = query.where(owner)
+    if buyer_filter == BuyerFilter.CASES:
+        query = query.where(Transaction.id.in_(with_cases))
+    elif buyer_filter is not None:
+        query = query.where(Transaction.status.in_(BUYER_FILTER_STATUSES[buyer_filter]))
     if segment is not None:
         query = query.where(Transaction.status.in_(SEGMENT_STATUSES[segment]))
     if statuses:
@@ -217,4 +280,5 @@ def list_orders_for_viewer(
         viewer_role=side,
         segment_counts=segment_counts,
         status_counts=status_counts,
+        filter_counts=filter_counts,
     )

@@ -2,7 +2,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.core.auth_context import (
@@ -11,6 +11,7 @@ from app.core.auth_context import (
     require_member,
     require_store_owner,
 )
+from app.core.phone import normalize_phone
 from app.core.security import verify_password
 from app.core.settings import get_settings
 from app.db.session import get_db
@@ -42,6 +43,13 @@ from app.services.phone_auth import (
     PhoneCodeExpiredError,
     PhoneCodeInvalidError,
     PhoneCodeRateLimitedError,
+)
+from app.services.profile import (
+    PhoneTakenError,
+    SamePhoneError,
+    change_phone,
+    request_phone_change_code,
+    update_name,
 )
 from app.services.ussd import set_ussd_pin
 
@@ -309,3 +317,135 @@ def put_sms_login(
     user.sms_login_enabled = payload.enabled
     db.commit()
     return SmsLoginSetting(enabled=user.sms_login_enabled)
+
+
+class ProfileUpdate(BaseModel):
+    name: str = Field(min_length=2, max_length=120, description="The name sellers and Vekro see.")
+
+
+class ProfileResponse(BaseModel):
+    name: str
+    phone: str
+    google_email: str | None
+
+
+class PhoneChangeCodeRequest(BaseModel):
+    phone: str = Field(min_length=7, max_length=32, description="The new sign-in phone.")
+
+    @field_validator("phone", mode="before")
+    @classmethod
+    def _normalize(cls, value: str) -> str:
+        return normalize_phone(value)
+
+
+class PhoneChange(PhoneChangeCodeRequest):
+    code: str = Field(pattern=r"^\d{6}$", description="The code texted to the new phone.")
+
+
+def _profile_response(user: User) -> ProfileResponse:
+    return ProfileResponse(name=user.name, phone=user.phone, google_email=user.google_email)
+
+
+@router.patch(
+    "/account/profile",
+    response_model=ProfileResponse,
+    summary="Change the account's name",
+)
+def patch_profile(
+    payload: ProfileUpdate,
+    current_user: Annotated[User, Depends(require_member)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ProfileResponse:
+    return _profile_response(update_name(db, _user(db, current_user), payload.name))
+
+
+@router.post(
+    "/account/phone/request-code",
+    response_model=ResetCodeResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Text a code to a new sign-in phone",
+    responses={
+        status.HTTP_409_CONFLICT: {"description": "Another account uses this number."},
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "Same number, or invalid."},
+        status.HTTP_429_TOO_MANY_REQUESTS: {"description": "Too many codes."},
+    },
+)
+def post_phone_change_code(
+    payload: PhoneChangeCodeRequest,
+    request: Request,
+    current_user: Annotated[User, Depends(require_member)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ResetCodeResponse:
+    settings = get_settings()
+    try:
+        issued = request_phone_change_code(
+            db,
+            current_user,
+            payload.phone,
+            client_identifier=get_client_identifier(request),
+            dispatch=run_in_background,
+        )
+    except SamePhoneError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, detail="That is already your number."
+        ) from exc
+    except PhoneTakenError as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="Another account already uses this number."
+        ) from exc
+    except PhoneCodeRateLimitedError as exc:
+        raise _limited(exc) from exc
+    return ResetCodeResponse(
+        resend_after_seconds=settings.phone_code_resend_seconds,
+        dev_code=(issued.code or None) if settings.phone_code_dev_echo else None,
+    )
+
+
+@router.put(
+    "/account/phone",
+    response_model=ProfileResponse,
+    summary="Change the sign-in phone with the code texted to it",
+    description=(
+        "Signs out every other device and tells the old number by SMS. A store's payout number "
+        "is separate (PUT /me/mpesa-number)."
+    ),
+    responses={
+        status.HTTP_409_CONFLICT: {"description": "Another account uses this number."},
+        status.HTTP_410_GONE: {"description": "No active code."},
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "Wrong code, or same number."},
+        status.HTTP_429_TOO_MANY_REQUESTS: {"description": "Too many wrong tries."},
+    },
+)
+def put_phone(
+    payload: PhoneChange,
+    request: Request,
+    current_user: Annotated[User, Depends(require_member)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ProfileResponse:
+    session = getattr(request.state, "current_session", None)
+    try:
+        user = change_phone(
+            db,
+            _user(db, current_user),
+            payload.phone,
+            payload.code,
+            keep_session=session.id if session is not None else None,
+            dispatch=run_in_background,
+        )
+    except SamePhoneError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, detail="That is already your number."
+        ) from exc
+    except PhoneTakenError as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="Another account already uses this number."
+        ) from exc
+    except PhoneCodeInvalidError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, detail="That code doesn't match."
+        ) from exc
+    except PhoneCodeExpiredError as exc:
+        raise HTTPException(status.HTTP_410_GONE, detail="That code has expired.") from exc
+    except PhoneCodeRateLimitedError as exc:
+        raise _limited(exc) from exc
+    return _profile_response(user)

@@ -281,6 +281,19 @@ ssh ssh.vekro.me "cd ~/vekro && git fetch --quiet origin main && git checkout --
 the same commit as the API image, so the Compose file and scripts match it. The script prints
 `deploy: done`, or rolls back and exits 1.
 
+**If a merge's Deploy run does not appear** (#316). On 2026-11-10, merge `d7af4d1` (05:33:28 UTC)
+got its push-triggered CI and Deploy runs only at 05:43:57, about 10.5 minutes late. A Deploy was
+dispatched by hand at 05:40, and the late run then ran too; both succeeded. It has not happened
+since (every later merge in both repos got its runs within a minute), and the triggers
+(`push: branches: [main]`, `workflow_dispatch`) are correct: it was GitHub's event delivery.
+
+1. `gh run list -R <repo> -w Deploy -L 3` and `gh run list -R <repo> -w CI -b main -L 3`. If
+   the merge commit has neither run, check https://www.githubstatus.com (Actions, Webhooks).
+2. Wait up to about 10 minutes, or start it: `gh workflow run Deploy -R <repo> --ref main`. A
+   second run for the same commit is harmless: the `deploy` concurrency group runs them one at a
+   time, and both pushing the same image tag and `deploy.sh` with the same sha are idempotent.
+3. Roll out by hand only once the image for that sha exists (the Deploy run is green).
+
 ## 8. Provider callbacks: from ngrok to the domain
 
 Each provider is told the public URL once. All use `api.vekro.me`. With the tunnel, nothing else is

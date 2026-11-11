@@ -238,6 +238,7 @@ They run each against every route group: buying, store history, store changes, a
 | Liabilities proof | Per order, for the order's buyer. Unchanged. |
 | Admin references | Admins still appear only as `admin_ref` (D5), and an admin never has a store or orders, so an `admin_ref` never matches a party on an order. |
 | Store lifecycle | New global-chain events `store_opened` and `store_closed`. Each payload holds `seller_id` (UUID), `at`, `reopened: bool` on opening, and `migrated: bool`. They carry no name, phone, shop name or payout number. The public track record lists these events, so a verifier can see when the store was open. |
+| Store lifecycle source | Each store event is a row in the append-only `store_events` table, and the full audit rebuilds each anchored payload from its row (`source_row_changed` if one was edited, `event_missing` if a row was never anchored). The track record lists them as `store_history`. |
 
 **Cheap extra check:** `create_transaction` refuses when the paying phone equals the store's
 payout number (422, "You can't buy from a store paid out to this number.").
@@ -246,33 +247,35 @@ payout number (422, "You can't buy from a store paid out to this number.").
 
 ### Start selling
 
-The buyer area opens the existing onboarding steps in a wizard:
-1. Store name (and optional area).
-2. Payout phone, verified by SMS (the existing `/me/mpesa-number` code flow).
-3. Seller terms: a checkbox. The terms version is stored.
-4. The first listing (S7), which carries the dispute policy, because the policy is set per
-   listing today.
+The buyer area opens the existing onboarding steps in a wizard (as built in step 4):
+1. Store name (and optional area) and the seller terms checkbox: `POST /account/store`
+   `{shop_name, shop_area?, terms_version}`. The store opens (`store_status = active`, terms
+   version stored) and `store_opened` is anchored. `terms_version` must be the current one
+   (`SELLER_TERMS_VERSION` in `app/models/user.py`).
+2. Payout phone, verified by SMS: the existing `/me/mpesa-number/request-code` and
+   `PUT /me/mpesa-number` with the code. Until then the store is open but takes no orders
+   (`store.payout_ready = false`, "This store isn't ready yet").
+3. The first listing (S7), which carries the dispute policy, because the policy is set per
+   listing.
 
-The wizard calls a new `POST /account/store` after step 3:
-- it moves `store_status` from `none` to `active`;
-- it anchors `store_opened`;
-- then the wizard opens S7.
-
-A store with no listing yet is still a valid store, so a dropped connection never leaves a
-half-made state.
+A store with no listing yet, or no verified payout number yet, is still a valid store, so a
+dropped connection never leaves a half-made state; the seller area shows what is left to do.
 
 ### Mode switch
 
 The shell shows a Buying ⇄ Selling switch only to accounts with a store. It writes
 `vekro.mode` and navigates. It never calls the server.
 
-### Close store: `POST /account/store/close`
+### Close store: `POST /account/store/close` (`GET /account/store/close-check` first)
 
 The request is refused (409) while any of the following exist. The response lists each blocker so
 the UI can show what must finish first:
-- open orders, meaning any order whose status is not one of `released`, `refunded_buyer`,
-  `returned_to_seller` or the `resolved_*` statuses, listed with their references;
-- held money, meaning a balance still held in escrow for the store's orders (KES total);
+- open orders, meaning any funded order whose status is not one of `released`,
+  `refunded_buyer` or the `resolved_*` statuses, listed with their references. Unpaid orders
+  (`initiated`, `awaiting_payment`) hold no money and don't block; once the store is closed they
+  can't be paid (resend and "pay by card instead" answer "This store is closed.");
+- held money: funded minus released minus refunded over the store's escrows (KES total). A
+  released order still holds its money until the payout has gone out;
 - payouts still pending or of unknown outcome;
 - open disputes or return cases, listed with their references.
 

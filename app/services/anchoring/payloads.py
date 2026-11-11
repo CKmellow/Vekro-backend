@@ -40,6 +40,9 @@ BACKFILL_COMPLETED = "backfill_completed"
 GLOBAL_EVENT_LINKED = "global_event_linked"
 # A9: a completed sale in the global chain, public on the seller's track record.
 SELLER_SALE_COMPLETED = "seller_sale_completed"
+# M28: a store opened (or reopened) and closed, in the global chain. Public on the track record.
+STORE_OPENED = "store_opened"
+STORE_CLOSED = "store_closed"
 # M24 B2: the total Vekro holds for buyers, as a Merkle sum tree root (global chain).
 LIABILITIES_SNAPSHOT = "liabilities_snapshot"
 
@@ -332,3 +335,18 @@ def reserves_reconciliation_payload(
         "difference": money(attested - liability) if attested is not None else None,
         "escrows": escrows,
     }
+
+
+def store_event_payload(event: Any) -> dict[str, Any]:
+    """Public by design: the seller's UUID and when the store opened or closed. No name, phone,
+    shop name or payout number. ``backfilled`` marks a store that existed before M28."""
+    opened = event.kind == "opened"
+    payload = {
+        **envelope(
+            STORE_OPENED if opened else STORE_CLOSED, None, event.at, backfilled=event.migrated
+        ),
+        "seller_id": uuid_text(event.user_id),
+    }
+    if opened:
+        payload["reopened"] = bool(event.reopened)
+    return payload

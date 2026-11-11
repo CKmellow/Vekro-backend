@@ -163,6 +163,13 @@ class SellerTrackRecordResponse(BaseModel):
             "matches the registry root and whose payload names this seller."
         )
     )
+    store_history: list[VerificationEventResponse] = Field(
+        default_factory=list,
+        description=(
+            "M28: when the store opened (store_opened, reopened or not) and closed (store_closed), "
+            "oldest first, each with its proof. Payloads hold the seller's UUID and times only."
+        ),
+    )
     server_time: datetime
 
 

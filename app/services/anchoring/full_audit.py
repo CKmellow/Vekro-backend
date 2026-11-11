@@ -32,6 +32,7 @@ from app.models.dispute import Dispute
 from app.models.escrow import Escrow
 from app.models.ledger_entry import LedgerEntry, LedgerEntrySide
 from app.models.money_audit_event import MoneyAuditEvent
+from app.models.store_event import StoreEvent
 from app.models.transaction import Transaction
 from app.services.anchoring import payloads
 from app.services.anchoring.admin_ref import admin_ref, configured_keys
@@ -47,6 +48,7 @@ from app.services.anchoring.recorder import (
     AUDIT_TABLE,
     LEDGER_TABLE,
     SELLER_SALES_SOURCE,
+    STORE_EVENTS_TABLE,
     TRANSACTIONS_TABLE,
 )
 from app.services.transitions import SALE_STATUSES
@@ -235,6 +237,12 @@ def _audit_sources(
             )
             if not has_snapshot:
                 report.add("event_missing", "Transaction has no creation event.", transaction.id)
+    for store_event in db.execute(select(StoreEvent)).scalars():
+        event = by_source.pop((STORE_EVENTS_TABLE, str(store_event.id)), None)
+        if event is None:
+            report.add("event_missing", f"Store event {store_event.id} has no event.", None)
+            continue
+        compare(event, payloads.store_event_payload(store_event), f"Store event {store_event.id}")
     transactions = {str(item.id): item for item in db.execute(select(Transaction)).scalars()}
     for (table, source_id), event in by_source.items():
         if table == SELLER_SALES_SOURCE:

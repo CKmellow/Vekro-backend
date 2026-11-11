@@ -12,6 +12,7 @@ repair-funding-ledger: list funded escrows whose funding is missing from the led
 anchor-backfill: create anchor events for history written before M21, once (docs/anchoring.md).
 
 anchor-sales-backfill: record track-record events for completed sales from before M21 A9.
+backfill-store-events: record store_opened (and store_closed) for stores from before M28.
 Idempotent.
 
 confirm-mpesa-payments: query Daraja for open STK prompts from the last day whose callback never
@@ -145,6 +146,15 @@ def anchor_sales_backfill() -> int:
     with _session() as db:
         recorded = backfill_seller_sales(db)
     print(f"Recorded {recorded} completed sale(s) for the sellers' track records.")
+    return 0
+
+
+def backfill_store_events_command() -> int:
+    from app.services.store import backfill_store_events
+
+    with _session() as db:
+        recorded = backfill_store_events(db)
+    print(f"Recorded store_opened for {recorded} store(s) from before M28.")
     return 0
 
 
@@ -324,6 +334,9 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser(
         "anchor-sales-backfill", help="Record completed sales for the sellers' track records."
     )
+    commands.add_parser(
+        "backfill-store-events", help="Anchor store_opened for stores from before M28."
+    )
     confirm = commands.add_parser(
         "confirm-mpesa-payments", help="Confirm open STK prompts whose callback never arrived."
     )
@@ -373,6 +386,8 @@ def main(argv: list[str] | None = None) -> int:
         return anchor_backfill(resume=args.resume)
     if args.command == "anchor-sales-backfill":
         return anchor_sales_backfill()
+    if args.command == "backfill-store-events":
+        return backfill_store_events_command()
     if args.command == "confirm-mpesa-payments":
         return confirm_mpesa_payments(watch_seconds=args.watch)
     if args.command == "confirm-card-payments":

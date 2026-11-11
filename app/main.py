@@ -32,6 +32,7 @@ from app.routers.rail_health_admin import router as rail_health_admin_router
 from app.routers.seller_analytics import router as seller_analytics_router
 from app.routers.seller_profile import router as seller_profile_router
 from app.routers.simulated_custody_admin import router as simulated_custody_admin_router
+from app.routers.store import router as store_router
 from app.routers.transactions import router as transactions_router
 from app.routers.ussd import router as ussd_router
 from app.routers.verification import router as verification_router
@@ -233,4 +234,5 @@ app.include_router(ussd_router)
 app.include_router(public_orders_router)
 app.include_router(seller_profile_router)
 app.include_router(account_router)
+app.include_router(store_router)
 app.include_router(seller_analytics_router)

@@ -19,7 +19,7 @@ from app.core.settings import get_settings
 from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.schemas.auth import LoginRequest, RegisterUserRequest
-from app.services.store import open_store_on
+from app.services.store import open_store_on, record_store_opened
 
 UNIQUE_VIOLATION_SQLSTATE = "23505"
 PHONE_UNIQUE_CONSTRAINT_NAMES = {"ix_users_phone", "users_phone_key"}
@@ -91,10 +91,11 @@ def register_user(db: Session, payload: RegisterUserRequest) -> User:
         mpesa_phone=payload.mpesa_phone,
         mpesa_account_name=payload.mpesa_account_name,
     )
+    db.add(user)
     if payload.role == PartyRole.SELLER:
         open_store_on(user)
+        record_store_opened(db, user)
 
-    db.add(user)
     try:
         db.commit()
     except IntegrityError as exc:

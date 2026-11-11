@@ -13,6 +13,7 @@ from app.models.listing import Listing
 from app.models.notification import Notification
 from app.models.payment_prompt import PaymentPrompt
 from app.models.payout_attempt import PayoutAttempt
+from app.models.store_event import StoreEvent
 from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import PartyRole, User, UserRole
 from app.schemas.transaction import PaymentCallbackRequest
@@ -72,6 +73,7 @@ def _build_db_session() -> Session:
                 Escrow.__table__,
                 LedgerEntry.__table__,
                 AnchorEvent.__table__,
+                StoreEvent.__table__,
             ],
         )
     finally:

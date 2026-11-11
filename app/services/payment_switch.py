@@ -39,6 +39,7 @@ from app.services.card_payments import build_rail as build_card_rail
 from app.services.custody.selection import PROVIDER_ECONFIRM, PROVIDER_SIMULATED
 from app.services.payment_prompts import PROMPT_LIFETIME, latest_payment_prompt
 from app.services.payment_rails import RAIL_DARAJA, RAIL_PESAPAL, set_collection
+from app.services.store import CLOSED_MESSAGE, store_closed_for
 
 audit_logger = logging.getLogger("app.transactions.audit")
 
@@ -142,6 +143,8 @@ def switch_to_card(
     transaction = db.get(Transaction, transaction_id)
     if transaction is None or transaction.buyer_id != buyer.id:
         raise SwitchNotFoundError("Transaction not found.")
+    if store_closed_for(db, transaction):
+        raise SwitchInvalidStateError(CLOSED_MESSAGE)
     _check_switchable(transaction, settings)
 
     _settle_stale_prompts(

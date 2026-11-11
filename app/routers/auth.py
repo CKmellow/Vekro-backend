@@ -209,6 +209,8 @@ def _open_session(response: Response, authenticated: AuthenticatedSession) -> Lo
         is_active=authenticated.user.is_active,
         created_at=authenticated.user.created_at,
         session_expires_at=authenticated.expires_at,
+        google_email=authenticated.user.google_email,
+        has_password=authenticated.user.has_password is not False,
     )
 
 
@@ -382,4 +384,6 @@ def me(
         is_active=current_user.is_active,
         created_at=current_user.created_at,
         session_expires_at=current_session.expires_at,
+        google_email=current_user.google_email,
+        has_password=current_user.has_password is not False,
     )

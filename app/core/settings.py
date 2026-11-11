@@ -79,6 +79,12 @@ class Settings(BaseSettings):
     africastalking_sender_id: str = ""
 
     frontend_url: str = "http://localhost:3000"
+
+    # Continue with Google (#324). Off while either is blank. The redirect URI defaults to the web
+    # app's /api proxy: {FRONTEND_URL}/api/auth/google/callback (registered in the Google client).
+    google_client_id: str = ""
+    google_client_secret: SecretStr = SecretStr("")
+    google_redirect_uri: str = ""
     cors_origins: str = "http://localhost:3000"
     cors_allow_credentials: bool = True
 
@@ -419,6 +425,15 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def google_enabled(self) -> bool:
+        return bool(self.google_client_id.strip() and self.google_client_secret.get_secret_value())
+
+    @property
+    def google_callback_url(self) -> str:
+        explicit = self.google_redirect_uri.strip()
+        return explicit or f"{self.frontend_url.rstrip('/')}/api/auth/google/callback"
 
     @property
     def custody_collection_rail_priority_list(self) -> list[str]:

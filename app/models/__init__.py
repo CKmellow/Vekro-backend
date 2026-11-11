@@ -15,6 +15,7 @@ from app.models.listing import Listing
 from app.models.listing_photo import ListingPhoto
 from app.models.money_audit_event import MoneyAuditEvent
 from app.models.notification import Notification, NotificationChannel, NotificationEventType
+from app.models.oauth import GoogleSignup, OAuthState
 from app.models.payment_prompt import (
     PaymentFailureReason,
     PaymentPrompt,
@@ -31,6 +32,8 @@ from app.models.user_session import UserSession
 from app.models.ussd_session import UssdSession
 
 __all__ = [
+    "GoogleSignup",
+    "OAuthState",
     "AnchorBatch",
     "AnchorBatchStatus",
     "AnchorEvent",

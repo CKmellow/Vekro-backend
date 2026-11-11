@@ -249,7 +249,10 @@ def resolve_active_session(db: Session, session_token: str) -> ActiveSessionCont
     now = datetime.now(UTC)
     if session.revoked_at is not None:
         return None
-    if session.expires_at <= now:
+    expires_at = session.expires_at
+    if expires_at.tzinfo is None:  # SQLite returns naive timestamps; they are stored in UTC
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if expires_at <= now:
         session.revoked_at = now
         db.add(session)
         db.commit()

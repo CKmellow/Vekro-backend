@@ -213,6 +213,335 @@
         }
       }
     },
+    "/auth/google/status": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Whether Continue with Google is offered",
+        "operationId": "google_status_auth_google_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/google/start": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Start Continue with Google (browser navigation)",
+        "description": "Redirects to Google's consent screen with a single-use state, a nonce and a PKCE S256 challenge; the state is also bound to this browser by an HttpOnly cookie.",
+        "operationId": "google_start_auth_google_start_get",
+        "parameters": [
+          {
+            "name": "return_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Return To"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/google/callback": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Google's redirect back (OIDC callback)",
+        "description": "Checks the state against this browser's cookie (single use), exchanges the code with the PKCE verifier, verifies the ID token (signature, issuer, audience, expiry, nonce, verified e-mail) and signs in by google_sub only, links it, or starts a seller sign-up.",
+        "operationId": "google_callback_auth_google_callback_get",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/google/link": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Start linking Google to the signed-in account",
+        "description": "Signed in only (CSRF). Returns Google's URL; the callback links this Google account to this user. Never links by matching e-mail.",
+        "operationId": "google_link_account_google_link_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleLinkResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Google sign-in is not set up."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/google": {
+      "delete": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Unlink Google from the signed-in account",
+        "operationId": "google_unlink_account_google_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Not linked, or Google is the only way in (set a password first)."
+          }
+        }
+      }
+    },
+    "/auth/google/signup": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "The Google identity waiting for a verified phone",
+        "operationId": "google_signup_auth_google_signup_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleSignupResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "No pending sign-up, or it expired."
+          }
+        }
+      }
+    },
+    "/auth/google/signup/request-code": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Send the seller's phone a sign-up code by SMS",
+        "operationId": "google_signup_request_code_auth_google_signup_request_code_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleSignupCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneCodeRequestResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The number already has an account."
+          },
+          "410": {
+            "description": "No pending sign-up, or it expired."
+          },
+          "429": {
+            "description": "Too many codes. See Retry-After."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/google/signup/complete": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Create the seller account once the phone is verified",
+        "description": "Checks the SMS code, then creates the seller with this phone and the Google account, and signs in (same cookies as /auth/login). No account exists before this succeeds.",
+        "operationId": "google_signup_complete_auth_google_signup_complete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleSignupCompleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The number or the Google account is taken."
+          },
+          "410": {
+            "description": "The sign-up or the code expired."
+          },
+          "422": {
+            "description": "The code doesn't match."
+          },
+          "429": {
+            "description": "Too many wrong tries."
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -6706,6 +7035,131 @@
         ],
         "title": "EventAnchorResponse"
       },
+      "GoogleLinkRequest": {
+        "properties": {
+          "return_to": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return To",
+            "description": "Path on this site to come back to, e.g. /seller/settings."
+          }
+        },
+        "type": "object",
+        "title": "GoogleLinkRequest",
+        "description": "Start linking Google to the signed-in account (#324)."
+      },
+      "GoogleLinkResponse": {
+        "properties": {
+          "authorization_url": {
+            "type": "string",
+            "title": "Authorization Url",
+            "description": "Send the browser here (Google's consent screen)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "authorization_url"
+        ],
+        "title": "GoogleLinkResponse"
+      },
+      "GoogleSignupCodeRequest": {
+        "properties": {
+          "phone": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 7,
+            "title": "Phone",
+            "description": "The seller's Kenyan mobile number."
+          }
+        },
+        "type": "object",
+        "required": [
+          "phone"
+        ],
+        "title": "GoogleSignupCodeRequest"
+      },
+      "GoogleSignupCompleteRequest": {
+        "properties": {
+          "phone": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 7,
+            "title": "Phone"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^\\d{6}$",
+            "title": "Code",
+            "description": "The 6-digit code from the SMS."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "Shown to buyers; defaults to the Google name."
+          }
+        },
+        "type": "object",
+        "required": [
+          "phone",
+          "code"
+        ],
+        "title": "GoogleSignupCompleteRequest"
+      },
+      "GoogleSignupResponse": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "name"
+        ],
+        "title": "GoogleSignupResponse",
+        "description": "The Google identity waiting for a verified phone."
+      },
+      "GoogleStatusResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "title": "GoogleStatusResponse",
+        "description": "Whether Continue with Google is offered (#324)."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -7124,6 +7578,24 @@
             "type": "string",
             "format": "date-time",
             "title": "Session Expires At"
+          },
+          "google_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Google Email",
+            "description": "The linked Google account's e-mail, for display (#324)."
+          },
+          "has_password": {
+            "type": "boolean",
+            "title": "Has Password",
+            "description": "False for a seller who signed up with Google and has not set a password yet.",
+            "default": true
           }
         },
         "type": "object",

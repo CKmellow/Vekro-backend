@@ -88,6 +88,7 @@ def change_password(
         raise WrongPasswordError
     now = datetime.now(UTC)
     user.password_hash = hash_password(new_password)
+    user.has_password = True  # a Google sign-up seller's first password (#324)
     revoked = _revoke(db, user.id, keep=keep_session, now=now)
     db.commit()
     return revoked
@@ -113,6 +114,7 @@ def reset_password(db: Session, phone: str, code: str, new_password: str) -> Non
         db.rollback()
         raise PhoneCodeExpiredError
     user.password_hash = hash_password(new_password)
+    user.has_password = True  # a Google sign-up seller's first password (#324)
     user.failed_login_attempts = 0
     user.locked_until = None
     _revoke(db, user.id, keep=None, now=datetime.now(UTC))

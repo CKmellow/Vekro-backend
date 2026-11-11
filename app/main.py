@@ -16,6 +16,7 @@ from app.routers.admin_search import router as admin_search_router
 from app.routers.anchoring_admin import router as anchoring_admin_router
 from app.routers.auth import router as auth_router
 from app.routers.disputes import router as disputes_router
+from app.routers.google_auth import router as google_auth_router
 from app.routers.health import router as health_router
 from app.routers.listings import router as listings_router
 from app.routers.loop_webhooks import router as loop_webhooks_router
@@ -209,6 +210,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(google_auth_router)
 app.include_router(health_router)
 app.include_router(listings_router)
 app.include_router(notifications_router)

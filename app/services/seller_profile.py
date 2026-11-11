@@ -110,13 +110,18 @@ def change_payout(
     dispatch: Dispatcher = run_inline,
 ) -> User:
     """Set the payout number and name. A new number needs its SMS code once the seller has orders;
-    before the first order (onboarding) no money can move, so it's set directly."""
+    before the first order (onboarding) no money can move, so it's set directly, but unverified:
+    the store takes no orders until a code proves the number (M28). A code always verifies,
+    including for the number already saved."""
     previous = payout_phone(user)
     changed = mpesa_phone != previous
-    if changed and has_orders(db, user.id):
-        if not code:
-            raise PayoutCodeRequiredError
+    if changed and not code and has_orders(db, user.id):
+        raise PayoutCodeRequiredError
+    if code:
         consume_phone_code(db, mpesa_phone, code, "payout")
+        user.payout_verified_at = datetime.now(UTC)
+    elif changed or user.mpesa_phone is None:
+        user.payout_verified_at = None
 
     user.mpesa_phone = mpesa_phone
     user.mpesa_account_name = mpesa_account_name.strip()

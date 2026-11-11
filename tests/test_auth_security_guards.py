@@ -7,7 +7,7 @@ from app.core.security import generate_session_token, hash_password, hash_sessio
 from app.core.settings import get_settings
 from app.db.base import Base
 from app.main import app
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User
 from app.models.user_session import UserSession
 from app.schemas.auth import LoginRequest
 from app.services.auth import (
@@ -20,6 +20,8 @@ from app.services.auth import (
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+
+from tests.accounts import account_fields
 
 PASSWORD = "correct-horse-battery"
 
@@ -36,7 +38,7 @@ def _user(db: Session) -> User:
         id=uuid.uuid4(),
         name="Bea Buyer",
         phone=f"+2547{uuid.uuid4().int % 10**8:08d}",
-        role=UserRole.BUYER,
+        **account_fields(PartyRole.BUYER),
         password_hash=hash_password(PASSWORD),
         session_version=1,
         is_active=True,
@@ -117,7 +119,7 @@ def _client_with_session(monkeypatch: pytest.MonkeyPatch, csrf_cookie: str) -> T
         id=uuid.uuid4(),
         name="Sam Seller",
         phone="+254700000201",
-        role=UserRole.SELLER,
+        **account_fields(PartyRole.SELLER),
         password_hash="unused",
         session_version=1,
         is_active=True,

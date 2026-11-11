@@ -2,11 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.core.auth_context import (
-    require_admin_user,
-    require_buyer_user,
-    require_seller_user,
-)
+from app.core.auth_context import require_admin_user, require_member, require_store_owner
 from app.models.user import User
 
 router = APIRouter(prefix="/protected", tags=["Auth"])
@@ -22,11 +18,11 @@ router = APIRouter(prefix="/protected", tags=["Auth"])
     },
 )
 def buyer_only_route(
-    current_user: Annotated[User, Depends(require_buyer_user)],
+    current_user: Annotated[User, Depends(require_member)],
 ) -> dict[str, str]:
     return {
         "message": "Buyer access granted.",
-        "role": current_user.role.value,
+        "role": current_user.party_role.value,
     }
 
 
@@ -40,11 +36,11 @@ def buyer_only_route(
     },
 )
 def seller_only_route(
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_store_owner)],
 ) -> dict[str, str]:
     return {
         "message": "Seller access granted.",
-        "role": current_user.role.value,
+        "role": current_user.party_role.value,
     }
 
 
@@ -62,5 +58,5 @@ def admin_only_route(
 ) -> dict[str, str]:
     return {
         "message": "Admin access granted.",
-        "role": current_user.role.value,
+        "role": current_user.party_role.value,
     }

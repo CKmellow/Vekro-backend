@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime
+from enum import StrEnum
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
@@ -12,6 +13,20 @@ class NotificationNotFoundError(Exception):
     """The notification does not exist or belongs to someone else."""
 
 
+class NotificationAudience(StrEnum):
+    """Which shell a notification belongs in: the account's purchases or its store's sales."""
+
+    BUYING = "buying"
+    SELLING = "selling"
+
+
+def _audience_clause(user_id: uuid.UUID, audience: NotificationAudience):
+    party = (
+        Transaction.buyer_id if audience == NotificationAudience.BUYING else Transaction.seller_id
+    )
+    return Notification.transaction_id.in_(select(Transaction.id).where(party == user_id))
+
+
 def list_user_notifications(
     db: Session,
     *,
@@ -21,8 +36,11 @@ def list_user_notifications(
     unread_only: bool = False,
     channel: NotificationChannel | None = None,
     muted: set[NotificationEventType] | None = None,
+    audience: NotificationAudience | None = None,
 ) -> list[Notification]:
     query = select(Notification).where(Notification.user_id == user_id)
+    if audience is not None:
+        query = query.where(_audience_clause(user_id, audience))
     if muted:
         query = query.where(Notification.event_type.not_in(muted))
     if unread_only:
@@ -46,7 +64,11 @@ def list_user_notifications(
 
 
 def count_unread_in_app(
-    db: Session, *, user_id: uuid.UUID, muted: set[NotificationEventType] | None = None
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    muted: set[NotificationEventType] | None = None,
+    audience: NotificationAudience | None = None,
 ) -> int:
     query = (
         select(func.count())
@@ -59,6 +81,8 @@ def count_unread_in_app(
     )
     if muted:
         query = query.where(Notification.event_type.not_in(muted))
+    if audience is not None:
+        query = query.where(_audience_clause(user_id, audience))
     return int(db.execute(query).scalar_one())
 
 
@@ -97,3 +121,19 @@ def transaction_references(db: Session, ids: set[uuid.UUID]) -> dict[uuid.UUID, 
             select(Transaction.id, Transaction.reference).where(Transaction.id.in_(ids))
         ).all()
     )
+
+
+def transaction_audiences(
+    db: Session, ids: set[uuid.UUID], user_id: uuid.UUID
+) -> dict[uuid.UUID, NotificationAudience]:
+    """For each transaction, whether ``user_id`` is on its buying or its selling side."""
+    if not ids:
+        return {}
+    return {
+        tx_id: (
+            NotificationAudience.SELLING if seller_id == user_id else NotificationAudience.BUYING
+        )
+        for tx_id, seller_id in db.execute(
+            select(Transaction.id, Transaction.seller_id).where(Transaction.id.in_(ids))
+        ).all()
+    }

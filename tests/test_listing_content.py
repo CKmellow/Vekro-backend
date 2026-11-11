@@ -16,7 +16,7 @@ from app.models.listing_photo import ListingPhoto
 from app.models.notification import Notification
 from app.models.payment_prompt import PaymentPrompt
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.services.auth import ActiveSessionContext
 from app.services.listing_content import MAX_PHOTO_BYTES, listing_status
@@ -26,6 +26,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+
+from tests.accounts import account_fields
 
 
 @compiles(JSONB, "sqlite")
@@ -42,9 +44,9 @@ def _user(role: UserRole, name: str, phone: str) -> User:
         id=uuid.uuid4(),
         name=name,
         phone=phone,
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
-        mpesa_phone=phone if role == UserRole.SELLER else None,
+        mpesa_phone=phone if role == PartyRole.SELLER else None,
         mpesa_account_name=None,
         session_version=1,
         is_active=True,
@@ -90,9 +92,9 @@ def db() -> Iterator[Session]:
 @pytest.fixture
 def people(db: Session) -> dict[str, User]:
     users = {
-        "seller": _user(UserRole.SELLER, "Amina Gadgets", "+254722118904"),
-        "other_seller": _user(UserRole.SELLER, "Other Shop", "+254722000999"),
-        "buyer": _user(UserRole.BUYER, "Wanjiku", "+254712345678"),
+        "seller": _user(PartyRole.SELLER, "Amina Gadgets", "+254722118904"),
+        "other_seller": _user(PartyRole.SELLER, "Other Shop", "+254722000999"),
+        "buyer": _user(PartyRole.BUYER, "Wanjiku", "+254712345678"),
     }
     db.add_all(users.values())
     db.commit()

@@ -27,7 +27,7 @@ from app.models.money_audit_event import MoneyAuditEvent
 from app.models.notification import Notification, NotificationEventType
 from app.models.payment_prompt import PaymentPrompt
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.schemas.transaction import (
     CreateTransactionRequest,
     PaymentCallbackRequest,
@@ -50,6 +50,8 @@ from sqlalchemy import Table, create_engine, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
+
+from tests.accounts import account_fields
 
 KEY = Fernet.generate_key().decode()
 
@@ -108,7 +110,7 @@ def _user(role: UserRole, phone: str, *, mpesa_phone: str | None = None) -> User
         id=uuid.uuid4(),
         name=f"{role.value} user",
         phone=phone,
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         mpesa_phone=mpesa_phone,
         session_version=1,
@@ -118,8 +120,8 @@ def _user(role: UserRole, phone: str, *, mpesa_phone: str | None = None) -> User
 
 
 def _seed(db: Session, *, price: str = "500.00") -> tuple[User, User, Listing]:
-    buyer = _user(UserRole.BUYER, "+254711000001", mpesa_phone="0722000002")
-    seller = _user(UserRole.SELLER, "+254733000003")
+    buyer = _user(PartyRole.BUYER, "+254711000001", mpesa_phone="0722000002")
+    seller = _user(PartyRole.SELLER, "+254733000003", mpesa_phone="+254733000003")
     listing = Listing(
         id=uuid.uuid4(),
         seller_id=seller.id,
@@ -492,7 +494,7 @@ def test_transaction_detail_response_carries_custody_provider():
             listing=listing,
             buyer=buyer,
             seller=seller,
-            viewer_role=UserRole.BUYER,
+            viewer_role=PartyRole.BUYER,
         )
     )
 

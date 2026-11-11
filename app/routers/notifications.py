@@ -11,11 +11,13 @@ from app.models.notification import NotificationChannel
 from app.models.user import User
 from app.schemas.notification import NotificationResponse
 from app.services.notification import (
+    NotificationAudience,
     NotificationNotFoundError,
     count_unread_in_app,
     list_user_notifications,
     mark_all_notifications_read,
     mark_notification_read,
+    transaction_audiences,
     transaction_references,
 )
 from app.services.notification_prefs import muted_event_types
@@ -36,10 +38,22 @@ class MarkAllReadResponse(BaseModel):
     unread_count: int
 
 
-def _response(item, references: dict[uuid.UUID, str]) -> NotificationResponse:
+def _response(
+    item,
+    references: dict[uuid.UUID, str],
+    audiences: dict[uuid.UUID, NotificationAudience] | None = None,
+) -> NotificationResponse:
     response = NotificationResponse.model_validate(item)
     response.transaction_reference = references.get(item.transaction_id)
+    audience = (audiences or {}).get(item.transaction_id)
+    response.audience = audience.value if audience is not None else None
     return response
+
+
+AudienceQuery = Annotated[
+    NotificationAudience | None,
+    Query(description="Only the buying or only the selling side (one shell each)."),
+]
 
 
 @router.get(
@@ -66,6 +80,7 @@ def list_current_user_notifications(
     offset: int = Query(default=0, ge=0),
     unread: Annotated[bool, Query(description="Only unread notifications.")] = False,
     channel: Annotated[NotificationChannel | None, Query(description="Only this channel.")] = None,
+    audience: AudienceQuery = None,
 ) -> list[NotificationResponse]:
     notifications = list_user_notifications(
         db,
@@ -75,9 +90,12 @@ def list_current_user_notifications(
         unread_only=unread,
         channel=channel,
         muted=muted_event_types(current_user, "in_app"),
+        audience=audience,
     )
-    references = transaction_references(db, {item.transaction_id for item in notifications})
-    return [_response(item, references) for item in notifications]
+    ids = {item.transaction_id for item in notifications}
+    references = transaction_references(db, ids)
+    audiences = transaction_audiences(db, ids, current_user.id)
+    return [_response(item, references, audiences) for item in notifications]
 
 
 @router.get(
@@ -89,10 +107,14 @@ def list_current_user_notifications(
 def get_unread_count(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
+    audience: AudienceQuery = None,
 ) -> UnreadCountResponse:
     return UnreadCountResponse(
         unread_count=count_unread_in_app(
-            db, user_id=current_user.id, muted=muted_event_types(current_user, "in_app")
+            db,
+            user_id=current_user.id,
+            muted=muted_event_types(current_user, "in_app"),
+            audience=audience,
         )
     )
 

@@ -7,7 +7,7 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models.phone_code import PhoneCode
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.services import phone_auth
 from app.services.phone_auth import (
@@ -22,6 +22,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Table, create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+
+from tests.accounts import account_fields
 
 PHONE = "+254712000111"
 T0 = datetime(2026, 10, 25, 9, 0, tzinfo=UTC)
@@ -60,7 +62,11 @@ def _isolate(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _request(db: Session, at: datetime = T0, sender: FakeSender | None = None, **kwargs: Any):
     return request_phone_code(
-        db, PHONE, now=at, sender_provider=lambda: sender, **kwargs  # type: ignore[arg-type,return-value]
+        db,
+        PHONE,
+        now=at,
+        sender_provider=lambda: sender,
+        **kwargs,  # type: ignore[arg-type,return-value]
     )
 
 
@@ -113,7 +119,7 @@ def test_verifying_creates_a_buyer_and_opens_a_session(db: Session) -> None:
     session = verify_phone_code(db, PHONE, issued.code, now=T0 + timedelta(minutes=1))
 
     user = db.execute(select(User).where(User.phone == PHONE)).scalar_one()
-    assert user.role == UserRole.BUYER
+    assert user.role == UserRole.MEMBER and not user.has_store
     assert session.user.id == user.id
     assert db.execute(select(UserSession)).scalar_one().user_id == user.id
     # Single use.
@@ -122,7 +128,7 @@ def test_verifying_creates_a_buyer_and_opens_a_session(db: Session) -> None:
 
 
 def test_verifying_signs_in_an_existing_buyer(db: Session) -> None:
-    db.add(User(name="Wanjiru", phone=PHONE, role=UserRole.BUYER, password_hash="x"))
+    db.add(User(name="Wanjiru", phone=PHONE, **account_fields(PartyRole.BUYER), password_hash="x"))
     db.commit()
     issued = _request(db)
     session = verify_phone_code(db, PHONE, issued.code, now=T0 + timedelta(minutes=1))
@@ -131,7 +137,7 @@ def test_verifying_signs_in_an_existing_buyer(db: Session) -> None:
 
 
 def test_sellers_must_use_their_password(db: Session) -> None:
-    db.add(User(name="Amina", phone=PHONE, role=UserRole.SELLER, password_hash="x"))
+    db.add(User(name="Amina", phone=PHONE, **account_fields(PartyRole.SELLER), password_hash="x"))
     db.commit()
     issued = _request(db)
     with pytest.raises(PhoneNotBuyerError):
@@ -239,7 +245,12 @@ def test_endpoint_errors(client, monkeypatch, factory) -> None:
 
     with factory() as session:
         session.add(
-            User(name="Amina", phone="+254712000333", role=UserRole.SELLER, password_hash="x")
+            User(
+                name="Amina",
+                phone="+254712000333",
+                **account_fields(PartyRole.SELLER),
+                password_hash="x",
+            )
         )
         session.commit()
     seller_code = client.post("/auth/phone/request-code", json={"phone": "+254712000333"}).json()[

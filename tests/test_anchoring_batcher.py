@@ -19,7 +19,7 @@ from app.models.anchor_batch import AnchorBatch, AnchorBatchStatus
 from app.models.anchor_event import AnchorEvent
 from app.models.money_audit_event import MoneyAuditEvent
 from app.models.transaction import TransactionStatus
-from app.models.user import UserRole
+from app.models.user import PartyRole, UserRole
 from app.services.anchoring.batcher import AnchoringConfig, build_next_batch, run_once
 from app.services.anchoring.chain import AnchorCall
 from app.services.anchoring.merkle import merkle_root
@@ -404,7 +404,7 @@ def test_admin_status_shows_progress_but_never_the_key(
     try:
         client = _authenticated_client(monkeypatch, UserRole.ADMIN)
         response = client.get("/admin/anchoring/status")
-        seller = _authenticated_client(monkeypatch, UserRole.SELLER)
+        seller = _authenticated_client(monkeypatch, PartyRole.SELLER)
         assert seller.get("/admin/anchoring/status").status_code == 403
     finally:
         get_settings.cache_clear()

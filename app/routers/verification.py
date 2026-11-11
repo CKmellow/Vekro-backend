@@ -154,7 +154,7 @@ def get_seller_track_record(
 ) -> SellerTrackRecordResponse:
     _check_public_quota(request)
     seller = db.get(User, seller_id)
-    if seller is None or seller.role != UserRole.SELLER:
+    if seller is None or not seller.has_store:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Seller not found.")
     record = seller_track_record(db, seller_id, get_settings())
     return SellerTrackRecordResponse.model_validate(record)

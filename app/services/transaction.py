@@ -309,6 +309,28 @@ def _fund_via_econfirm(
     return PROVIDER_ECONFIRM
 
 
+OWN_STORE_MESSAGE = "You can't buy from your own store."
+STORE_NOT_READY_MESSAGE = "This store isn't ready yet."
+PAYOUT_NUMBER_MESSAGE = "You can't buy from a store paid out to this number."
+
+
+def check_can_buy(db: Session, buyer: User, listing: Listing) -> None:
+    """The account rules for a new order (docs/accounts-and-modes.md, sections 2 and 5).
+
+    A seller can't buy from their own store, nor through a phone their store is paid out to: both
+    would let a seller inflate their verified track record with sales to themselves. A store
+    without a verified payout number takes no orders yet.
+    """
+    if listing.seller_id == buyer.id:
+        raise TransactionValidationError(OWN_STORE_MESSAGE)
+    seller = db.get(User, listing.seller_id)
+    if seller is None or not seller.store_active or not seller.store_payout_ready:
+        raise TransactionValidationError(STORE_NOT_READY_MESSAGE)
+    # Phones are stored normalised (+254...), so plain comparison is exact.
+    if seller.mpesa_phone in {buyer.phone, buyer.mpesa_phone}:
+        raise TransactionValidationError(PAYOUT_NUMBER_MESSAGE)
+
+
 def create_transaction(
     db: Session,
     buyer: User,
@@ -319,12 +341,13 @@ def create_transaction(
     econfirm_provider=None,
     card_rail=None,
 ) -> Transaction:
-    if buyer.role != UserRole.BUYER:
-        raise TransactionValidationError("Only buyers can create transactions.")
+    if buyer.role == UserRole.ADMIN:
+        raise TransactionValidationError("Admin accounts can't buy.")
 
     listing = db.get(Listing, payload.listing_id)
     if listing is None:
         raise ListingNotFoundForTransactionError("Listing not found.")
+    check_can_buy(db, buyer, listing)
 
     if listing_is_sold(db, listing.id):
         raise TransactionValidationError("This item has already been paid for.")
@@ -366,7 +389,9 @@ def create_transaction(
         (
             RAIL_PESAPAL
             if pays_by_card
-            else RAIL_ECONFIRM if selection.is_econfirm else mpesa_rail(runtime_settings)
+            else RAIL_ECONFIRM
+            if selection.is_econfirm
+            else mpesa_rail(runtime_settings)
         ),
     )
     db.add(transaction)
@@ -829,7 +854,7 @@ def _create_seller_received_timeout_notifications(
         event_type=NotificationEventType.SYSTEM_TIMEOUT,
         title="Dispute auto-escalated",
         message=(
-            "Seller did not confirm return receipt in time; " "dispute escalated for admin review."
+            "Seller did not confirm return receipt in time; dispute escalated for admin review."
         ),
         payload=payload,
     )
@@ -1402,7 +1427,7 @@ def dispatch_transaction(
     transaction_id: uuid.UUID,
     seller: User,
 ) -> Transaction:
-    if seller.role != UserRole.SELLER:
+    if not seller.has_store:
         raise TransactionValidationError("Only sellers can dispatch transactions.")
 
     transaction = db.get(Transaction, transaction_id)
@@ -1447,7 +1472,7 @@ def mark_transaction_arrived(
     transaction_id: uuid.UUID,
     seller: User,
 ) -> Transaction:
-    if seller.role != UserRole.SELLER:
+    if not seller.has_store:
         raise TransactionValidationError("Only sellers can mark transaction arrival.")
 
     transaction = db.get(Transaction, transaction_id)
@@ -1501,7 +1526,7 @@ def confirm_buyer_delivery_otp(
     buyer: User,
     otp_code: str,
 ) -> Transaction:
-    if buyer.role != UserRole.BUYER:
+    if buyer.role == UserRole.ADMIN:
         raise TransactionValidationError("Only buyers can confirm delivery OTP.")
 
     transaction = db.get(Transaction, transaction_id)
@@ -1615,7 +1640,7 @@ def withhold_buyer_delivery_otp(
     reason: str | None = None,
     note: str | None = None,
 ) -> Transaction:
-    if buyer.role != UserRole.BUYER:
+    if buyer.role == UserRole.ADMIN:
         raise TransactionValidationError("Only buyers can withhold delivery OTP.")
 
     transaction = db.get(Transaction, transaction_id)
@@ -1678,7 +1703,7 @@ def report_functional_issue(
     description: str,
     evidence: dict | None = None,
 ) -> Transaction:
-    if buyer.role != UserRole.BUYER:
+    if buyer.role == UserRole.ADMIN:
         raise TransactionValidationError("Only buyers can report functional issues.")
 
     transaction = db.get(Transaction, transaction_id)
@@ -1795,7 +1820,7 @@ def mark_buyer_sent_back(
     transaction_id: uuid.UUID,
     buyer: User,
 ) -> Transaction:
-    if buyer.role != UserRole.BUYER:
+    if buyer.role == UserRole.ADMIN:
         raise TransactionValidationError("Only buyers can mark sent-back action.")
 
     transaction = db.get(Transaction, transaction_id)
@@ -1857,7 +1882,7 @@ def mark_seller_received(
     transaction_id: uuid.UUID,
     seller: User,
 ) -> Transaction:
-    if seller.role != UserRole.SELLER:
+    if not seller.has_store:
         raise TransactionValidationError("Only sellers can mark seller-received action.")
 
     transaction = db.get(Transaction, transaction_id)
@@ -1920,7 +1945,7 @@ def apply_seller_resolution_action(
     action: str,
     notes: str | None = None,
 ) -> Transaction:
-    if seller.role != UserRole.SELLER:
+    if not seller.has_store:
         raise TransactionValidationError("Only sellers can apply resolution actions.")
 
     transaction = db.get(Transaction, transaction_id)
@@ -2039,7 +2064,7 @@ def submit_buyer_reconfirmation(
     accepted: bool,
     notes: str | None = None,
 ) -> Transaction:
-    if buyer.role != UserRole.BUYER:
+    if buyer.role == UserRole.ADMIN:
         raise TransactionValidationError("Only buyers can submit reconfirmation.")
 
     transaction = db.get(Transaction, transaction_id)
@@ -2173,7 +2198,7 @@ def submit_buyer_resolution_confirmation(
     transaction_id: uuid.UUID,
     buyer: User,
 ) -> Transaction:
-    if buyer.role != UserRole.BUYER:
+    if buyer.role == UserRole.ADMIN:
         raise TransactionValidationError("Only buyers can confirm resolution closure.")
 
     transaction = db.get(Transaction, transaction_id)
@@ -2258,7 +2283,7 @@ def submit_seller_resolution_confirmation(
     transaction_id: uuid.UUID,
     seller: User,
 ) -> Transaction:
-    if seller.role != UserRole.SELLER:
+    if not seller.has_store:
         raise TransactionValidationError("Only sellers can confirm resolution closure.")
 
     transaction = db.get(Transaction, transaction_id)

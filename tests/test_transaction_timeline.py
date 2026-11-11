@@ -15,7 +15,7 @@ from app.models.listing import Listing
 from app.models.notification import Notification
 from app.models.payment_prompt import PaymentPrompt
 from app.models.transaction import Transaction
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.services.auth import ActiveSessionContext
 from fastapi.testclient import TestClient
@@ -25,6 +25,7 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from tests.accounts import account_fields
 from tests.sqlite_tables import create_disputes_table
 
 
@@ -41,7 +42,7 @@ def _user(role: UserRole, phone: str, mpesa_phone: str | None = None) -> User:
         id=uuid.uuid4(),
         name=f"{role.value} user",
         phone=phone,
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         mpesa_phone=mpesa_phone,
         mpesa_account_name=None,
@@ -88,9 +89,9 @@ def db() -> Iterator[Session]:
 
 @pytest.fixture
 def world(db: Session) -> dict[str, Any]:
-    buyer = _user(UserRole.BUYER, "+254712345678")
-    other_buyer = _user(UserRole.BUYER, "+254733000111")
-    seller = _user(UserRole.SELLER, "+254722118904", "+254722118904")
+    buyer = _user(PartyRole.BUYER, "+254712345678")
+    other_buyer = _user(PartyRole.BUYER, "+254733000111")
+    seller = _user(PartyRole.SELLER, "+254722118904", "+254722118904")
     listing = Listing(
         id=uuid.uuid4(),
         seller_id=seller.id,
@@ -232,7 +233,7 @@ def test_unknown_titles_fall_back_to_safe_copy() -> None:
         payload={"delivery_code": "123456"},
         created_at=NOW,
     )
-    event = _event(notification, UserRole.BUYER)
+    event = _event(notification, PartyRole.BUYER)
 
     assert event.title == "Deadline passed"
     assert "123456" not in event.title + event.description

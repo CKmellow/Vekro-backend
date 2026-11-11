@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -32,6 +32,13 @@ class NotificationResponse(BaseModel):
     delivered_at: datetime | None
     delivery_status: NotificationDeliveryStatus = NotificationDeliveryStatus.NOT_ATTEMPTED
     created_at: datetime
+    audience: Literal["buying", "selling"] | None = Field(
+        default=None,
+        description=(
+            "buying: about an order this account paid for; selling: about its store's order. "
+            "Each shell lists its own."
+        ),
+    )
 
     @field_validator("delivery_status", mode="before")
     @classmethod

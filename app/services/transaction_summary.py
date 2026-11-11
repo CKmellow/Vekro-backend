@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import User
 
 EAT = ZoneInfo("Africa/Nairobi")
 
@@ -70,7 +70,7 @@ def _eat(value: datetime) -> datetime:
 
 
 def seller_summary(db: Session, *, seller: User, now: datetime | None = None) -> SellerSummary:
-    if seller.role != UserRole.SELLER:
+    if not seller.has_store:
         raise SummaryForbiddenError("Only sellers have a dashboard summary.")
     this_month = _month_start(_eat(now or datetime.now(UTC)))
     last_month = _month_start(this_month - timedelta(days=1))

@@ -7,13 +7,15 @@ from app.core.security import hash_session_token
 from app.core.settings import get_settings
 from app.main import app
 from app.models.notification import Notification, NotificationChannel, NotificationEventType
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.routers import notifications as notifications_router
 from app.services.auth import ActiveSessionContext
 from app.services.notification import list_user_notifications
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+
+from tests.accounts import account_fields
 
 
 class _FakeNotificationResult:
@@ -42,7 +44,7 @@ def _build_user(role: UserRole) -> User:
         id=uuid.uuid4(),
         name=f"{role.value.title()} User",
         phone="+254700123456",
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         mpesa_phone=None,
         mpesa_account_name=None,
@@ -115,7 +117,7 @@ def test_list_notifications_requires_authentication() -> None:
 
 
 def test_list_notifications_returns_current_user_only(monkeypatch) -> None:
-    client, auth_user = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client, auth_user = _authenticated_client(monkeypatch, PartyRole.BUYER)
     now = datetime.now(UTC)
     own_notification = _build_notification(
         user_id=auth_user.id,
@@ -140,10 +142,12 @@ def test_list_notifications_returns_current_user_only(monkeypatch) -> None:
 
 
 def test_list_notifications_forwards_pagination_params(monkeypatch) -> None:
-    client, auth_user = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client, auth_user = _authenticated_client(monkeypatch, PartyRole.BUYER)
     observed: dict[str, object] = {}
 
-    def fake_list_user_notifications(_db, user_id, limit, offset, unread_only, channel, muted=None):
+    def fake_list_user_notifications(
+        _db, user_id, limit, offset, unread_only, channel, muted=None, audience=None
+    ):
         observed["user_id"] = user_id
         observed["limit"] = limit
         observed["offset"] = offset
@@ -216,7 +220,7 @@ def test_service_pagination_is_scoped_to_owner_before_limit() -> None:
             id=uuid.uuid4(),
             name="Other User",
             phone="+254700999888",
-            role=UserRole.BUYER,
+            **account_fields(PartyRole.BUYER),
             password_hash="unused",
             session_version=1,
             is_active=True,

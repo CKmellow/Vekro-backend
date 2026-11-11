@@ -14,7 +14,7 @@ from app.models.escrow import Escrow
 from app.models.ledger_entry import LedgerEntry
 from app.models.payout_attempt import PayoutAttempt
 from app.models.transaction import Transaction
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.routers import simulated_custody_admin as simulated_admin_router
 from app.services.anchoring.provider_ref import stable_digest
@@ -36,6 +36,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
 
+from tests.accounts import account_fields
+
 
 @compiles(JSONB, "sqlite")
 def _compile_jsonb_for_sqlite(_type, _compiler, **_kwargs) -> str:
@@ -47,7 +49,7 @@ def _build_user(role: UserRole) -> User:
         id=uuid.uuid4(),
         name=f"{role.value.title()} User",
         phone="+254700123456",
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         mpesa_phone=None,
         mpesa_account_name=None,
@@ -116,7 +118,8 @@ def _build_db_session() -> Session:
         ],
     )
     with engine.begin() as connection:
-        connection.execute(text("""
+        connection.execute(
+            text("""
                 CREATE TABLE collection_attempts (
                     id TEXT PRIMARY KEY,
                     escrow_id TEXT NOT NULL,
@@ -136,8 +139,10 @@ def _build_db_session() -> Session:
                     updated_at DATETIME NOT NULL,
                     CONSTRAINT ck_collection_attempts_amount_positive CHECK (amount > 0)
                 )
-                """))
-        connection.execute(text("""
+                """)
+        )
+        connection.execute(
+            text("""
                 CREATE TABLE payout_attempts (
                     id TEXT PRIMARY KEY,
                     escrow_id TEXT NOT NULL,
@@ -158,12 +163,15 @@ def _build_db_session() -> Session:
                     updated_at DATETIME NOT NULL,
                     CONSTRAINT ck_payout_attempts_amount_positive CHECK (amount > 0)
                 )
-                """))
-        connection.execute(text("""
+                """)
+        )
+        connection.execute(
+            text("""
                 CREATE UNIQUE INDEX ux_payout_attempts_one_non_failed_per_escrow_purpose
                 ON payout_attempts (escrow_id, purpose)
                 WHERE outcome <> 'failed_definite'
-                """))
+                """)
+        )
 
     SessionLocal = sessionmaker(
         bind=engine,
@@ -206,7 +214,7 @@ def test_force_complete_rejects_non_admin(monkeypatch) -> None:
             "force_complete_simulated_collection",
             lambda *args, **kwargs: None,
         )
-        client = _authenticated_client(monkeypatch, UserRole.BUYER)
+        client = _authenticated_client(monkeypatch, PartyRole.BUYER)
         response = client.post(
             "/admin/simulated-custody/collections/force-complete",
             json={
@@ -273,7 +281,7 @@ def test_progress_payout_rejects_non_admin(monkeypatch) -> None:
             "progress_simulated_payout_scenario",
             lambda *args, **kwargs: None,
         )
-        client = _authenticated_client(monkeypatch, UserRole.BUYER)
+        client = _authenticated_client(monkeypatch, PartyRole.BUYER)
         response = client.post(
             "/admin/simulated-custody/payouts/sim:payout:success:abc123/progress",
             headers=_csrf_headers(),

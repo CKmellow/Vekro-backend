@@ -19,7 +19,7 @@ from app.main import app
 from app.models.anchor_batch import AnchorBatch, AnchorBatchStatus
 from app.models.anchor_event import AnchorEvent
 from app.models.transaction import Transaction
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.routers.verification import get_transaction_verification
 from app.services.anchoring.batcher import run_once
 from app.services.anchoring.chain import ChainUnavailableError
@@ -35,6 +35,7 @@ from sqlalchemy import Table, create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from tests.accounts import account_fields
 from tests.anchoring_fakes import FakeRegistry
 from tests.test_anchoring_batcher import CONFIG, T0, _db
 from tests.test_simulated_custody_full_flow import (
@@ -207,8 +208,12 @@ def test_the_full_audit_checks_on_chain_roots_and_reports_an_unreachable_chain(a
 
 def test_parties_and_admins_read_the_bundle_and_strangers_get_404(anchored) -> None:
     db, _chain, transaction, buyer, seller = anchored
-    admin = User(name="Support", phone="+254700000999", role=UserRole.ADMIN, password_hash="x")
-    stranger = User(name="Other", phone="+254700000998", role=UserRole.BUYER, password_hash="x")
+    admin = User(
+        name="Support", phone="+254700000999", **account_fields(UserRole.ADMIN), password_hash="x"
+    )
+    stranger = User(
+        name="Other", phone="+254700000998", **account_fields(PartyRole.BUYER), password_hash="x"
+    )
     for viewer in (buyer, seller, admin):
         response = get_transaction_verification(transaction.id, viewer, db)
         assert response.reference == transaction.reference

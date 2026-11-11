@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.auth_context import require_seller_user
+from app.core.auth_context import require_store_owner
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.seller_analytics import (
@@ -35,7 +35,7 @@ router = APIRouter(prefix="/seller", tags=["Seller analytics"])
     },
 )
 def get_analytics(
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_store_owner)],
     db: Annotated[Session, Depends(get_db)],
     range: Annotated[Literal["7d", "30d", "90d"], Query()] = "30d",  # noqa: A002
 ) -> SellerAnalyticsResponse:

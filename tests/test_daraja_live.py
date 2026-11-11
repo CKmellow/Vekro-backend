@@ -36,7 +36,7 @@ from app.db.base import Base
 from app.models.listing import Listing
 from app.models.payment_prompt import PaymentPrompt
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.schemas.transaction import CreateTransactionRequest
 from app.services.daraja import DarajaClient, DarajaStkGateway, DarajaUnavailableError
 from app.services.daraja_confirmation import watch_pending_payments
@@ -46,6 +46,8 @@ from sqlalchemy import create_engine, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
+
+from tests.accounts import account_fields
 
 FIXTURES = Path(__file__).parent / "fixtures" / "daraja"
 MASKED_PHONE = "254700000000"
@@ -147,7 +149,7 @@ def _seed(db: Session, phone: str) -> tuple[User, Listing]:
             id=uuid.uuid4(),
             name=f"Live {role.value}",
             phone=user_phone,
-            role=role,
+            **account_fields(role),
             password_hash="pbkdf2_sha256$1$abc$xyz",
             mpesa_phone=user_phone,
             session_version=1,
@@ -157,8 +159,8 @@ def _seed(db: Session, phone: str) -> tuple[User, Listing]:
             updated_at=now,
         )
 
-    buyer = user(UserRole.BUYER, f"+{phone}")
-    seller = user(UserRole.SELLER, "+254700000001")
+    buyer = user(PartyRole.BUYER, f"+{phone}")
+    seller = user(PartyRole.SELLER, "+254700000001")
     listing = Listing(
         id=uuid.uuid4(),
         seller_id=seller.id,

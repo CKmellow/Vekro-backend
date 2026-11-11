@@ -1,10 +1,20 @@
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from sqlalchemy.orm import Session
 
-from app.core.auth_context import require_seller_user
+from app.core.auth_context import require_active_store, require_store_owner
 from app.db.session import get_db
 from app.models.listing import Listing
 from app.models.user import User
@@ -49,8 +59,9 @@ def _photo_url(listing_id: UUID, photo_id: UUID) -> str:
     return f"/listings/{listing_id}/photos/{photo_id}"
 
 
-def _listing_response(db: Session, listing: Listing) -> ListingResponse:
+def _listing_response(db: Session, listing: Listing, viewer: User | None = None) -> ListingResponse:
     content = describe_listing(db, listing)
+    seller = content.seller
     return ListingResponse(
         id=listing.id,
         seller_id=listing.seller_id,
@@ -72,6 +83,8 @@ def _listing_response(db: Session, listing: Listing) -> ListingResponse:
             member_since=content.seller.created_at,
             completed_sales=content.completed_sales,
         ),
+        store_ready=seller.store_active and seller.store_payout_ready,
+        is_own_listing=viewer is not None and viewer.id == listing.seller_id,
         created_at=listing.created_at,
         updated_at=listing.updated_at,
     )
@@ -97,7 +110,7 @@ def _listing_response(db: Session, listing: Listing) -> ListingResponse:
 )
 def create_seller_listing(
     payload: CreateListingRequest,
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_active_store)],
     db: Annotated[Session, Depends(get_db)],
 ) -> ListingResponse:
     try:
@@ -125,7 +138,7 @@ def create_seller_listing(
     },
 )
 def list_my_listings(
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_store_owner)],
     db: Annotated[Session, Depends(get_db)],
     status_filter: Annotated[
         Literal["active", "awaiting_payment", "sold", "archived"] | None, Query(alias="status")
@@ -160,6 +173,7 @@ def list_my_listings(
 )
 def get_listing(
     listing_id: UUID,
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
 ) -> ListingResponse:
     try:
@@ -170,7 +184,7 @@ def get_listing(
             detail="Listing not found.",
         ) from exc
 
-    return _listing_response(db, listing)
+    return _listing_response(db, listing, getattr(request.state, "current_user", None))
 
 
 @router.post(
@@ -196,7 +210,7 @@ def upload_listing_photo(
     listing_id: UUID,
     data: Annotated[bytes, Body(media_type="image/jpeg")],
     content_type: Annotated[str, Header()],
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_active_store)],
     db: Annotated[Session, Depends(get_db)],
 ) -> ListingPhotoResponse:
     try:
@@ -285,7 +299,7 @@ def _owner_action(action) -> Listing:
 def update_seller_listing(
     listing_id: UUID,
     payload: UpdateListingRequest,
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_active_store)],
     db: Annotated[Session, Depends(get_db)],
 ) -> ListingResponse:
     listing = _owner_action(lambda: update_listing(db, current_user, listing_id, payload))
@@ -304,7 +318,7 @@ def update_seller_listing(
 )
 def archive_seller_listing(
     listing_id: UUID,
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_store_owner)],
     db: Annotated[Session, Depends(get_db)],
 ) -> ListingResponse:
     listing = _owner_action(lambda: archive_listing(db, current_user, listing_id))
@@ -320,7 +334,7 @@ def archive_seller_listing(
 )
 def restore_seller_listing(
     listing_id: UUID,
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_active_store)],
     db: Annotated[Session, Depends(get_db)],
 ) -> ListingResponse:
     listing = _owner_action(lambda: restore_listing(db, current_user, listing_id))

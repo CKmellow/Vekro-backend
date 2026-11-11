@@ -17,7 +17,7 @@ from app.models.notification import (
     NotificationEventType,
 )
 from app.models.transaction import Transaction
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.services.auth import ActiveSessionContext
 from app.services.notification_delivery import install_notification_sms_hooks
@@ -28,6 +28,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+
+from tests.accounts import account_fields
 
 
 @compiles(JSONB, "sqlite")
@@ -75,13 +77,13 @@ def _session_factory(sender_provider) -> sessionmaker:
     return factory
 
 
-def _user(db: Session, role: UserRole = UserRole.BUYER) -> User:
+def _user(db: Session, role: UserRole = PartyRole.BUYER) -> User:
     now = datetime.now(UTC)
     user = User(
         id=uuid.uuid4(),
         name="Bea Buyer",
         phone="+254712345678",
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         session_version=1,
         is_active=True,

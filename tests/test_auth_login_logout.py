@@ -5,7 +5,7 @@ from app import main as app_main
 from app.core.security import hash_session_token
 from app.core.settings import get_settings
 from app.main import app
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.routers import auth as auth_router
 from app.services.auth import (
@@ -17,13 +17,15 @@ from app.services.auth import (
 )
 from fastapi.testclient import TestClient
 
+from tests.accounts import account_fields
+
 
 def _build_user(phone: str, role: UserRole) -> User:
     return User(
         id=uuid.uuid4(),
         name="Login Test User",
         phone=phone,
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         mpesa_phone=None,
         mpesa_account_name=None,
@@ -51,7 +53,7 @@ def _build_session(user_id: uuid.UUID, *, csrf_token: str = "csrf-token") -> Use
 def test_login_success_sets_session_and_csrf_cookies(monkeypatch) -> None:
     def fake_authenticate_and_create_session(_db, payload, **_kwargs):
         return AuthenticatedSession(
-            user=_build_user(payload.phone, UserRole.BUYER),
+            user=_build_user(payload.phone, PartyRole.BUYER),
             session_token="session-token",
             csrf_token="csrf-token",
             expires_at=datetime.now(UTC) + timedelta(hours=1),
@@ -149,7 +151,7 @@ def test_login_locked_account_returns_429(monkeypatch) -> None:
 
 def test_logout_revokes_cookie_session(monkeypatch) -> None:
     seen: dict[str, str | None] = {}
-    user = _build_user("+254700123456", UserRole.BUYER)
+    user = _build_user("+254700123456", PartyRole.BUYER)
     session = _build_session(user.id)
 
     def fake_load_session_context(_session_token: str):
@@ -194,7 +196,7 @@ def test_logout_without_cookie_still_returns_204(monkeypatch) -> None:
 
 def test_logout_missing_csrf_header_is_rejected(monkeypatch) -> None:
     seen: dict[str, str | None] = {}
-    user = _build_user("+254700123456", UserRole.BUYER)
+    user = _build_user("+254700123456", PartyRole.BUYER)
     session = _build_session(user.id)
 
     def fake_load_session_context(_session_token: str):
@@ -227,7 +229,7 @@ def test_me_requires_authentication() -> None:
 
 
 def test_me_with_valid_session_returns_profile(monkeypatch) -> None:
-    user = _build_user("+254700123456", UserRole.BUYER)
+    user = _build_user("+254700123456", PartyRole.BUYER)
     session = _build_session(user.id)
 
     def fake_load_session_context(_session_token: str):

@@ -40,6 +40,7 @@ from app.core.security import hash_password
 from app.models.oauth import GoogleSignup, OAuthState
 from app.models.user import User, UserRole
 from app.services.phone_auth import consume_phone_code, request_phone_code
+from app.services.store import open_store_on
 
 AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
@@ -443,7 +444,8 @@ def complete_signup(
         id=uuid.uuid4(),
         name=display_name,
         phone=number,
-        role=UserRole.SELLER,
+        role=UserRole.MEMBER,
+        payout_verified_at=current,
         # Nobody knows this password; "Forgot password" sets a real one (has_password).
         password_hash=hash_password(secrets.token_urlsafe(32)),
         has_password=False,
@@ -457,6 +459,7 @@ def complete_signup(
         created_at=current,
         updated_at=current,
     )
+    open_store_on(user, now=current)
     db.add(user)
     db.delete(signup)
     db.commit()

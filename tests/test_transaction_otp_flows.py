@@ -13,7 +13,7 @@ from app.models.dispute import Dispute, DisputeStatus, DisputeType, SellerResolu
 from app.models.listing import Listing
 from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.routers import transactions as transactions_router
 from app.services import transaction as transaction_service
@@ -54,6 +54,8 @@ from app.services.transaction import (
 )
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+
+from tests.accounts import account_fields
 
 
 class _FakeDb:
@@ -97,7 +99,7 @@ def _build_user(role: UserRole) -> User:
         id=uuid.uuid4(),
         name=f"{role.value.title()} User",
         phone="+254700123456",
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         mpesa_phone=None,
         mpesa_account_name=None,
@@ -201,8 +203,8 @@ def test_otp_give_requires_authentication() -> None:
     assert response.status_code == 401
 
 
-def test_otp_give_rejects_seller_user(monkeypatch) -> None:
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+def test_otp_give_rejects_admin_user(monkeypatch) -> None:
+    client = _authenticated_client(monkeypatch, UserRole.ADMIN)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/otp-give",
         headers=_csrf_headers(),
@@ -222,7 +224,7 @@ def test_otp_give_endpoint_returns_422_for_invalid_otp(monkeypatch) -> None:
         fake_confirm_buyer_delivery_otp,
     )
 
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/otp-give",
         headers=_csrf_headers(),
@@ -247,8 +249,8 @@ def test_report_functional_issue_requires_authentication() -> None:
     assert response.status_code == 401
 
 
-def test_report_functional_issue_rejects_seller_user(monkeypatch) -> None:
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+def test_report_functional_issue_rejects_admin_user(monkeypatch) -> None:
+    client = _authenticated_client(monkeypatch, UserRole.ADMIN)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/report-functional-issue",
         headers=_csrf_headers(),
@@ -274,7 +276,7 @@ def test_report_functional_issue_endpoint_returns_422_for_invalid_state(monkeypa
         fake_report_functional_issue,
     )
 
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/report-functional-issue",
         headers=_csrf_headers(),
@@ -293,7 +295,7 @@ def test_report_functional_issue_endpoint_returns_422_for_invalid_state(monkeypa
 
 
 def test_report_functional_issue_endpoint_returns_200(monkeypatch) -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -311,7 +313,7 @@ def test_report_functional_issue_endpoint_returns_200(monkeypatch) -> None:
         fake_report_functional_issue,
     )
 
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         f"/transactions/{transaction.id}/report-functional-issue",
         headers=_csrf_headers(),
@@ -333,8 +335,8 @@ def test_buyer_sent_back_requires_authentication() -> None:
     assert response.status_code == 401
 
 
-def test_buyer_sent_back_rejects_seller_user(monkeypatch) -> None:
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+def test_buyer_sent_back_rejects_admin_user(monkeypatch) -> None:
+    client = _authenticated_client(monkeypatch, UserRole.ADMIN)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/buyer-sent-back",
         headers=_csrf_headers(),
@@ -355,7 +357,7 @@ def test_buyer_sent_back_endpoint_returns_422_for_invalid_state(monkeypatch) -> 
         fake_mark_buyer_sent_back,
     )
 
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/buyer-sent-back",
         headers=_csrf_headers(),
@@ -369,7 +371,7 @@ def test_buyer_sent_back_endpoint_returns_422_for_invalid_state(monkeypatch) -> 
 
 
 def test_buyer_sent_back_endpoint_returns_200(monkeypatch) -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -387,7 +389,7 @@ def test_buyer_sent_back_endpoint_returns_200(monkeypatch) -> None:
         fake_mark_buyer_sent_back,
     )
 
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         f"/transactions/{transaction.id}/buyer-sent-back",
         headers=_csrf_headers(),
@@ -405,7 +407,7 @@ def test_seller_received_requires_authentication() -> None:
 
 
 def test_seller_received_rejects_buyer_user(monkeypatch) -> None:
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/seller-received",
         headers=_csrf_headers(),
@@ -426,7 +428,7 @@ def test_seller_received_endpoint_returns_422_for_invalid_state(monkeypatch) -> 
         fake_mark_seller_received,
     )
 
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    client = _authenticated_client(monkeypatch, PartyRole.SELLER)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/seller-received",
         headers=_csrf_headers(),
@@ -440,7 +442,7 @@ def test_seller_received_endpoint_returns_422_for_invalid_state(monkeypatch) -> 
 
 
 def test_seller_received_endpoint_returns_200(monkeypatch) -> None:
-    seller = _build_user(UserRole.SELLER)
+    seller = _build_user(PartyRole.SELLER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=uuid.uuid4(),
@@ -458,7 +460,7 @@ def test_seller_received_endpoint_returns_200(monkeypatch) -> None:
         fake_mark_seller_received,
     )
 
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    client = _authenticated_client(monkeypatch, PartyRole.SELLER)
     response = client.post(
         f"/transactions/{transaction.id}/seller-received",
         headers=_csrf_headers(),
@@ -479,7 +481,7 @@ def test_seller_resolution_action_requires_authentication() -> None:
 
 
 def test_seller_resolution_action_rejects_buyer_user(monkeypatch) -> None:
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/seller-resolution-action",
         headers=_csrf_headers(),
@@ -501,7 +503,7 @@ def test_seller_resolution_action_endpoint_returns_422_for_invalid_state(monkeyp
         fake_apply_seller_resolution_action,
     )
 
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    client = _authenticated_client(monkeypatch, PartyRole.SELLER)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/seller-resolution-action",
         headers=_csrf_headers(),
@@ -516,7 +518,7 @@ def test_seller_resolution_action_endpoint_returns_422_for_invalid_state(monkeyp
 
 
 def test_seller_resolution_action_endpoint_returns_200(monkeypatch) -> None:
-    seller = _build_user(UserRole.SELLER)
+    seller = _build_user(PartyRole.SELLER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=uuid.uuid4(),
@@ -534,7 +536,7 @@ def test_seller_resolution_action_endpoint_returns_200(monkeypatch) -> None:
         fake_apply_seller_resolution_action,
     )
 
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    client = _authenticated_client(monkeypatch, PartyRole.SELLER)
     response = client.post(
         f"/transactions/{transaction.id}/seller-resolution-action",
         headers=_csrf_headers(),
@@ -555,8 +557,8 @@ def test_buyer_reconfirmation_requires_authentication() -> None:
     assert response.status_code == 401
 
 
-def test_buyer_reconfirmation_rejects_seller_user(monkeypatch) -> None:
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+def test_buyer_reconfirmation_rejects_admin_user(monkeypatch) -> None:
+    client = _authenticated_client(monkeypatch, UserRole.ADMIN)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/buyer-reconfirmation",
         headers=_csrf_headers(),
@@ -578,7 +580,7 @@ def test_buyer_reconfirmation_endpoint_returns_422_for_invalid_state(monkeypatch
         fake_submit_buyer_reconfirmation,
     )
 
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/buyer-reconfirmation",
         headers=_csrf_headers(),
@@ -593,7 +595,7 @@ def test_buyer_reconfirmation_endpoint_returns_422_for_invalid_state(monkeypatch
 
 
 def test_buyer_reconfirmation_endpoint_returns_200(monkeypatch) -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -611,7 +613,7 @@ def test_buyer_reconfirmation_endpoint_returns_200(monkeypatch) -> None:
         fake_submit_buyer_reconfirmation,
     )
 
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         f"/transactions/{transaction.id}/buyer-reconfirmation",
         headers=_csrf_headers(),
@@ -636,8 +638,8 @@ def test_confirm_resolved_seller_requires_authentication() -> None:
     assert response.status_code == 401
 
 
-def test_confirm_resolved_buyer_rejects_seller_user(monkeypatch) -> None:
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+def test_confirm_resolved_buyer_rejects_admin_user(monkeypatch) -> None:
+    client = _authenticated_client(monkeypatch, UserRole.ADMIN)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/confirm-resolved-buyer",
         headers=_csrf_headers(),
@@ -647,7 +649,7 @@ def test_confirm_resolved_buyer_rejects_seller_user(monkeypatch) -> None:
 
 
 def test_confirm_resolved_seller_rejects_buyer_user(monkeypatch) -> None:
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/confirm-resolved-seller",
         headers=_csrf_headers(),
@@ -668,7 +670,7 @@ def test_confirm_resolved_buyer_endpoint_returns_422_for_invalid_state(monkeypat
         fake_submit_buyer_resolution_confirmation,
     )
 
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/confirm-resolved-buyer",
         headers=_csrf_headers(),
@@ -689,7 +691,7 @@ def test_confirm_resolved_seller_endpoint_returns_422_for_invalid_state(monkeypa
         fake_submit_seller_resolution_confirmation,
     )
 
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    client = _authenticated_client(monkeypatch, PartyRole.SELLER)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/confirm-resolved-seller",
         headers=_csrf_headers(),
@@ -699,7 +701,7 @@ def test_confirm_resolved_seller_endpoint_returns_422_for_invalid_state(monkeypa
 
 
 def test_confirm_resolved_buyer_endpoint_returns_200(monkeypatch) -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -717,7 +719,7 @@ def test_confirm_resolved_buyer_endpoint_returns_200(monkeypatch) -> None:
         fake_submit_buyer_resolution_confirmation,
     )
 
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         f"/transactions/{transaction.id}/confirm-resolved-buyer",
         headers=_csrf_headers(),
@@ -727,7 +729,7 @@ def test_confirm_resolved_buyer_endpoint_returns_200(monkeypatch) -> None:
 
 
 def test_confirm_resolved_seller_endpoint_returns_200(monkeypatch) -> None:
-    seller = _build_user(UserRole.SELLER)
+    seller = _build_user(PartyRole.SELLER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=uuid.uuid4(),
@@ -745,7 +747,7 @@ def test_confirm_resolved_seller_endpoint_returns_200(monkeypatch) -> None:
         fake_submit_seller_resolution_confirmation,
     )
 
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    client = _authenticated_client(monkeypatch, PartyRole.SELLER)
     response = client.post(
         f"/transactions/{transaction.id}/confirm-resolved-seller",
         headers=_csrf_headers(),
@@ -755,7 +757,7 @@ def test_confirm_resolved_seller_endpoint_returns_200(monkeypatch) -> None:
 
 
 def test_otp_withhold_endpoint_returns_200(monkeypatch) -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=False)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -773,7 +775,7 @@ def test_otp_withhold_endpoint_returns_200(monkeypatch) -> None:
         fake_withhold_buyer_delivery_otp,
     )
 
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         f"/transactions/{transaction.id}/otp-withhold",
         headers=_csrf_headers(),
@@ -784,7 +786,7 @@ def test_otp_withhold_endpoint_returns_200(monkeypatch) -> None:
 
 
 def test_service_otp_give_moves_non_serialized_to_released() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=False)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -818,7 +820,7 @@ def test_service_otp_give_moves_non_serialized_to_released() -> None:
 
 
 def test_service_otp_give_moves_serialized_to_hold_24h() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -855,7 +857,7 @@ def test_service_otp_give_moves_serialized_to_hold_24h() -> None:
 
 
 def test_service_otp_give_invalid_otp_increments_attempts() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=False)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -881,7 +883,7 @@ def test_service_otp_give_invalid_otp_increments_attempts() -> None:
 
 
 def test_service_report_functional_issue_moves_hold_serialized_to_disputed() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -921,7 +923,7 @@ def test_service_report_functional_issue_moves_hold_serialized_to_disputed() -> 
 
 
 def test_service_report_functional_issue_routes_other_to_admin_escalation() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -956,7 +958,7 @@ def test_service_report_functional_issue_routes_other_to_admin_escalation() -> N
 
 
 def test_service_report_functional_issue_rejects_non_hold_24h_state() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -982,7 +984,7 @@ def test_service_report_functional_issue_rejects_non_hold_24h_state() -> None:
 
 
 def test_service_report_functional_issue_rejects_non_serialized_listing() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=False)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -1009,7 +1011,7 @@ def test_service_report_functional_issue_rejects_non_serialized_listing() -> Non
 
 
 def test_service_report_functional_issue_rejects_unknown_category() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -1033,7 +1035,7 @@ def test_service_report_functional_issue_rejects_unknown_category() -> None:
 
 
 def test_service_buyer_sent_back_moves_disputed_to_return_in_transit() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -1064,7 +1066,7 @@ def test_service_buyer_sent_back_moves_disputed_to_return_in_transit() -> None:
 
 
 def test_service_buyer_sent_back_rejects_non_disputed_state() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -1087,7 +1089,7 @@ def test_service_buyer_sent_back_rejects_non_disputed_state() -> None:
 
 
 def test_service_seller_received_moves_return_in_transit_to_return_received() -> None:
-    seller = _build_user(UserRole.SELLER)
+    seller = _build_user(PartyRole.SELLER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=uuid.uuid4(),
@@ -1118,7 +1120,7 @@ def test_service_seller_received_moves_return_in_transit_to_return_received() ->
 
 
 def test_service_seller_received_rejects_non_return_in_transit_state() -> None:
-    seller = _build_user(UserRole.SELLER)
+    seller = _build_user(PartyRole.SELLER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=uuid.uuid4(),
@@ -1141,7 +1143,7 @@ def test_service_seller_received_rejects_non_return_in_transit_state() -> None:
 
 
 def test_service_seller_resolution_refund_issues_refund_and_closes() -> None:
-    seller = _build_user(UserRole.SELLER)
+    seller = _build_user(PartyRole.SELLER)
     listing = _build_listing_with_allowed_actions(
         serialized=True,
         allowed_actions=["refund_issued", "repair_shipped", "replacement_shipped"],
@@ -1212,7 +1214,7 @@ def test_service_seller_resolution_refund_issues_refund_and_closes() -> None:
 
 
 def test_service_seller_resolution_repair_moves_to_awaiting_buyer_reconfirmation() -> None:
-    seller = _build_user(UserRole.SELLER)
+    seller = _build_user(PartyRole.SELLER)
     listing = _build_listing_with_allowed_actions(
         serialized=True,
         allowed_actions=["refund_issued", "repair_shipped", "replacement_shipped"],
@@ -1276,7 +1278,7 @@ def test_service_seller_resolution_repair_moves_to_awaiting_buyer_reconfirmation
 
 
 def test_service_seller_resolution_rejects_action_not_allowed_by_policy() -> None:
-    seller = _build_user(UserRole.SELLER)
+    seller = _build_user(PartyRole.SELLER)
     listing = _build_listing_with_allowed_actions(
         serialized=True,
         allowed_actions=["refund_issued"],
@@ -1316,7 +1318,7 @@ def test_service_seller_resolution_rejects_action_not_allowed_by_policy() -> Non
 
 
 def test_service_buyer_reconfirmation_accept_releases_to_seller() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -1378,7 +1380,7 @@ def test_service_buyer_reconfirmation_accept_releases_to_seller() -> None:
 
 
 def test_service_buyer_reconfirmation_first_no_reopens_once() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -1439,7 +1441,7 @@ def test_service_buyer_reconfirmation_first_no_reopens_once() -> None:
 
 
 def test_service_buyer_reconfirmation_second_no_escalates() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -1501,8 +1503,8 @@ def test_service_buyer_reconfirmation_second_no_escalates() -> None:
 
 
 def test_service_mutual_confirmation_requires_both_parties() -> None:
-    buyer = _build_user(UserRole.BUYER)
-    seller = _build_user(UserRole.SELLER)
+    buyer = _build_user(PartyRole.BUYER)
+    seller = _build_user(PartyRole.SELLER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -1575,7 +1577,7 @@ def test_service_mutual_confirmation_requires_both_parties() -> None:
 
 
 def test_service_mutual_confirmation_no_unilateral_closure() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -1636,7 +1638,7 @@ def test_service_mutual_confirmation_no_unilateral_closure() -> None:
 
 
 def test_service_otp_withhold_moves_to_refunded_and_records_history() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -1672,7 +1674,7 @@ def test_service_otp_withhold_moves_to_refunded_and_records_history() -> None:
 
 
 def test_released_state_cannot_reopen_withhold_flow() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing(serialized=False)
     transaction = _build_transaction(
         buyer_id=buyer.id,

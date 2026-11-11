@@ -12,7 +12,7 @@ from app.models.listing import Listing
 from app.models.notification import Notification, NotificationEventType
 from app.models.payout_attempt import PayoutAttempt
 from app.models.transaction import Transaction, TransactionPayoutStatus, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.services.custody.dto import CustodyCapabilities
 from app.services.custody.registry import CustodyRegistry
 from app.services.escrow_service import (
@@ -26,6 +26,8 @@ from sqlalchemy import create_engine, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
+
+from tests.accounts import account_fields
 
 
 @compiles(JSONB, "sqlite")
@@ -61,7 +63,8 @@ def _build_db_session() -> Session:
             column.server_default = default
 
     with engine.begin() as connection:
-        connection.execute(text("""
+        connection.execute(
+            text("""
             CREATE TABLE payout_attempts (
                 id TEXT PRIMARY KEY,
                 escrow_id TEXT NOT NULL,
@@ -82,12 +85,15 @@ def _build_db_session() -> Session:
                 updated_at DATETIME NOT NULL,
                 CONSTRAINT ck_payout_attempts_amount_positive CHECK (amount > 0)
             )
-            """))
-        connection.execute(text("""
+            """)
+        )
+        connection.execute(
+            text("""
             CREATE UNIQUE INDEX ux_payout_attempts_one_non_failed_per_escrow_purpose
             ON payout_attempts (escrow_id, purpose)
             WHERE outcome <> 'failed_definite'
-            """))
+            """)
+        )
 
     session_factory = sessionmaker(
         bind=engine,
@@ -104,7 +110,7 @@ def _build_user(*, role: UserRole, phone: str) -> User:
         id=uuid.uuid4(),
         name=f"{role.value.title()} User",
         phone=phone,
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         mpesa_phone=phone,
         mpesa_account_name=f"{role.value}-account",
@@ -118,8 +124,8 @@ def _build_user(*, role: UserRole, phone: str) -> User:
 
 
 def _seed_transaction(db: Session, *, status: TransactionStatus) -> Transaction:
-    buyer = _build_user(role=UserRole.BUYER, phone="+254700000001")
-    seller = _build_user(role=UserRole.SELLER, phone="+254700000002")
+    buyer = _build_user(role=PartyRole.BUYER, phone="+254700000001")
+    seller = _build_user(role=PartyRole.SELLER, phone="+254700000002")
     listing = Listing(
         id=uuid.uuid4(),
         seller_id=seller.id,

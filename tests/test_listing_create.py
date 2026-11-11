@@ -9,7 +9,7 @@ from app.core.security import hash_session_token
 from app.core.settings import get_settings
 from app.main import app
 from app.models.listing import Listing
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.routers import listings as listings_router
 from app.schemas.listing import CreateListingRequest
@@ -19,6 +19,8 @@ from app.services.listing import create_listing as create_listing_service
 from app.services.listing_content import ListingContent
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+
+from tests.accounts import account_fields
 
 
 @pytest.fixture(autouse=True)
@@ -30,7 +32,7 @@ def _describe_without_db(monkeypatch) -> None:
             id=listing.seller_id,
             name="Amina Gadgets",
             phone="+254722118904",
-            role=UserRole.SELLER,
+            **account_fields(PartyRole.SELLER),
             password_hash="x",
             created_at=datetime(2026, 1, 5, tzinfo=UTC),
         )
@@ -60,7 +62,7 @@ def _build_user(role: UserRole) -> User:
         id=uuid.uuid4(),
         name=f"{role.value.title()} User",
         phone="+254700123456",
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         mpesa_phone=None,
         mpesa_account_name=None,
@@ -123,7 +125,7 @@ def test_create_listing_requires_authentication() -> None:
 
 
 def test_create_listing_rejects_buyer_user(monkeypatch) -> None:
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
 
     response = client.post(
         "/listings",
@@ -137,7 +139,7 @@ def test_create_listing_rejects_buyer_user(monkeypatch) -> None:
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "You are not authorized to access this resource."
+    assert response.json()["detail"] == "Open a store to do this."
 
 
 def test_create_listing_allows_seller_user(monkeypatch) -> None:
@@ -155,7 +157,7 @@ def test_create_listing_allows_seller_user(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(listings_router, "create_listing", fake_create_listing)
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    client = _authenticated_client(monkeypatch, PartyRole.SELLER)
 
     response = client.post(
         "/listings",
@@ -182,7 +184,7 @@ def test_create_listing_validation_errors_are_deterministic(monkeypatch) -> None
         raise ListingValidationError("unique_id is required for serialized listings.")
 
     monkeypatch.setattr(listings_router, "create_listing", fake_create_listing)
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    client = _authenticated_client(monkeypatch, PartyRole.SELLER)
 
     response = client.post(
         "/listings",
@@ -214,7 +216,7 @@ def test_service_requires_unique_id_for_serialized_listing() -> None:
     ):
         create_listing_service(
             cast(Session, db),
-            seller=_build_user(UserRole.SELLER),
+            seller=_build_user(PartyRole.SELLER),
             payload=payload,
         )
 
@@ -238,7 +240,7 @@ def test_service_requires_resolution_policy_for_serialized_listing() -> None:
     ):
         create_listing_service(
             cast(Session, db),
-            seller=_build_user(UserRole.SELLER),
+            seller=_build_user(PartyRole.SELLER),
             payload=payload,
         )
 
@@ -257,7 +259,7 @@ def test_service_creates_listing_for_seller_user() -> None:
 
     listing = create_listing_service(
         cast(Session, db),
-        seller=_build_user(UserRole.SELLER),
+        seller=_build_user(PartyRole.SELLER),
         payload=payload,
     )
 

@@ -4,7 +4,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.models.listing import Listing
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.listing import CreateListingRequest, UpdateListingRequest
 from app.services.listing_content import listing_status
 
@@ -45,7 +45,7 @@ def _validate_serialized_listing(payload: CreateListingRequest) -> dict:
 
 
 def create_listing(db: Session, seller: User, payload: CreateListingRequest) -> Listing:
-    if seller.role != UserRole.SELLER:
+    if not seller.store_active:
         raise ListingValidationError("Only sellers can create listings.")
 
     dispute_policy = _validate_serialized_listing(payload)

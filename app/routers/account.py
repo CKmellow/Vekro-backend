@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.auth_context import get_client_identifier, get_current_user, require_seller_user
+from app.core.auth_context import get_client_identifier, get_current_user, require_store_owner
 from app.core.security import verify_password
 from app.core.settings import get_settings
 from app.db.session import get_db
@@ -217,7 +217,7 @@ def post_revoke_others(
     responses={**AUTH, status.HTTP_403_FORBIDDEN: {"description": "Not a seller."}},
 )
 def get_preferences(
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_store_owner)],
     db: Annotated[Session, Depends(get_db)],
 ) -> NotificationPreferences:
     return NotificationPreferences.model_validate(preferences(_user(db, current_user)))
@@ -232,7 +232,7 @@ def get_preferences(
 )
 def put_preferences(
     payload: NotificationPreferences,
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_store_owner)],
     db: Annotated[Session, Depends(get_db)],
 ) -> NotificationPreferences:
     user = _user(db, current_user)

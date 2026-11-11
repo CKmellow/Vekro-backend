@@ -11,12 +11,13 @@ from app.db.session import get_db
 from app.main import app
 from app.models.notification import Notification, NotificationChannel
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User
 from app.models.user_session import UserSession
 from app.services.auth import ActiveSessionContext
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
+from tests.accounts import account_fields
 from tests.test_notification_sms_delivery import _notification, _session_factory, _user
 
 
@@ -27,7 +28,7 @@ def _other(db: Session) -> User:
         id=uuid.uuid4(),
         name="Other User",
         phone="+254700999888",
-        role=UserRole.BUYER,
+        **account_fields(PartyRole.BUYER),
         password_hash="unused",
         session_version=1,
         is_active=True,

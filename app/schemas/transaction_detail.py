@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from app.core.phone import mask_phone
 from app.models.dispute import AdminDecision, DisputeStatus, SellerResolutionAction
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User
 from app.schemas.payment_prompt import PaymentInstructionResponse
 from app.schemas.transaction import TransactionResponse
 from app.services.deadlines import deadlines_for
@@ -128,7 +128,7 @@ class SellerPayoutResponse(BaseModel):
 class TransactionDetailResponse(TransactionResponse):
     """One transaction as its buyer, its seller or an admin sees it."""
 
-    viewer_role: UserRole = Field(description="How the caller relates to this transaction.")
+    viewer_role: PartyRole = Field(description="How the caller relates to this transaction.")
     listing: TransactionListingSummary
     buyer: TransactionParty
     seller: TransactionParty
@@ -173,11 +173,11 @@ class TransactionDetailResponse(TransactionResponse):
             seller=_party(view.seller),
             deadlines=TransactionDeadlinesResponse.for_transaction(view.transaction),
             server_time=datetime.now(UTC),
-            payment=payment if view.viewer_role != UserRole.SELLER else None,
+            payment=payment if view.viewer_role != PartyRole.SELLER else None,
             dispute=DisputeSummaryResponse.from_summary(dispute) if dispute else None,
             payout=(
                 SellerPayoutResponse.from_payout(payout)
-                if payout is not None and view.viewer_role != UserRole.BUYER
+                if payout is not None and view.viewer_role != PartyRole.BUYER
                 else None
             ),
             door_rejection=(
@@ -220,7 +220,7 @@ class TransactionSummaryResponse(BaseModel):
     reference: str
     status: TransactionStatus
     amount: Decimal
-    viewer_role: UserRole
+    viewer_role: PartyRole
     listing: TransactionSummaryListing
     counterpart: TransactionParty = Field(
         description="The other party: the buyer for a seller, the seller for a buyer."
@@ -233,7 +233,7 @@ class TransactionSummaryResponse(BaseModel):
     updated_at: datetime
 
     @classmethod
-    def from_item(cls, item: OrderListItem, viewer_role: UserRole) -> "TransactionSummaryResponse":
+    def from_item(cls, item: OrderListItem, viewer_role: PartyRole) -> "TransactionSummaryResponse":
         transaction = item.transaction
         return cls(
             id=transaction.id,

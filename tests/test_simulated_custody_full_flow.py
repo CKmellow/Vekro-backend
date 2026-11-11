@@ -14,7 +14,7 @@ from app.models.notification import Notification
 from app.models.payment_prompt import PaymentPrompt
 from app.models.payout_attempt import PayoutAttempt
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.schemas.transaction import PaymentCallbackRequest
 from app.services import transaction as transaction_service
 from app.services.anchoring.recorder import record_transaction_created
@@ -39,6 +39,8 @@ from sqlalchemy import create_engine, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
+
+from tests.accounts import account_fields
 
 
 @compiles(JSONB, "sqlite")
@@ -77,7 +79,8 @@ def _build_db_session() -> Session:
             column.server_default = default
 
     with engine.begin() as connection:
-        connection.execute(text("""
+        connection.execute(
+            text("""
                 CREATE TABLE collection_attempts (
                     id TEXT PRIMARY KEY,
                     escrow_id TEXT NOT NULL,
@@ -97,8 +100,10 @@ def _build_db_session() -> Session:
                     updated_at DATETIME NOT NULL,
                     CONSTRAINT ck_collection_attempts_amount_positive CHECK (amount > 0)
                 )
-                """))
-        connection.execute(text("""
+                """)
+        )
+        connection.execute(
+            text("""
                 CREATE TABLE payout_attempts (
                     id TEXT PRIMARY KEY,
                     escrow_id TEXT NOT NULL,
@@ -119,12 +124,15 @@ def _build_db_session() -> Session:
                     updated_at DATETIME NOT NULL,
                     CONSTRAINT ck_payout_attempts_amount_positive CHECK (amount > 0)
                 )
-                """))
-        connection.execute(text("""
+                """)
+        )
+        connection.execute(
+            text("""
                 CREATE UNIQUE INDEX ux_payout_attempts_one_non_failed_per_escrow_purpose
                 ON payout_attempts (escrow_id, purpose)
                 WHERE outcome <> 'failed_definite'
-                """))
+                """)
+        )
 
     session_factory = sessionmaker(
         bind=engine,
@@ -141,7 +149,7 @@ def _build_user(*, role: UserRole, suffix: str) -> User:
         id=uuid.uuid4(),
         name=f"{role.value.title()} {suffix}",
         phone=f"+2547000{suffix}",
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         mpesa_phone=f"+2547123{suffix}",
         mpesa_account_name=f"{role.value}-acct-{suffix}",
@@ -219,8 +227,8 @@ def _seed_transaction_context(
     serialized_listing: bool,
     suffix: str,
 ) -> tuple[User, User, Listing, Transaction]:
-    buyer = _build_user(role=UserRole.BUYER, suffix=f"1{suffix}")
-    seller = _build_user(role=UserRole.SELLER, suffix=f"2{suffix}")
+    buyer = _build_user(role=PartyRole.BUYER, suffix=f"1{suffix}")
+    seller = _build_user(role=PartyRole.SELLER, suffix=f"2{suffix}")
     listing = _build_listing(seller_id=seller.id, serialized=serialized_listing)
     now = datetime.now(UTC)
     transaction = Transaction(

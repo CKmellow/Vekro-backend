@@ -12,7 +12,7 @@ from app.main import app
 from app.models.escrow import Escrow
 from app.models.money_audit_event import MoneyAuditEvent
 from app.models.transaction import TransactionStatus
-from app.models.user import UserRole
+from app.models.user import PartyRole, UserRole
 from app.models.user_session import UserSession
 from app.services.anchoring.provider_ref import provider_ref
 from app.services.audit import (
@@ -227,7 +227,7 @@ def test_admin_audit_endpoint_rejects_non_admin(
     audit_db: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    client = _authenticated_client(monkeypatch, PartyRole.SELLER)
     assert client.get("/admin/audit/money-events").status_code == 403
 
 

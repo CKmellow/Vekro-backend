@@ -106,6 +106,17 @@ class ListingResponse(BaseModel):
     )
     photos: list[ListingPhotoResponse] = Field(description="Ordered; the first is the cover.")
     seller: ListingSellerSummary
+    store_ready: bool = Field(
+        default=True,
+        description=(
+            "False while the seller's store can't take orders (no SMS-verified payout number, "
+            "or the store is closed): show the listing, refuse payment."
+        ),
+    )
+    is_own_listing: bool = Field(
+        default=False,
+        description="True when the signed-in caller is this listing's seller (they can't buy it).",
+    )
     created_at: datetime
     updated_at: datetime
 

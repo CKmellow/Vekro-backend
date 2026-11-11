@@ -5,10 +5,12 @@ from app import main as app_main
 from app.core.security import hash_session_token
 from app.core.settings import get_settings
 from app.main import app
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.services.auth import ActiveSessionContext
 from fastapi.testclient import TestClient
+
+from tests.accounts import account_fields
 
 
 def _build_user(role: UserRole) -> User:
@@ -16,7 +18,7 @@ def _build_user(role: UserRole) -> User:
         id=uuid.uuid4(),
         name=f"{role.value.title()} User",
         phone="+254700123456",
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         mpesa_phone=None,
         mpesa_account_name=None,
@@ -63,7 +65,7 @@ def test_buyer_route_requires_authentication() -> None:
 
 
 def test_buyer_route_allows_buyer(monkeypatch) -> None:
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
 
     response = client.get("/protected/buyer")
 
@@ -71,8 +73,17 @@ def test_buyer_route_allows_buyer(monkeypatch) -> None:
     assert response.json()["role"] == "buyer"
 
 
-def test_buyer_route_rejects_seller(monkeypatch) -> None:
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+def test_buyer_route_allows_seller(monkeypatch) -> None:
+    # M28: every member can buy, including one with a store.
+    client = _authenticated_client(monkeypatch, PartyRole.SELLER)
+
+    response = client.get("/protected/buyer")
+
+    assert response.status_code == 200
+
+
+def test_buyer_route_rejects_admin(monkeypatch) -> None:
+    client = _authenticated_client(monkeypatch, UserRole.ADMIN)
 
     response = client.get("/protected/buyer")
 
@@ -80,7 +91,7 @@ def test_buyer_route_rejects_seller(monkeypatch) -> None:
 
 
 def test_seller_route_allows_seller(monkeypatch) -> None:
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    client = _authenticated_client(monkeypatch, PartyRole.SELLER)
 
     response = client.get("/protected/seller")
 
@@ -98,7 +109,7 @@ def test_admin_route_allows_admin(monkeypatch) -> None:
 
 
 def test_admin_route_rejects_buyer(monkeypatch) -> None:
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
 
     response = client.get("/protected/admin")
 

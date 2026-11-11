@@ -10,7 +10,7 @@ from app.core.settings import get_settings
 from app.main import app
 from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.routers import transactions as transactions_router
 from app.services.auth import ActiveSessionContext
@@ -22,6 +22,8 @@ from app.services.transaction import (
 from app.services.transaction import dispatch_transaction as dispatch_transaction_service
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+
+from tests.accounts import account_fields
 
 
 class _FakeDb:
@@ -51,7 +53,7 @@ def _build_user(role: UserRole) -> User:
         id=uuid.uuid4(),
         name=f"{role.value.title()} User",
         phone="+254700123456",
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         mpesa_phone=None,
         mpesa_account_name=None,
@@ -124,7 +126,7 @@ def test_dispatch_requires_authentication() -> None:
 
 
 def test_dispatch_rejects_buyer_user(monkeypatch) -> None:
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/dispatch",
         headers=_csrf_headers(),
@@ -134,7 +136,7 @@ def test_dispatch_rejects_buyer_user(monkeypatch) -> None:
 
 
 def test_dispatch_allows_transaction_seller(monkeypatch) -> None:
-    seller = _build_user(UserRole.SELLER)
+    seller = _build_user(PartyRole.SELLER)
     transaction = _build_transaction(
         seller.id,
         status=TransactionStatus.OUT_FOR_DELIVERY,
@@ -142,12 +144,12 @@ def test_dispatch_allows_transaction_seller(monkeypatch) -> None:
 
     def fake_dispatch_transaction(_db, transaction_id, seller):
         assert transaction_id == transaction.id
-        assert seller.role == UserRole.SELLER
+        assert seller.has_store
         return transaction
 
     monkeypatch.setattr(transactions_router, "dispatch_transaction", fake_dispatch_transaction)
 
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    client = _authenticated_client(monkeypatch, PartyRole.SELLER)
     response = client.post(
         f"/transactions/{transaction.id}/dispatch",
         headers=_csrf_headers(),
@@ -165,7 +167,7 @@ def test_dispatch_returns_404_when_transaction_missing(monkeypatch) -> None:
 
     monkeypatch.setattr(transactions_router, "dispatch_transaction", fake_dispatch_transaction)
 
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    client = _authenticated_client(monkeypatch, PartyRole.SELLER)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/dispatch",
         headers=_csrf_headers(),
@@ -183,7 +185,7 @@ def test_dispatch_returns_403_when_seller_not_owner(monkeypatch) -> None:
 
     monkeypatch.setattr(transactions_router, "dispatch_transaction", fake_dispatch_transaction)
 
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    client = _authenticated_client(monkeypatch, PartyRole.SELLER)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/dispatch",
         headers=_csrf_headers(),
@@ -201,7 +203,7 @@ def test_dispatch_returns_422_for_invalid_prior_state(monkeypatch) -> None:
 
     monkeypatch.setattr(transactions_router, "dispatch_transaction", fake_dispatch_transaction)
 
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+    client = _authenticated_client(monkeypatch, PartyRole.SELLER)
     response = client.post(
         f"/transactions/{uuid.uuid4()}/dispatch",
         headers=_csrf_headers(),
@@ -212,7 +214,7 @@ def test_dispatch_returns_422_for_invalid_prior_state(monkeypatch) -> None:
 
 
 def test_service_dispatch_moves_locked_to_out_for_delivery() -> None:
-    seller = _build_user(UserRole.SELLER)
+    seller = _build_user(PartyRole.SELLER)
     transaction = _build_transaction(seller.id, status=TransactionStatus.LOCKED)
     db = _FakeDb(transaction=transaction)
 
@@ -237,8 +239,8 @@ def test_service_dispatch_moves_locked_to_out_for_delivery() -> None:
 
 
 def test_service_dispatch_rejects_non_owner_seller() -> None:
-    owner = _build_user(UserRole.SELLER)
-    other_seller = _build_user(UserRole.SELLER)
+    owner = _build_user(PartyRole.SELLER)
+    other_seller = _build_user(PartyRole.SELLER)
     transaction = _build_transaction(owner.id, status=TransactionStatus.LOCKED)
     db = _FakeDb(transaction=transaction)
 
@@ -256,7 +258,7 @@ def test_service_dispatch_rejects_non_owner_seller() -> None:
 
 
 def test_service_dispatch_rejects_invalid_prior_state() -> None:
-    seller = _build_user(UserRole.SELLER)
+    seller = _build_user(PartyRole.SELLER)
     transaction = _build_transaction(seller.id, status=TransactionStatus.AWAITING_PAYMENT)
     db = _FakeDb(transaction=transaction)
 
@@ -274,7 +276,7 @@ def test_service_dispatch_rejects_invalid_prior_state() -> None:
 
 
 def test_service_dispatch_rejects_missing_transaction() -> None:
-    seller = _build_user(UserRole.SELLER)
+    seller = _build_user(PartyRole.SELLER)
     db = _FakeDb(transaction=None)
 
     with pytest.raises(TransactionNotFoundForDispatchError, match="Transaction not found."):

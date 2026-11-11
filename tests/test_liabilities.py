@@ -11,13 +11,14 @@ import pytest
 from app.db.base import Base
 from app.models.anchor_event import AnchorEvent
 from app.models.liabilities import LiabilitiesLeaf, LiabilitiesSnapshot
-from app.models.user import UserRole
+from app.models.user import PartyRole, UserRole
 from app.routers.verification import get_liabilities_proof
 from app.services.anchoring.liabilities import build_liabilities_snapshot, liabilities_proof
 from app.services.anchoring.sum_tree import SumNode, SumProofStep, order_commit, verify_sum_proof
 from fastapi import HTTPException
 from sqlalchemy import Table, select
 
+from tests.accounts import account_fields
 from tests.test_anchoring_batcher import _db
 from tests.test_card_payments import FakePesapal, _card_order, _ipn, handle_ipn
 
@@ -122,12 +123,14 @@ def test_only_the_buyer_or_an_admin_gets_the_proof() -> None:
 
     def as_user(user_id: uuid.UUID, role: UserRole):
         return get_liabilities_proof(
-            order.id, SimpleNamespace(id=user_id, role=role), db  # type: ignore[arg-type]
+            order.id,
+            SimpleNamespace(id=user_id, **account_fields(role)),
+            db,  # type: ignore[arg-type]
         )
 
-    assert as_user(order.buyer_id, UserRole.BUYER).snapshot_id
+    assert as_user(order.buyer_id, PartyRole.BUYER).snapshot_id
     assert as_user(uuid.uuid4(), UserRole.ADMIN).snapshot_id
-    for user_id, role in ((order.seller_id, UserRole.SELLER), (uuid.uuid4(), UserRole.BUYER)):
+    for user_id, role in ((order.seller_id, PartyRole.SELLER), (uuid.uuid4(), PartyRole.BUYER)):
         with pytest.raises(HTTPException) as refused:
             as_user(user_id, role)
         assert refused.value.status_code == 404

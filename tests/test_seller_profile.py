@@ -1,13 +1,13 @@
 from typing import Any, cast
 
 import pytest
-from app.core.auth_context import require_seller_user
+from app.core.auth_context import require_store_owner
 from app.core.settings import get_settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models.phone_code import PhoneCode
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User
 from app.routers import seller_profile as router
 from app.services import phone_auth, seller_profile
 from app.services.phone_auth import (
@@ -20,6 +20,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Table, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+
+from tests.accounts import account_fields
 
 OLD = "+254722118904"
 NEW = "+254733000210"
@@ -50,7 +52,7 @@ def seller(factory: sessionmaker) -> User:
         user = User(
             name="Amina Wanjiru",
             phone=OLD,
-            role=UserRole.SELLER,
+            **account_fields(PartyRole.SELLER),
             password_hash="x",
             mpesa_account_name="AMINA WANJIRU",
         )
@@ -148,10 +150,10 @@ def client(factory: sessionmaker, seller: User, monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(router, "run_in_background", lambda job: job())
     app.dependency_overrides[get_db] = db_override
-    app.dependency_overrides[require_seller_user] = lambda: seller
+    app.dependency_overrides[require_store_owner] = lambda: seller
     yield TestClient(app)
     app.dependency_overrides.pop(get_db, None)
-    app.dependency_overrides.pop(require_seller_user, None)
+    app.dependency_overrides.pop(require_store_owner, None)
 
 
 def test_profile_endpoints(client, monkeypatch) -> None:
@@ -204,4 +206,5 @@ def test_payout_endpoints(client, monkeypatch) -> None:
     assert client.put("/me/mpesa-number", json={**body, "code": wrong}).status_code == 422
     done = client.put("/me/mpesa-number", json={**body, "code": code})
     assert done.status_code == 200 and done.json()["mpesa_phone"] == NEW
-    assert client.put("/me/mpesa-number", json={**body, "code": code}).json()["mpesa_phone"] == NEW
+    # Codes are single-use (M28: a code always verifies, so it is always consumed).
+    assert client.put("/me/mpesa-number", json={**body, "code": code}).status_code == 410

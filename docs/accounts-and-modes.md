@@ -24,9 +24,11 @@ number are already columns on `users`.
   - `store_status`: `none | active | closed`, default `none`;
   - `store_opened_at`, `store_closed_at`;
   - `seller_terms_version`, `seller_terms_accepted_at`;
-  - `sms_login_enabled`, a boolean, default `true` (the Profile switch in A4).
-- New check constraint on `transactions`: `buyer_id <> seller_id`. This is a second line of
-  defence behind the service check in section 4.
+  - `payout_verified_at`, when an SMS code last proved the payout number;
+  - `sms_login_enabled`, a boolean, default `true` (the Profile switch in A4; added in step 3).
+- `transactions` already has the check constraint `buyer_id <> seller_id`
+  (`ck_transactions_distinct_parties`), a second line of defence behind the service check in
+  section 4.
 - New check constraint on `users`: `role <> 'admin' OR store_status = 'none'`.
 
 ## 2. Migrating existing rows
@@ -49,8 +51,14 @@ listings and orders would vanish from their area.
   bought;
 - the seller sees a "Finish setup: add payout number (SMS-verified)" banner, driven by
   `store.payout_ready` on `/auth/me`;
-- "verified" means `mpesa_phone` is set, which only the SMS-confirmed `/me/mpesa-number` flow
-  (or onboarding with the same code) can do.
+- "verified" means `users.payout_verified_at` is set: an SMS code sent to the payout number was
+  entered (`PUT /me/mpesa-number` with `code`, which also works for the number already saved), or
+  the number is the phone a Google sign-up proved with its code. Onboarding may still save a number
+  without a code before the first order, but it stays unverified, and changing the number without a
+  code clears the proof. `/auth/register` keeps an `mpesa_phone` but never verifies it.
+- The migration marks only Google sign-ups verified (`mpesa_phone = phone`, phone proven by SMS).
+  Every other existing store shows the banner until its seller confirms the number. `demo-reset` and
+  `seed-ussd-demo` count their operator-seeded sandbox numbers as verified.
 
 **Accounts are never merged.** Because `users.phone` is unique, one phone already maps to one row
 and the migration never meets two rows to merge. If one person holds two accounts on two phones,

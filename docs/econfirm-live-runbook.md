@@ -1,7 +1,8 @@
 # eConfirm live KES 100 round trip on vekro-vm (prepared, not run)
 
-**Status: prepared 2026-11-11. One attempt on 2026-11-11 was aborted before payment** (below);
-the round trip has not been completed. It moves real money (KES 100 plus eConfirm's and
+**Status: run once, 2026-11-11, on VK-B627E5. Funded by eConfirm and released through eConfirm to
+Cyprian's M-Pesa (`Completed`)**; the record is VERIFIED (attempt log below). Run it again only with
+Cyprian's explicit go-ahead in that session. It moves real money (KES 100 plus eConfirm's and
 M-Pesa's fees) through a third-party escrow. Run it only after Cyprian's explicit go-ahead in that
 session.
 
@@ -54,8 +55,15 @@ ECONFIRM_API_KEY=<from the eConfirm portal>
 ECONFIRM_FALLBACK_EMAIL=<an inbox Cyprian reads, e.g. support@vekro.me>
 ECONFIRM_MIN_AMOUNT=100
 ECONFIRM_MAX_AMOUNT=100          # only a KES 100 order can go to eConfirm while it is on
+# Releases and refunds through eConfirm (docs/custody-tiers.md step 5). Without these two the
+# release waits as UNKNOWN "rail_unavailable" (#320). `simulated` stays first, so every other
+# order's payouts route exactly as before.
+CUSTODY_PAYOUT_RAIL_PRIORITY=simulated,econfirm
+ALLOW_LIVE_PAYOUTS=true
 # ECONFIRM_CODE_ENCRYPTION_KEY is already set on the VM
 ```
+
+Copy `deploy/.env` to `deploy/.env.before-econfirm` (600) first: switching off is restoring it.
 
 Then recreate the two services that read it, and check:
 
@@ -92,15 +100,17 @@ necklace is above the maximum.
 - Add a row to `docs/report-evidence.md` (live evidence) and to `docs/econfirm-api-observed.md`
   section 9 (what was observed).
 
-## Switch off (rollback; always, right after)
+## Switch off (rollback; always, right after, and only once the order is settled)
 
-```
-ECONFIRM_ENABLED=false
-```
+Restore `deploy/.env.before-econfirm` (`ECONFIRM_ENABLED=false`, `ALLOW_LIVE_PAYOUTS=false`, no
+custody override), recreate `api` and `scheduler` the same way, and run `payment-rails` again.
 
-Recreate `api` and `scheduler` the same way, then run `payment-rails` again. Orders already on
-eConfirm keep eConfirm as their custodian: the scheduler still settles them, because
-`custody_provider` is stored per order.
+**Do not switch off while an eConfirm order is unsettled** (#320). Switched off, the scheduler stops
+polling eConfirm (`econfirm_poll` runs only while eConfirm is usable), so a payment that lands
+afterwards is not recorded, and the payment page shows the prompt as expired. The poller also looks
+back only 15 minutes. To record a payment that landed while it was off, switch on again and run
+`run_econfirm_funding_reconciliation(db, collection_rail=build_econfirm_provider(settings),
+payment_timeout_minutes=240)` once inside the API container (what was done for VK-B627E5).
 
 If the run stops half-way:
 
@@ -119,14 +129,20 @@ It opens, funds and **reverses** one escrow without a Vekro order. It needs
 `ECONFIRM_FALLBACK_EMAIL` and the two `ECONFIRM_LIVE_*_PHONE` values in the laptop `.env`. It must
 run from Cyprian's own shell: the agent's sandbox cannot reach eConfirm directly.
 
-## Attempt log
+## Attempt log (2026-11-11, VK-B627E5)
 
-| When (UTC) | What happened |
+| Time (UTC) | What happened |
 |---|---|
-| 2026-11-11 11:59 | Backup `vekro-20261111T115906Z.dump`; KES 100 listing on seller 310 (payout number = Cyprian's); `ECONFIRM_ENABLED=true`, min = max = 100; `payment-rails` showed `econfirm KES 100-100`. |
-| 2026-11-11 12:06 | Buyer 311 opened order **VK-B627E5** (KES 100): Vekro opened an eConfirm escrow (an eConfirm transaction id and confirmation code were stored, encrypted) and sent the prompt. |
-| 2026-11-11 ~12:10 | Cyprian aborted before paying. eConfirm switched off (the `.env` from before the switch restored; `payment-rails` back to Daraja only). Escrow `funded_amount` 0.00: **no money moved**. VK-B627E5 times out as awaiting payment. The pending escrow can be cancelled in the eConfirm dashboard. |
+| 11:59 | Backup `vekro-20261111T115906Z.dump`. KES 100 listing on seller 310, whose payout number Cyprian set to his phone. `ECONFIRM_ENABLED=true`, min = max = 100; `payment-rails` showed `econfirm KES 100-100`. |
+| 12:06 | Buyer 311 (Amina; M-Pesa phone = Cyprian's) opened **VK-B627E5**. Vekro opened an eConfirm escrow, stored its confirmation code encrypted, and eConfirm sent a **real** M-Pesa prompt. Cyprian approved it: eConfirm e-mailed "Escrow txn_… is funded with KES 100.00" (15:06 EAT). |
+| ~12:09 | Cyprian chose to abort. eConfirm was switched off **before the poller had recorded the funding**, so Vekro still showed awaiting payment, and B2 said "expired, nothing was charged" (wrong copy, frontend #308). |
+| 12:11 | Read-only status query: eConfirm `Escrow Funded` → adapter outcome `SUCCEEDED` (the mapping was right). Cyprian chose to finish the round trip in Vekro. |
+| 12:13 | eConfirm on again. One reconciliation pass: `polled=1, funded=1`; VK-B627E5 `locked` (held by eConfirm). |
+| 12:20 | Over the real USSD endpoint (AT-shaped requests from the VM): seller dispatched, then marked arrived (PIN); buyer accepted with the delivery code → `released`. |
+| 12:22–12:34 | Release attempts UNKNOWN `rail_unavailable`: eConfirm was not a payout rail (no request reached eConfirm). Fixed by `CUSTODY_PAYOUT_RAIL_PRIORITY=simulated,econfirm` and `ALLOW_LIVE_PAYOUTS=true` (#320). |
+| 12:35 | Release sent through eConfirm: `payout_initiated`, then **`succeeded`**, eConfirm `raw_status: Completed`; escrow `released_amount 100.00`, paid to Cyprian's M-Pesa. |
+| 12:37 | Switched off (the `.env` from before restored; `payment-rails` Daraja only). `verify_transaction.py`: **VERIFIED, 55 of 55 events anchored** (the retried release attempts are sealed money facts too). |
 
-What it did show: Vekro opens a real third-party eConfirm escrow for an order and stores its one-time
-confirmation code encrypted, with the M-Pesa prompt coming from eConfirm. Funding, release and the
-fees were not observed.
+Evidence: `docs/report-assets/econfirm-release-VK-B627E5.sanitised.json` (git-ignored; the release
+request and eConfirm's `Completed` response, with phone, eConfirm id and code redacted). eConfirm's
+fee was not shown to Vekro's API; read it on the eConfirm statement.

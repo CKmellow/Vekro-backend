@@ -209,13 +209,41 @@ def _open_prompts(
     return [(transaction, prompt) for transaction, prompt in rows]
 
 
+# The scheduler's pace per prompt age (#314): (age up to, query every N minutes). Older: the last.
+PACING: tuple[tuple[timedelta, int], ...] = (
+    (timedelta(minutes=10), 1),
+    (timedelta(hours=1), 5),
+)
+SLOW_EVERY_MINUTES = 30
+
+
+def query_due(sent_at: datetime, now: datetime) -> bool:
+    """Whether the once-a-minute scheduler should STK-query a prompt of this age now (#314).
+
+    A prompt the buyer is answering is queried every run. One nobody answered is still settled
+    within the 24-hour window, but every 5 and then every 30 minutes, instead of 1,440 queries a
+    day that the sandbox mostly answers with HTTP 429. Stateless: due on whole-minute ages that are
+    a multiple of the interval.
+    """
+    sent = sent_at if sent_at.tzinfo else sent_at.replace(tzinfo=UTC)
+    age = now - sent
+    every = next((minutes for limit, minutes in PACING if age <= limit), SLOW_EVERY_MINUTES)
+    return every == 1 or int(age.total_seconds() // 60) % every == 0
+
+
 def confirm_pending_payments(
-    db: Session, *, client: DarajaClient, now: datetime | None = None
+    db: Session, *, client: DarajaClient, now: datetime | None = None, paced: bool = False
 ) -> dict[uuid.UUID, str]:
-    """Settle prompts whose callback never arrived: query each open one from the last day."""
+    """Settle prompts whose callback never arrived: query each open one from the last day.
+
+    ``paced`` (the scheduler) skips prompts that are not due by age (``query_due``); a manual pass
+    queries them all.
+    """
+    current = now or datetime.now(UTC)
     return {
         transaction.id: confirm_payment(db, transaction, prompt, client=client)
-        for transaction, prompt in _open_prompts(db, now or datetime.now(UTC))
+        for transaction, prompt in _open_prompts(db, current)
+        if not paced or prompt.sent_at is None or query_due(prompt.sent_at, current)
     }
 
 

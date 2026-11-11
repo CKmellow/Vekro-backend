@@ -72,7 +72,8 @@ def _mpesa(db: Session, settings: Any) -> Any:
     from app.services.daraja import DarajaClient
     from app.services.daraja_confirmation import confirm_pending_payments
 
-    return confirm_pending_payments(db, client=DarajaClient.from_settings(settings))
+    # Paced by prompt age (#314): unanswered prompts are not queried every minute for a day.
+    return confirm_pending_payments(db, client=DarajaClient.from_settings(settings), paced=True)
 
 
 def _card_enabled(settings: Any) -> bool:

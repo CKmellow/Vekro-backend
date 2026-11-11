@@ -409,3 +409,53 @@ def test_observed_live_query_and_push_shapes() -> None:
     fake.query = lambda: (limited["http_status"], limited["body"])
     with pytest.raises(DarajaUnavailableError):
         client.stk_query(CHECKOUT)
+
+
+def test_the_scheduler_paces_queries_by_prompt_age() -> None:
+    """#314: young prompts every run; then every 5 and every 30 minutes, not 1,440 times a day."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.services.daraja_confirmation import query_due
+
+    sent = datetime(2026, 11, 11, 8, 0, tzinfo=UTC)
+    at = lambda minutes: sent + timedelta(minutes=minutes, seconds=10)  # noqa: E731
+    assert all(query_due(sent, at(m)) for m in range(0, 10))
+    assert [m for m in range(10, 60) if query_due(sent, at(m))] == [
+        10,
+        15,
+        20,
+        25,
+        30,
+        35,
+        40,
+        45,
+        50,
+        55,
+    ]
+    hourly = [m for m in range(60, 24 * 60) if query_due(sent, at(m))]
+    assert hourly[:3] == [60, 90, 120] and len(hourly) == 46
+    # A naive timestamp (SQLite) is read as UTC.
+    assert query_due(sent.replace(tzinfo=None), at(3))
+
+
+def test_paced_pass_skips_prompts_that_are_not_due_but_a_manual_pass_queries_all() -> None:
+    from datetime import UTC, timedelta
+
+    db = _db()
+    transaction, prompt = _awaiting(db, "93")
+    queried: list[int] = []
+    fake = FakeDaraja()
+    fake.query = lambda: (queried.append(1), (200, {"ResultCode": "123456", "ResultDesc": "?"}))[1]
+    sent = prompt.sent_at if prompt.sent_at.tzinfo else prompt.sent_at.replace(tzinfo=UTC)
+
+    not_due = sent + timedelta(minutes=31, seconds=5)
+    assert confirm_pending_payments(db, client=fake.client(), now=not_due, paced=True) == {}
+    assert queried == []
+    due = sent + timedelta(minutes=30, seconds=5)
+    assert confirm_pending_payments(db, client=fake.client(), now=due, paced=True) == {
+        transaction.id: "pending"
+    }
+    assert (
+        confirm_pending_payments(db, client=fake.client(), now=not_due)[transaction.id] == "pending"
+    )
+    assert len(queried) == 2

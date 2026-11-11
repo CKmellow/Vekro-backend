@@ -4,8 +4,8 @@ Facts measured from the two repositories and from runs on the live system, for t
 Every number below has a date and a source. Re-run the commands to refresh them. Cyprian writes the
 prose; this is the evidence.
 
-- Backend: CKmellow/Vekro-backend, main @ `929b2fc` (2026-11-11).
-- Frontend: CKmellow/Vekro, main @ `926c761` (2026-11-11).
+- Backend: CKmellow/Vekro-backend, main @ `fdcf7a9` (2026-11-11).
+- Frontend: CKmellow/Vekro, main @ `d770267` (2026-11-11).
 - Live: https://app.vekro.me, https://api.vekro.me (Azure VM `vekro-vm`, South Africa North).
 
 ## 1. Final architecture
@@ -71,16 +71,18 @@ Measured 2026-11-11 on the laptop (WSL2) unless the source says CI.
 
 | Suite | Command | Result | Coverage |
 |---|---|---|---|
-| Backend unit and integration | `.venv/bin/python -m coverage run --source=app -m pytest -q` | **1109 passed, 18 skipped** (72.9 s) | **91%** of `app/` (12,937 statements, 1,163 missed) |
+| Backend unit and integration | `.venv/bin/python -m coverage run --source=app -m pytest -q` | **1139 passed, 18 skipped** | **91%** of `app/` (13,349 statements, 1,198 missed) |
 | Backend on PostgreSQL | `TEST_POSTGRES_URL=… pytest -m postgres` (scratch DB at head) | **11 passed** | (part of the above) |
 | Backend chain (local Anvil) | `pytest -m chain` | **5 passed** | (part of the above) |
 | Smart contract | `cd contracts && forge test` | **16 passed** in 2 suites (15 unit, 1 invariant) | – |
-| Frontend unit and view | `npx vitest run --coverage` | **835 passed** (105 files) | **94.81%** statements and lines, 87.07% branches, 83.17% functions |
-| Frontend end-to-end | CI job "End-to-end (Playwright, real backend)", run 42996563525 on `926c761` | **22 passed** (real backend, PostgreSQL; includes the real Pesapal sandbox card flow and the service-worker deploy test) | – |
+| Frontend unit and view | `npx vitest run --coverage --maxWorkers=2` | **849 passed** | **94.67%** statements and lines, 87.15% branches, 83.23% functions |
+| Frontend end-to-end | CI job "End-to-end (Playwright, real backend)", run 43028887340 on `d770267` | **22 passed, 1 skipped** (real backend, PostgreSQL; includes the real Pesapal sandbox card flow and the service-worker deploy test) | – |
 
 Skipped backend tests are the opt-in live-provider tests (`-m live`: Daraja, Pesapal, eConfirm,
-LOOP), which need real credentials and, for eConfirm, real money. One frontend test failed once under
-coverage instrumentation (timing) and passed on the re-run. It is noted, not hidden.
+LOOP), which need real credentials and, for eConfirm, real money. Under coverage instrumentation
+with full parallelism, a few frontend tests timed out on the laptop (a different few each run).
+With two workers all 849 passed, and they all pass without coverage and in CI. This is noted,
+not hidden.
 
 The skipped count is 18 at `929b2fc`. The count was 15 on 2026-11-08, when there were 910 tests in
 total (`LOCAL_EXECUTION_PLAN.md`).
@@ -118,6 +120,8 @@ documented in `docs/hosting.md` 7.1.
 | Demo shortcuts refused in production | `test_scheduler.py::test_demo_fast_timeouts_are_refused_in_production`; `test_demo_reset.py::test_it_refuses_without_the_explicit_confirmation` |
 | Web: strict CSP, no session in browser storage, no raw HTML | frontend `src/app/security.test.ts` (no raw HTML, storage, logging), `src/app/deploy.test.ts` (the CSP header equals the meta policy) |
 | Web: security headers on every response (HSTS, CSP, nosniff, frame and referrer policy) | frontend `src/app/deploy.test.ts` ("sends the full security header set from every app location", #306); live check below |
+| Continue with Google: PKCE (S256), single-use state bound to the browser, nonce; ID token verified (RS256, iss, aud, exp, nonce, verified e-mail) | `test_google_auth.py::test_the_request_carries_state_nonce_and_an_s256_challenge_of_a_server_side_verifier`, `::test_the_code_exchange_sends_the_pkce_verifier_and_a_wrong_one_is_refused`, `::test_a_replayed_callback_is_refused`, `::test_a_forged_state_is_refused`, `::test_a_token_with_another_nonce_is_refused`, `::test_id_token_claims_are_checked`, `::test_a_token_signed_by_another_key_is_refused` |
+| Google accounts matched by subject only; no admin access unless linked; no seller before an SMS-verified phone; no Google tokens stored | `test_google_auth.py::test_a_matching_email_never_links_an_account`, `::test_an_unlinked_admin_is_never_signed_in_by_google`, `::test_a_google_seller_exists_only_after_the_sms_code`, `::test_routes_complete_a_seller_signup_and_block_selling_before_it`, `::test_a_buyer_links_google_and_only_sub_and_email_are_kept` |
 | No secrets in the public images | CI step "No secrets in the image" (`scripts/scan-image-secrets.py --self-test` and a scan of each image) |
 
 ## 5. Live sandbox evidence
@@ -136,6 +140,7 @@ Sandbox rails unless stated. Times in UTC unless EAT is given.
 | 2026-11-11 12:49 | Full audit of the live database against Base Sepolia | **CLEAN: 324 events in 179 batches** |
 | 2026-11-11 | Web delivery: an open browser tab moved to a new deploy by itself (#302); security headers 6 of 6 on every app path (#306); Chrome installability check with no errors (#304) | Live on app.vekro.me |
 | 2026-11-11 | `support@vekro.me` (Cloudflare Email Routing) | Mail from an outside address arrived in the support inbox |
+| 2026-11-11 | Continue with Google on app.vekro.me (consent screen in Testing): seller 310 linked a Google account from Settings, then signed in with it | Both worked (Cyprian, in his browser); the account stores only the Google subject and the e-mail |
 
 Screenshots and sanitised bodies are in `docs/report-assets/` (git-ignored, so the folder stays
 private). Frontend screenshots per issue are in the frontend repo, `docs/screenshots/`.
@@ -163,9 +168,10 @@ private). Frontend screenshots per issue are in the frontend repo, `docs/screens
 - **Testnet**: Base Sepolia, not mainnet.
 - **One VM**, stopped nightly at 23:00 EAT, with backups on the VM and copied by hand. There is no
   high availability, and CD roll-out stays manual until Cloudflare Access service tokens exist.
-- **Observed gaps from the live runs**: the eConfirm runbook missed the payout settings, and the
-  payment page claimed "nothing was charged" after an expired prompt (frontend #308). Both are fixed
-  and recorded.
+- **Observed gaps from the live runs**: the eConfirm runbook missed the payout settings (#320), and
+  the payment page claimed "nothing was charged" after an expired prompt (frontend #308). Both are
+  fixed and recorded.
+- **Google sign-in is in Testing**: only listed test users can use it until Google verifies the app.
 - **Future work**: proof of reserves signed by the custodian; mainnet anchoring with KMS-held keys;
-  live rails; signed or operator-asserted USSD; "Continue with Google" sign-in (M28 item 8, in
-  progress); off-VM backups and monitoring alerts.
+  live rails; signed or operator-asserted USSD; Google sign-in out of Testing mode (Google's
+  verification); off-VM backups and monitoring alerts.

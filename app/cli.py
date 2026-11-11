@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -225,6 +226,51 @@ def seed_ussd_demo(*, buyer_phone: str, seller_phone: str, pin: str) -> int:
     return 0
 
 
+def demo_reset(
+    *, payer_phone: str, series: int, states: list[str] | None, pin: str, logins_file: str
+) -> int:
+    """#311: the presentation demo data on the VM. New passwords go only to --logins-file (600)."""
+    from pathlib import Path
+
+    from app.services.demo_reset import STATES, DemoResetRefusedError, run_demo_reset
+    from app.services.payment import get_payment_gateway
+
+    say = lambda message: print(message, flush=True)  # noqa: E731
+    with _session() as db:
+        try:
+            result = run_demo_reset(
+                db,
+                environ=dict(os.environ),
+                payer_phone=payer_phone,
+                series=series,
+                states=tuple(states or STATES),
+                pin=pin,
+                payment_gateway=get_payment_gateway(),
+                say=say,
+            )
+        except (DemoResetRefusedError, ValueError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+    created = [a for a in result.accounts if a.password]
+    if created:
+        path = Path(logins_file).expanduser()
+        with path.open("a", encoding="utf-8") as out:
+            out.write(f"Vekro demo accounts, series {series} ({datetime.now(UTC).isoformat()})\n")
+            for account in created:
+                out.write(f"{account.role:<10} {account.phone}  {account.password}\n")
+            out.write(f"USSD PIN (buyers and seller): {pin}\n")
+        path.chmod(0o600)
+        say(f"New passwords written to {path} (600).")
+    for account in result.accounts:
+        say(f"{account.role:<10} {account.name:<15} {account.phone}")
+    for line in result.shop_listings:
+        say(f"listing    {line}")
+    for order in result.orders:
+        code = f" delivery code {order.delivery_code}" if order.delivery_code else ""
+        say(f"{order.state:<17} {order.reference}  {order.status}{code} {order.note}".rstrip())
+    return 0
+
+
 def reserves_reconcile() -> int:
     from app.core.settings import get_settings
     from app.services.anchoring.reserves import reconcile_reserves
@@ -300,6 +346,20 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser(
         "liabilities-snapshot", help="Anchor the total held for buyers (Merkle sum tree)."
     )
+    reset = commands.add_parser(
+        "demo-reset",
+        help="Presentation demo shop and staged orders (needs DEMO_RESET_CONFIRM=yes).",
+    )
+    reset.add_argument("--payer-phone", required=True, help="Receives the sandbox prompts.")
+    reset.add_argument("--series", type=int, default=3, help="Numbers +254700000<series>xx.")
+    reset.add_argument(
+        "--states",
+        nargs="+",
+        choices=["paid", "out_for_delivery", "at_door", "hold_24h", "dispute"],
+        help="Stage only these (default: all).",
+    )
+    reset.add_argument("--pin", default="1234")
+    reset.add_argument("--logins-file", default="~/vekro-demo-logins.txt")
     args = parser.parse_args(argv)
 
     if args.command == "repair-return-cases":
@@ -322,6 +382,14 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "reserves-reconcile":
         return reserves_reconcile()
+    if args.command == "demo-reset":
+        return demo_reset(
+            payer_phone=args.payer_phone,
+            series=args.series,
+            states=args.states,
+            pin=args.pin,
+            logins_file=args.logins_file,
+        )
     if args.command == "payment-rails":
         return payment_rails()
 

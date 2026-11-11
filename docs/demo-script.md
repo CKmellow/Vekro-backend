@@ -1,10 +1,151 @@
-# Demo Script
+# Demo script: the presentation run (10 to 12 minutes)
+
+The live run on **https://app.vekro.me** (VM `vekro-vm`, sandbox rails, Base Sepolia record), as of
+2026-11-11. The local developer scenarios that came before are kept in the
+[appendix](#appendix-local-developer-scenarios).
+
+What to say about money: in the sandbox **no real money moves**, and the app says so on every
+payment ("Test payment via … sandbox"). M-Pesa money is collected to Vekro's M-Pesa business
+shortcode. Card money is held by Pesapal. Never call Vekro, Daraja or Pesapal a licensed escrow
+custodian (`docs/presentation-faq.md`).
+
+## 0. Before the session (demo day)
+
+| When | What |
+|---|---|
+| Morning | Start the VM (Azure portal → `vekro-vm` → Start, or `az vm start -g vekro -n vekro-vm`). It stops itself at 23:00 EAT. Check `https://app.vekro.me/version.json` and `https://api.vekro.me/health`. |
+| Morning | Stage the orders, on a **new series** each demo day (old orders keep their own accounts): `ssh ssh.vekro.me`, then `cd ~/vekro && docker compose -f deploy/compose.yaml -f deploy/compose.vm.yml --env-file deploy/.env exec -T -e DEMO_RESET_CONFIRM=yes api python -m app.cli demo-reset --payer-phone <Cyprian's number> --series <n> --states paid out_for_delivery hold_24h dispute --logins-file /tmp/logins.txt`. Approve each M-Pesa sandbox prompt on the phone (KES 1, about one a minute). Copy the new passwords out of the container's `/tmp/logins.txt` (`docker compose … exec api cat /tmp/logins.txt >> ~/vekro-demo-logins.txt`) into `TEST-LOGINS.local.md`. |
+| 30 min before | `… demo-reset … --series <n> --states at_door` (the door window is 1 hour). Note its delivery code. |
+| 10 min before | Laptop: phone hotspot (not Strathmore Wi-Fi), four browser profiles or windows logged in: **seller** (`/seller`), **buyer Amina** (`/buyer/orders`), **buyer Brian**, **admin** (`/admin`). AT simulator open ("Launch Simulator"). Phone unlocked, M-Pesa SIM in. `TEST-LOGINS.local.md` open off-screen. |
+
+Accounts and order references for the day: `TEST-LOGINS.local.md` → "Accounts: VM".
+
+## 1. The seller lists an item and shares the Trust Link (1.5 min)
+
+1. Seller window → **Listings** → **New listing** (`/seller/listings/new`).
+2. Title `Kiondo basket, small`; Price `1` (say: "KES 1, because this is the sandbox"); add a
+   photo; **Publish and get link**.
+3. Expected: **"Your Trust Link is ready"** with the link and the share buttons. Copy it (the
+   WhatsApp share is what a real seller uses).
+
+Fallback: the reset already made `Kiondo basket, hand-woven sisal` (KES 1). Its `/pay/<id>` link is in
+`TEST-LOGINS.local.md`.
+
+## 2. Buyer 1 pays by M-Pesa (sandbox STK to Cyprian's phone, KES 1) (1.5 min)
+
+1. Buyer Amina's window → paste the Trust Link. Expected: the item, **"Paying as Amina Otieno"**,
+   Total KES 1.
+2. **Pay KES 1 with M-Pesa**. Expected: **"Check your phone and enter your M-Pesa PIN"**.
+3. On the phone: the sandbox prompt → PIN. Expected within seconds: **"Payment received"** and
+   "Paid, funds held safely", with the note "Test payment via Daraja sandbox: no real money moves".
+
+Fallback (Daraja sandbox down or slow): leave it. The scheduler confirms a late payment by its own
+STK query. Then show the staged **paid** order instead (Amina's **My orders**). If Daraja is down
+for the whole session, say so and continue on the staged orders. Do not switch rails on the live VM.
+
+## 3. Buyer 2 pays by card (Pesapal sandbox) (1.5 min)
+
+1. Buyer Brian's window → the **Maasai beaded necklace** Trust Link (KES 1,800) → **Card** →
+   **Complete payment**. Expected: Pesapal's sandbox page.
+2. Card `4761 7390 0101 0010`, 07/28, CVV 123 (Pesapal's published test card; typed by the
+   presenter). Expected: back on `/pay/return` → **"Held by Pesapal"** with the sandbox note.
+
+Fallback: Pesapal's page sometimes hangs on "Processing". Say "the provider's page is slow; Vekro
+asks Pesapal itself", and wait. The scheduler funds it within about a minute, and **Check again**
+on the return page shows it. If Pesapal is down, skip to step 4 and show a card order from the
+history (VK-2N6HSK).
+
+## 4. The seller dispatches and marks arrived over USSD (2 min)
+
+1. AT simulator → type the **seller's number with +254** → dial `*384*83579#`.
+   Expected: `Vekro seller / 1 My orders / 0 Exit`.
+2. `1` → pick Amina's order from step 2 (paid) → `1` Dispatch → PIN `1234`. Expected: done.
+3. Dial again → `1` → the same order → `1` Mark arrived → PIN `1234`. Expected: done; the buyer's
+   web page moves to **"Your item has arrived"** within one poll (15 s).
+
+Fallback (AT sandbox down): the seller's web window → **Orders** → the order → **Mark as
+dispatched** → **Yes, it's dispatched**, then **Mark arrived** → **Yes, mark arrived**. Same
+service, same record.
+
+## 5. The buyer accepts at the door (1 min)
+
+The delivery code goes by SMS. In the sandbox it appears in the AT simulator under the **buyer's**
+number (the speech-bubble icon), never on a real phone.
+
+1. Amina's window → the order → **Inspect at your door** → **Inspect and confirm** → type the 6
+   digits → **Accept item** → **Yes, accept**. Expected: **"All done"**, then **"Complete, seller
+   paid"**.
+
+Fallback: use the staged **at the door** order (its code was printed by the reset), or accept over
+USSD as the buyer: `1` → the order → `1` Accept (enter code) → the code → "Accepted. Payment goes to
+the seller."
+
+## 6. The Verified record says VERIFIED (1 min)
+
+1. Same order page → **Verified record** panel. Expected: "Tamper-evident record: every step of
+   this order is sealed and checks out." The seals link to Base Sepolia (BaseScan).
+2. Say: "My browser just checked this order's history against the public record. Vekro's server
+   was not trusted for the roots."
+
+If the panel says *pending*: the last seal is a minute away. Open the order from step 2 of the
+staged set (paid earlier) instead, which is already sealed.
+
+## 7. Tamper demo on a copy (1 min)
+
+1. On the panel: **Download receipt** → `receipt.json`.
+2. Laptop terminal (backend checkout):
+   ```sh
+   cp receipt.json tampered.json   # then change one amount in tampered.json, e.g. "1.00" -> "100.00"
+   .venv/bin/python scripts/verify_transaction.py --bundle receipt.json  --rpc-url https://sepolia.base.org --registry 0xD8094faf2B44711dD372A59C288130FA8113E4DB
+   .venv/bin/python scripts/verify_transaction.py --bundle tampered.json --rpc-url https://sepolia.base.org --registry 0xD8094faf2B44711dD372A59C288130FA8113E4DB
+   ```
+   Expected: `VERIFIED`, then `TAMPERED` with the field that no longer matches its seal.
+3. Say: "This is what an insider's edit looks like to anyone holding a receipt. The live database
+   was not touched."
+
+Fallback (no RPC from the laptop): run the same two commands on the VM (`ssh ssh.vekro.me`).
+
+## 8. Proof of held money (liabilities) (45 s)
+
+1. Amina's staged **paid** order → Verified record panel. Expected: "Your KES 1 is included in
+   Vekro's published total of held money (KES Y)".
+2. Say: "Vekro publishes one total of everything it holds for buyers. Each buyer can check their
+   own amount is in it, without seeing anyone else's. The chain does not prove the money is at the
+   bank: that is the reserves check, and it is Vekro's own report" (`docs/presentation-faq.md`).
+
+## 9. The admin resolves an escalated dispute (1.5 min)
+
+1. Admin window → `/admin` → **Escalation queue** → **Open case …** for the staged dispute (Android
+   phone, second unit: "serial number on the box does not match").
+2. **Review decision** → **Refund buyer** → Reason `Serial mismatch confirmed with both parties` →
+   type the `D-XXXX` code shown → **Confirm and execute**. Expected: **"Decision recorded. Payouts
+   are on their way."** The decision is itself a sealed money fact.
+
+Fallback: if the queue is empty (the dispute was not staged), show the case history of a past one,
+or skip to step 10.
+
+## 10. Dark mode and the installed app (45 s)
+
+1. Any page → the theme switch → **Dark**, then **Same as device**. Expected: the whole app
+   switches, with no flash on reload.
+2. On the phone: open `app.vekro.me` in Chrome → **Install Vekro** → open it from the home screen.
+   Expected: it opens full-screen, without the browser bar, on the same login.
+
+## If the VM is down
+
+`app.vekro.me` shows a Cloudflare error. Start the VM (step 0); the stack starts itself in 1 to 2
+minutes. Payments taken while it was off are confirmed from the providers when it starts (24-hour
+window). Never take payments while it is off.
+
+---
+
+# Appendix: local developer scenarios
 
 Covers the four capstone scenarios (normal flow, failover, unknown outcome, duplicate funding), which run on simulated custody (Tier 2, application-enforced) in a non-production environment. Scenario 5 covers eConfirm custody.
 
 What to say about custody: simulated custody is enforced by this application and is not regulated. eConfirm is a third-party escrow service. Do not describe Vekro or eConfirm as licensed, regulated, or insured. Point to the `custody_provider` field instead: it says who holds the money.
 
-## Setup
+### Setup (local developer scenarios)
 
 ```bash
 cp .env.example .env            # ENVIRONMENT=development, CUSTODY_*_RAIL_PRIORITY=simulated

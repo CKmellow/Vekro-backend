@@ -306,9 +306,10 @@ vk exec api python -m app.services.custody.pesapal_ipn_registration \
 Daraja callbacks are only triggers: Vekro confirms every payment with its own query
 (`docs/daraja-observed.md`), and the scheduler confirms any whose callback never arrives.
 
-Behind Cloudflare, the first `X-Forwarded-For` address can be set by the caller, so
-`USSD_ALLOWED_IPS` is best effort only. The path token is what protects the USSD callback. Reading
-`CF-Connecting-IP` instead is a follow-up (#289).
+`USSD_ALLOWED_IPS` is optional. Behind the tunnel set `USSD_CLIENT_IP_HEADER=cf-connecting-ip`: the
+caller is then read from `CF-Connecting-IP` (Cloudflare overwrites it), never from `X-Forwarded-For`,
+which a caller can set (#289). Without that setting the allowlist is off and the API logs
+`ussd_allowlist_off` at start-up. The path token is what protects the USSD callback either way.
 
 ## 9. Upgrades, migrations and rollback
 

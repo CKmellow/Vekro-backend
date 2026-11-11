@@ -45,6 +45,12 @@ async def lifespan(fastapi_app: FastAPI) -> AsyncIterator[None]:
     logging.getLogger("app.payments").info(
         "collection_rails %s", format_routes(describe_collection_rails(settings))
     )
+    if settings.ussd_allowed_ips.strip() and not settings.ussd_client_ip_header.strip():
+        # #289: without the tunnel's CF-Connecting-IP the caller can't be trusted; the token guards
+        logging.getLogger("app.ussd").warning(
+            "ussd_allowlist_off USSD_ALLOWED_IPS is set but USSD_CLIENT_IP_HEADER is not "
+            "cf-connecting-ip; the allowlist is not enforced"
+        )
     yield
 
 

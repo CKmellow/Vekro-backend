@@ -3447,7 +3447,7 @@
           "Webhooks"
         ],
         "summary": "Africa's Talking USSD callback",
-        "description": "Africa's Talking posts every step of a USSD session here (form-encoded sessionId, serviceCode, phoneNumber, networkCode, text). The requests are unsigned, so the path carries USSD_CALLBACK_TOKEN; USSD_ALLOWED_IPS optionally limits callers. Answers text/plain CON or END screens of at most 160 characters (docs/ussd.md).",
+        "description": "Africa's Talking posts every step of a USSD session here (form-encoded sessionId, serviceCode, phoneNumber, networkCode, text). The requests are unsigned, so the path carries USSD_CALLBACK_TOKEN; behind the Cloudflare tunnel USSD_ALLOWED_IPS can also limit callers (read from CF-Connecting-IP only). Answers text/plain CON or END screens of at most 160 characters (docs/ussd.md).",
         "operationId": "africastalking_ussd_ussd_africastalking__token__post",
         "parameters": [
           {
@@ -4279,7 +4279,7 @@
           "Account"
         ],
         "summary": "Set or change the USSD PIN",
-        "description": "The 4-digit PIN asked for before sensitive actions over USSD (*384*\u2026#). Needs the account password. Three wrong PINs over USSD lock USSD actions for 15 minutes.",
+        "description": "The 4-digit PIN asked for before sensitive actions over USSD (*384*…#). Needs the account password. Three wrong PINs over USSD lock USSD actions for 15 minutes.",
         "operationId": "post_ussd_pin_account_ussd_pin_post",
         "requestBody": {
           "content": {

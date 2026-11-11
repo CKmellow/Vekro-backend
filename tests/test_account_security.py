@@ -7,7 +7,7 @@ from app.core.security import hash_password, verify_password
 from app.db.base import Base
 from app.models.notification import Notification, NotificationEventType
 from app.models.phone_code import PhoneCode
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User
 from app.models.user_session import UserSession
 from app.services import phone_auth
 from app.services.account_security import (
@@ -30,6 +30,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+
+from tests.accounts import account_fields
 
 
 @compiles(JSONB, "sqlite")
@@ -62,7 +64,10 @@ def _isolate(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def seller(db: Session) -> User:
     user = User(
-        name="Amina", phone=PHONE, role=UserRole.SELLER, password_hash=hash_password("Mango2026")
+        name="Amina",
+        phone=PHONE,
+        **account_fields(PartyRole.SELLER),
+        password_hash=hash_password("Mango2026"),
     )
     db.add(user)
     db.commit()
@@ -156,7 +161,7 @@ def test_preferences_default_on_and_support_in_app_locked(seller: User) -> None:
 
 
 def test_buyers_can_never_be_muted() -> None:
-    buyer = User(name="B", phone=PHONE, role=UserRole.BUYER, password_hash="x")
+    buyer = User(name="B", phone=PHONE, **account_fields(PartyRole.BUYER), password_hash="x")
     buyer.notification_prefs = {"delivery": {"in_app": False, "sms": False}}
     assert muted_event_types(buyer, "sms") == set()
 
@@ -210,7 +215,7 @@ def test_sms_delivery_skips_muted_categories(db: Session, seller: User) -> None:
 
 @pytest.fixture
 def client(db: Session, seller: User, monkeypatch: pytest.MonkeyPatch):
-    from app.core.auth_context import require_seller_user
+    from app.core.auth_context import require_store_owner
     from app.db.session import get_db
     from app.main import app
     from app.routers import account
@@ -218,7 +223,7 @@ def client(db: Session, seller: User, monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(account, "run_in_background", lambda job: job())
     app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[require_seller_user] = lambda: seller
+    app.dependency_overrides[require_store_owner] = lambda: seller
     yield TestClient(app)
     app.dependency_overrides.clear()
 

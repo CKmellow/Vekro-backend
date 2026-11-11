@@ -35,10 +35,11 @@ from app.core.phone import normalize_phone
 from app.core.security import hash_password
 from app.models.listing import Listing
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.schemas.transaction import CreateTransactionRequest
 from app.services.listing_content import add_listing_photo
 from app.services.payment import PaymentGateway
+from app.services.store import open_store_on
 from app.services.ussd import set_ussd_pin
 from app.services.ussd_demo import _delivery_code
 
@@ -196,14 +197,14 @@ def run_demo_reset(
     result = DemoReset()
     people: dict[str, User] = {}
     for key, role, name in (
-        ("seller", UserRole.SELLER, "Wanjiru Kamau"),
-        ("buyer", UserRole.BUYER, "Amina Otieno"),
-        ("card_buyer", UserRole.BUYER, "Brian Mwangi"),
+        ("seller", PartyRole.SELLER, "Wanjiru Kamau"),
+        ("buyer", PartyRole.BUYER, "Amina Otieno"),
+        ("card_buyer", PartyRole.BUYER, "Brian Mwangi"),
     ):
         user, password = _account(
-            db, phones[key], role, name, payer if role == UserRole.BUYER else None
+            db, phones[key], role, name, payer if role == PartyRole.BUYER else None
         )
-        if role == UserRole.SELLER and not user.shop_name:
+        if role == PartyRole.SELLER and not user.shop_name:
             user.shop_name = "Kiondo & Co."
             user.shop_area = "Nairobi, Kilimani"
             user.shop_about = "Handmade baskets, kitenge and leather, made in Kenya."
@@ -275,12 +276,16 @@ def run_demo_reset(
 
 
 def _account(
-    db: Session, phone: str, role: UserRole, name: str, mpesa_phone: str | None
+    db: Session, phone: str, role: PartyRole, name: str, mpesa_phone: str | None
 ) -> tuple[User, str | None]:
     user = db.execute(select(User).where(User.phone == phone)).scalar()
     if user is not None:
-        if user.role != role:
-            raise DemoResetRefusedError(f"{phone} is already a {user.role.value} account.")
+        if user.party_role != role:
+            raise DemoResetRefusedError(f"{phone} is already a {user.party_role.value} account.")
+        if role == PartyRole.SELLER and user.payout_verified_at is None:
+            # Demo numbers are operator-seeded sandbox numbers: counted as verified.
+            user.payout_verified_at = datetime.now(UTC)
+            db.commit()
         return user, None
     password = secrets.token_urlsafe(12)
     now = datetime.now(UTC)
@@ -288,8 +293,10 @@ def _account(
         id=uuid.uuid4(),
         name=name,
         phone=phone,
-        role=role,
+        role=UserRole.MEMBER,
         password_hash=hash_password(password),
+        # Demo numbers are operator-seeded sandbox numbers: counted as verified.
+        payout_verified_at=now if role == PartyRole.SELLER else None,
         # Buyers' prompts go to the payer phone; sellers are paid out to their own number.
         mpesa_phone=mpesa_phone or phone,
         session_version=1,
@@ -298,6 +305,8 @@ def _account(
         created_at=now,
         updated_at=now,
     )
+    if role == PartyRole.SELLER:
+        open_store_on(user, now=now)
     db.add(user)
     db.commit()
     return user, password

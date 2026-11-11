@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import TransactionStatus
-from app.models.user import UserRole
+from app.models.user import PartyRole, UserRole
 from sqlalchemy.orm import Session
 
 from tests.test_dispute_summary import _clear_overrides, db  # noqa: F401  (fixtures)
@@ -17,9 +17,9 @@ from tests.test_transaction_list import db as _db_fixture  # noqa: F401
 @pytest.fixture
 def shop(db: Session) -> dict[str, Any]:
     admin = _user(UserRole.ADMIN, "Vekro Support", "+254700000001")
-    amina = _user(UserRole.SELLER, "Amina Gadgets", "+254722118904")
-    juma = _user(UserRole.SELLER, "Juma Shoes", "+254733445566")
-    brian = _user(UserRole.BUYER, "Brian Otieno", "+254712345678")
+    amina = _user(PartyRole.SELLER, "Amina Gadgets", "+254722118904")
+    juma = _user(PartyRole.SELLER, "Juma Shoes", "+254733445566")
+    brian = _user(PartyRole.BUYER, "Brian Otieno", "+254712345678")
     db.add_all([admin, amina, juma, brian])
     db.flush()
     phone = _listing(amina, "iPhone 13, 128GB, Midnight", "52000.00")

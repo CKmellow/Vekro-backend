@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Literal
 
 from app.models.notification import NotificationEventType as E
-from app.models.user import User, UserRole
+from app.models.user import User
 
 Category = Literal["payment_received", "delivery", "returns", "support"]
 Channel = Literal["in_app", "sms"]
@@ -53,7 +53,7 @@ def set_preferences(user: User, wanted: dict[str, dict[str, bool]]) -> None:
 
 
 def muted_event_types(user: User, channel: Channel) -> set[E]:
-    if user.role != UserRole.SELLER or not user.notification_prefs:
+    if not user.has_store or not user.notification_prefs:
         return set()
     prefs = preferences(user)
     return {event for event, category in CATEGORY_BY_EVENT.items() if not prefs[category][channel]}

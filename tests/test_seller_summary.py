@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from app.main import app
 from app.models.transaction import TransactionStatus
-from app.models.user import UserRole
+from app.models.user import PartyRole
 from app.services.transaction_summary import seller_summary
 from sqlalchemy.orm import Session
 
@@ -27,9 +27,9 @@ def _clear_overrides() -> Iterator[None]:
 
 @pytest.fixture
 def shop(db: Session) -> dict[str, Any]:
-    seller = _user(UserRole.SELLER, "Amina Gadgets", "+254722118904")
-    other = _user(UserRole.SELLER, "Other Shop", "+254722000000")
-    buyer = _user(UserRole.BUYER, "Brian Otieno", "+254712345678")
+    seller = _user(PartyRole.SELLER, "Amina Gadgets", "+254722118904")
+    other = _user(PartyRole.SELLER, "Other Shop", "+254722000000")
+    buyer = _user(PartyRole.BUYER, "Brian Otieno", "+254712345678")
     db.add_all([seller, other, buyer])
     db.flush()
 
@@ -104,7 +104,7 @@ def test_buyers_are_refused(monkeypatch, db, shop) -> None:
 
 
 def test_empty_shop_has_zero_totals(db) -> None:
-    seller = _user(UserRole.SELLER, "New Shop", "+254722555555")
+    seller = _user(PartyRole.SELLER, "New Shop", "+254722555555")
     db.add(seller)
     db.commit()
 

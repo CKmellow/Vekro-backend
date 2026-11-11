@@ -6,7 +6,7 @@ import pytest
 from app.models.listing import Listing
 from app.models.listing_photo import ListingPhoto
 from app.models.transaction import Transaction
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.schemas.transaction import PaymentCallbackRequest
 from app.services import transaction as tx
 from app.services.demo_reset import (
@@ -88,7 +88,7 @@ def test_new_accounts_on_a_fresh_series_hide_old_orders() -> None:
     assert all(a.password for a in result.accounts)
     buyer = db.execute(select(User).where(User.phone == phones["buyer"])).scalar_one()
     # Prompts go to the payer phone; the login is the new demo number.
-    assert buyer.mpesa_phone == PAYER and buyer.role == UserRole.BUYER
+    assert buyer.mpesa_phone == PAYER and buyer.party_role == PartyRole.BUYER
     admin = db.execute(select(User).where(User.phone == phones["admin"])).scalar_one()
     assert admin.role == UserRole.ADMIN
     seller = db.execute(select(User).where(User.phone == phones["seller"])).scalar_one()

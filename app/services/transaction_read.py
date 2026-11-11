@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models.listing import Listing
 from app.models.transaction import Transaction
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 
 
 class TransactionNotVisibleError(Exception):
@@ -18,7 +18,7 @@ class TransactionView:
     listing: Listing
     buyer: User
     seller: User
-    viewer_role: UserRole
+    viewer_role: PartyRole
 
 
 def get_transaction_for_viewer(
@@ -33,11 +33,11 @@ def get_transaction_for_viewer(
         raise TransactionNotVisibleError("Transaction not found.")
 
     if viewer.role == UserRole.ADMIN:
-        viewer_role = UserRole.ADMIN
+        viewer_role = PartyRole.ADMIN
     elif viewer.id == transaction.buyer_id:
-        viewer_role = UserRole.BUYER
+        viewer_role = PartyRole.BUYER
     elif viewer.id == transaction.seller_id:
-        viewer_role = UserRole.SELLER
+        viewer_role = PartyRole.SELLER
     else:
         raise TransactionNotVisibleError("Transaction not found.")
 

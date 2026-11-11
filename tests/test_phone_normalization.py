@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 from app.core.phone import normalize_phone
-from app.models.user import UserRole
+from app.models.user import PartyRole
 from app.schemas.auth import LoginRequest, RegisterUserRequest
 from app.services.custody.dto import FundingRequest, PayoutRequest
 from app.services.payment import PaymentRequest
@@ -25,7 +25,7 @@ def test_register_request_normalizes_phone_fields() -> None:
     payload = RegisterUserRequest(
         name="Buyer",
         phone="0712345678",
-        role=UserRole.BUYER,
+        role=PartyRole.BUYER,
         password="strong-pass-123",
         mpesa_phone="254712345678",
     )

@@ -85,7 +85,7 @@ def register(
         "register_success user_id=%s phone=%s role=%s client_ip=%s",
         created_user.id,
         created_user.phone,
-        created_user.role,
+        created_user.party_role,
         get_client_identifier(request),
     )
     return RegisterUserResponse.model_validate(created_user)
@@ -199,19 +199,7 @@ def _open_session(response: Response, authenticated: AuthenticatedSession) -> Lo
         path="/",
     )
 
-    return LoginResponse(
-        id=authenticated.user.id,
-        name=authenticated.user.name,
-        phone=authenticated.user.phone,
-        role=authenticated.user.role,
-        mpesa_phone=authenticated.user.mpesa_phone,
-        mpesa_account_name=authenticated.user.mpesa_account_name,
-        is_active=authenticated.user.is_active,
-        created_at=authenticated.user.created_at,
-        session_expires_at=authenticated.expires_at,
-        google_email=authenticated.user.google_email,
-        has_password=authenticated.user.has_password is not False,
-    )
+    return LoginResponse.for_user(authenticated.user, authenticated.expires_at)
 
 
 @router.post(
@@ -374,16 +362,4 @@ def me(
             detail="Authentication required.",
         )
 
-    return LoginResponse(
-        id=current_user.id,
-        name=current_user.name,
-        phone=current_user.phone,
-        role=current_user.role,
-        mpesa_phone=current_user.mpesa_phone,
-        mpesa_account_name=current_user.mpesa_account_name,
-        is_active=current_user.is_active,
-        created_at=current_user.created_at,
-        session_expires_at=current_session.expires_at,
-        google_email=current_user.google_email,
-        has_password=current_user.has_password is not False,
-    )
+    return LoginResponse.for_user(current_user, current_session.expires_at)

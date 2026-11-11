@@ -15,7 +15,7 @@ from app.main import app
 from app.models.listing import Listing
 from app.models.payment_prompt import PaymentPrompt
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.services.auth import ActiveSessionContext
 from app.services.deadlines import (
@@ -33,6 +33,7 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from tests.accounts import account_fields
 from tests.sqlite_tables import create_disputes_table
 
 
@@ -49,9 +50,9 @@ def _user(role: UserRole, name: str, phone: str) -> User:
         id=uuid.uuid4(),
         name=name,
         phone=phone,
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
-        mpesa_phone=phone if role == UserRole.SELLER else None,
+        mpesa_phone=phone if role == PartyRole.SELLER else None,
         mpesa_account_name=None,
         session_version=1,
         is_active=True,
@@ -90,9 +91,9 @@ def db() -> Iterator[Session]:
 
 @pytest.fixture
 def parties(db: Session) -> dict[str, Any]:
-    buyer = _user(UserRole.BUYER, "Wanjiku Buyer", "+254712345678")
-    seller = _user(UserRole.SELLER, "Amina Gadgets", "+254722118904")
-    stranger = _user(UserRole.BUYER, "Someone Else", "+254733000111")
+    buyer = _user(PartyRole.BUYER, "Wanjiku Buyer", "+254712345678")
+    seller = _user(PartyRole.SELLER, "Amina Gadgets", "+254722118904")
+    stranger = _user(PartyRole.BUYER, "Someone Else", "+254733000111")
     admin = _user(UserRole.ADMIN, "Vekro Support", "+254700000001")
     listing = Listing(
         id=uuid.uuid4(),

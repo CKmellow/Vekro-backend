@@ -9,13 +9,15 @@ from app.core.settings import get_settings
 from app.main import app
 from app.models.dispute import Dispute, DisputeStatus, DisputeType
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.routers import disputes as disputes_router
 from app.services.auth import ActiveSessionContext
 from app.services.dispute import EscalationQueueItem, list_escalated_disputes
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+
+from tests.accounts import account_fields
 
 
 class _FakeQueueResult:
@@ -40,7 +42,7 @@ def _build_user(role: UserRole) -> User:
         id=uuid.uuid4(),
         name=f"{role.value.title()} User",
         phone="+254700123456",
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         mpesa_phone=None,
         mpesa_account_name=None,
@@ -121,7 +123,7 @@ def test_escalation_queue_requires_authentication() -> None:
 
 
 def test_escalation_queue_rejects_non_admin(monkeypatch) -> None:
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.get("/admin/disputes/escalation-queue")
 
     assert response.status_code == 403

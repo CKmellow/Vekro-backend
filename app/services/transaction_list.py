@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.listing import Listing
 from app.models.listing_photo import ListingPhoto
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.services.dispute_summary import latest_categories
 
 
@@ -87,17 +87,39 @@ class OrderPage:
     total: int
     page: int
     page_size: int
-    viewer_role: UserRole
+    viewer_role: PartyRole
     segment_counts: dict[OrderSegment, int]
     status_counts: dict[TransactionStatus, int]
 
 
-def _owner_clause(viewer: User):
-    if viewer.role == UserRole.BUYER:
+class OrderSide(StrEnum):
+    BUYING = "buying"
+    SELLING = "selling"
+
+
+SIDE_ROLE = {OrderSide.BUYING: PartyRole.BUYER, OrderSide.SELLING: PartyRole.SELLER}
+
+
+def resolve_side(viewer: User, side: PartyRole | None) -> PartyRole:
+    """Which side of the viewer's orders to list: ``as=buying`` or ``as=selling``.
+
+    Without one, an account with a store sees its sales and any other account its purchases, as
+    before M28. Admins have no orders of their own."""
+    if viewer.role == UserRole.ADMIN:
+        raise OrderListForbiddenError("Only buyers and sellers can list their orders.")
+    if side is None:
+        return PartyRole.SELLER if viewer.has_store else PartyRole.BUYER
+    if side == PartyRole.SELLER and not viewer.has_store:
+        raise OrderListForbiddenError("Open a store to see orders as a seller.")
+    if side not in (PartyRole.BUYER, PartyRole.SELLER):
+        raise OrderListForbiddenError("Only buyers and sellers can list their orders.")
+    return side
+
+
+def _owner_clause(viewer: User, side: PartyRole):
+    if side == PartyRole.BUYER:
         return Transaction.buyer_id == viewer.id
-    if viewer.role == UserRole.SELLER:
-        return Transaction.seller_id == viewer.id
-    raise OrderListForbiddenError("Only buyers and sellers can list their orders.")
+    return Transaction.seller_id == viewer.id
 
 
 def _ordered(query: Select, sort: OrderSort) -> Select:
@@ -120,9 +142,11 @@ def list_orders_for_viewer(
     sort: OrderSort = OrderSort.NEWEST,
     page: int = 1,
     page_size: int = 20,
+    side: PartyRole | None = None,
 ) -> OrderPage:
     """One page of the viewer's orders. Counts cover all their orders, before any filter."""
-    owner = _owner_clause(viewer)
+    side = resolve_side(viewer, side)
+    owner = _owner_clause(viewer, side)
 
     status_counts = {
         status: int(count)
@@ -154,7 +178,7 @@ def list_orders_for_viewer(
     rows = db.execute(_ordered(query, sort).offset((page - 1) * page_size).limit(page_size)).all()
 
     counterpart_ids = {
-        row.Transaction.seller_id if viewer.role == UserRole.BUYER else row.Transaction.buyer_id
+        row.Transaction.seller_id if side == PartyRole.BUYER else row.Transaction.buyer_id
         for row in rows
     }
     users = (
@@ -178,11 +202,7 @@ def list_orders_for_viewer(
             transaction=row.Transaction,
             listing=row.Listing,
             counterpart=users[
-                (
-                    row.Transaction.seller_id
-                    if viewer.role == UserRole.BUYER
-                    else row.Transaction.buyer_id
-                )
+                (row.Transaction.seller_id if side == PartyRole.BUYER else row.Transaction.buyer_id)
             ],
             cover_photo_id=covers.get(row.Listing.id),
             dispute_category=categories.get(row.Transaction.id),
@@ -194,7 +214,7 @@ def list_orders_for_viewer(
         total=total,
         page=page,
         page_size=page_size,
-        viewer_role=viewer.role,
+        viewer_role=side,
         segment_counts=segment_counts,
         status_counts=status_counts,
     )

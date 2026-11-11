@@ -8,7 +8,7 @@ from app.core.security import hash_session_token
 from app.core.settings import Settings, get_settings
 from app.db.session import get_db
 from app.main import app
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.services.auth import ActiveSessionContext
 from app.services.custody.rail_breaker import RailBreakerPolicy, record_rail_failure
@@ -17,6 +17,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+
+from tests.accounts import account_fields
 
 
 def _build_db_session() -> Session:
@@ -99,7 +101,7 @@ def _build_user(role: UserRole) -> User:
         id=uuid.uuid4(),
         name=f"{role.value.title()} User",
         phone="+254700123456",
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         mpesa_phone=None,
         mpesa_account_name=None,
@@ -158,7 +160,7 @@ def test_admin_rail_health_rejects_non_admin(monkeypatch: pytest.MonkeyPatch) ->
         app.state.custody_registry = build_custody_registry(_settings())
         app.dependency_overrides[get_db] = _override_get_db
 
-        client = _authenticated_client(monkeypatch, UserRole.BUYER)
+        client = _authenticated_client(monkeypatch, PartyRole.BUYER)
         response = client.get("/admin/rails/health")
         assert response.status_code == 403
     finally:

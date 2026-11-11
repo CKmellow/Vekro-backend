@@ -1127,6 +1127,24 @@
               "title": "Channel"
             },
             "description": "Only this channel."
+          },
+          {
+            "name": "audience",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/NotificationAudience"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the buying or only the selling side (one shell each).",
+              "title": "Audience"
+            },
+            "description": "Only the buying or only the selling side (one shell each)."
           }
         ],
         "responses": {
@@ -1160,6 +1178,26 @@
         ],
         "summary": "Count unread in-app notifications",
         "operationId": "get_unread_count_notifications_unread_count_get",
+        "parameters": [
+          {
+            "name": "audience",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/NotificationAudience"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the buying or only the selling side (one shell each).",
+              "title": "Audience"
+            },
+            "description": "Only the buying or only the selling side (one shell each)."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1173,6 +1211,16 @@
           },
           "401": {
             "description": "Authentication required."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
         }
       }
@@ -1494,6 +1542,24 @@
               "default": 20,
               "title": "Page Size"
             }
+          },
+          {
+            "name": "as",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/OrderSide"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "buying: orders this account paid for; selling: its store's orders. Default: selling for an account with a store, else buying.",
+              "title": "As"
+            },
+            "description": "buying: orders this account paid for; selling: its store's orders. Default: selling for an account with a store, else buying."
           }
         ],
         "responses": {
@@ -4608,7 +4674,7 @@
           "Account"
         ],
         "summary": "Set or change the USSD PIN",
-        "description": "The 4-digit PIN asked for before sensitive actions over USSD (*384*…#). Needs the account password. Three wrong PINs over USSD lock USSD actions for 15 minutes.",
+        "description": "The 4-digit PIN asked for before sensitive actions over USSD (*384*\u2026#). Needs the account password. Three wrong PINs over USSD lock USSD actions for 15 minutes.",
         "operationId": "post_ussd_pin_account_ussd_pin_post",
         "requestBody": {
           "content": {
@@ -7413,6 +7479,18 @@
           "seller": {
             "$ref": "#/components/schemas/ListingSellerSummary"
           },
+          "store_ready": {
+            "type": "boolean",
+            "title": "Store Ready",
+            "description": "False while the seller's store can't take orders (no SMS-verified payout number, or the store is closed): show the listing, refuse payment.",
+            "default": true
+          },
+          "is_own_listing": {
+            "type": "boolean",
+            "title": "Is Own Listing",
+            "description": "True when the signed-in caller is this listing's seller (they can't buy it).",
+            "default": false
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -7541,7 +7619,25 @@
             "title": "Phone"
           },
           "role": {
-            "$ref": "#/components/schemas/UserRole"
+            "$ref": "#/components/schemas/PartyRole",
+            "description": "Kept for clients from before M28: admin, seller (store active) or buyer. Use account_type and store.",
+            "deprecated": true
+          },
+          "account_type": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "member (buys, and sells with a store) or admin.",
+            "default": "member"
+          },
+          "store": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoreSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The account's store; null for admins."
           },
           "mpesa_phone": {
             "anyOf": [
@@ -7981,6 +8077,15 @@
         ],
         "title": "MoneyTotal"
       },
+      "NotificationAudience": {
+        "type": "string",
+        "enum": [
+          "buying",
+          "selling"
+        ],
+        "title": "NotificationAudience",
+        "description": "Which shell a notification belongs in: the account's purchases or its store's sales."
+      },
       "NotificationChannel": {
         "type": "string",
         "enum": [
@@ -8123,6 +8228,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "audience": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "buying",
+                  "selling"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audience",
+            "description": "buying: about an order this account paid for; selling: about its store's order. Each shell lists its own."
           }
         },
         "type": "object",
@@ -8206,6 +8327,14 @@
         ],
         "title": "OrderSegmentCounts",
         "description": "How many of the caller's orders are in each list segment."
+      },
+      "OrderSide": {
+        "type": "string",
+        "enum": [
+          "buying",
+          "selling"
+        ],
+        "title": "OrderSide"
       },
       "OrderSort": {
         "type": "string",
@@ -8296,6 +8425,16 @@
           "disputed"
         ],
         "title": "OutcomeWeek"
+      },
+      "PartyRole": {
+        "type": "string",
+        "enum": [
+          "buyer",
+          "seller",
+          "admin"
+        ],
+        "title": "PartyRole",
+        "description": "How someone takes part: the side of an order they are on, or the area a login opens.\n\n``role`` in the auth API is derived from it (admin, seller when the store is active, else\nbuyer), so clients written before M28 keep working."
       },
       "PasswordChange": {
         "properties": {
@@ -9021,7 +9160,8 @@
             "description": "Primary login phone number in digits with optional leading +."
           },
           "role": {
-            "$ref": "#/components/schemas/UserRole"
+            "$ref": "#/components/schemas/PartyRole",
+            "description": "buyer: an account that buys; seller: the same, with a store opened at sign-up."
           },
           "password": {
             "type": "string",
@@ -9083,7 +9223,7 @@
             "title": "Phone"
           },
           "role": {
-            "$ref": "#/components/schemas/UserRole"
+            "$ref": "#/components/schemas/PartyRole"
           },
           "mpesa_phone": {
             "anyOf": [
@@ -9723,6 +9863,73 @@
         ],
         "title": "SellerTrackRecordResponse"
       },
+      "StoreStatus": {
+        "type": "string",
+        "enum": [
+          "none",
+          "active",
+          "closed"
+        ],
+        "title": "StoreStatus"
+      },
+      "StoreSummary": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/StoreStatus"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "The shop name, once set."
+          },
+          "opened_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opened At"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "payout_ready": {
+            "type": "boolean",
+            "title": "Payout Ready",
+            "description": "True when an SMS code has proved the payout number. Until then the store takes no new orders and the seller sees \"Finish setup: add payout number (SMS-verified)\"."
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "name",
+          "opened_at",
+          "closed_at",
+          "payout_ready"
+        ],
+        "title": "StoreSummary",
+        "description": "The account's store (M28): selling is a capability of the account."
+      },
       "SumLeafResponse": {
         "properties": {
           "salt": {
@@ -10145,7 +10352,7 @@
             "title": "Updated At"
           },
           "viewer_role": {
-            "$ref": "#/components/schemas/UserRole",
+            "$ref": "#/components/schemas/PartyRole",
             "description": "How the caller relates to this transaction."
           },
           "listing": {
@@ -10534,7 +10741,7 @@
             "title": "Amount"
           },
           "viewer_role": {
-            "$ref": "#/components/schemas/UserRole"
+            "$ref": "#/components/schemas/PartyRole"
           },
           "listing": {
             "$ref": "#/components/schemas/TransactionSummaryListing"
@@ -10764,11 +10971,11 @@
       "UserRole": {
         "type": "string",
         "enum": [
-          "buyer",
-          "seller",
+          "member",
           "admin"
         ],
-        "title": "UserRole"
+        "title": "UserRole",
+        "description": "What an account is (M28, docs/accounts-and-modes.md): every member can buy, and sells when\nit has a store. Admin is separate: never a store, never an order."
       },
       "UssdPinRequest": {
         "properties": {

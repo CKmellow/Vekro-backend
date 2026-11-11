@@ -8,7 +8,7 @@ from app.core.settings import get_settings
 from app.main import app
 from app.models.listing import Listing
 from app.models.transaction import TransactionStatus
-from app.models.user import UserRole
+from app.models.user import PartyRole
 from app.schemas.transaction import CreateTransactionRequest
 from app.services.transaction import TransactionValidationError, create_transaction
 from fastapi.testclient import TestClient
@@ -38,9 +38,9 @@ def _clear_overrides() -> Iterator[None]:
 
 @pytest.fixture
 def shop(db: Session) -> dict[str, Any]:
-    seller = _user(UserRole.SELLER, "Amina Gadgets", "+254722118904")
-    other = _user(UserRole.SELLER, "Other Shop", "+254722000000")
-    buyer = _user(UserRole.BUYER, "Brian Otieno", "+254712345678")
+    seller = _user(PartyRole.SELLER, "Amina Gadgets", "+254722118904")
+    other = _user(PartyRole.SELLER, "Other Shop", "+254722000000")
+    buyer = _user(PartyRole.BUYER, "Brian Otieno", "+254712345678")
     db.add_all([seller, other, buyer])
     db.flush()
     open_listing = _listing(seller, "Nike Air Force 1 size 42", "6500.00")

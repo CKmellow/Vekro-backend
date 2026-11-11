@@ -8,7 +8,7 @@ from app.models.dispute import Dispute, DisputeStatus
 from app.models.listing import Listing
 from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.schemas.transaction import PaymentCallbackRequest
 from app.services import transaction as transaction_service
 from app.services.transaction import (
@@ -27,6 +27,8 @@ from app.services.transaction import (
     submit_buyer_reconfirmation,
 )
 from sqlalchemy.orm import Session
+
+from tests.accounts import account_fields
 
 
 class _QueryResult:
@@ -90,7 +92,7 @@ def _build_user(role: UserRole) -> User:
         id=uuid.uuid4(),
         name=f"{role.value.title()} User",
         phone="+254700123456",
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         mpesa_phone=None,
         mpesa_account_name=None,
@@ -152,8 +154,8 @@ def _build_callback_payload(transaction_id: uuid.UUID) -> PaymentCallbackRequest
 
 
 def test_state_machine_core_escrow_happy_path_non_serialized(monkeypatch) -> None:
-    buyer = _build_user(UserRole.BUYER)
-    seller = _build_user(UserRole.SELLER)
+    buyer = _build_user(PartyRole.BUYER)
+    seller = _build_user(PartyRole.SELLER)
     listing = _build_listing(seller_id=seller.id, serialized=False)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -198,8 +200,8 @@ def test_state_machine_core_escrow_happy_path_non_serialized(monkeypatch) -> Non
 
 
 def test_state_machine_dispute_flow_rejection_escalates_on_second_retry() -> None:
-    buyer = _build_user(UserRole.BUYER)
-    seller = _build_user(UserRole.SELLER)
+    buyer = _build_user(PartyRole.BUYER)
+    seller = _build_user(PartyRole.SELLER)
     listing = _build_listing(seller_id=seller.id, serialized=True)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -277,7 +279,7 @@ def test_state_machine_dispute_flow_rejection_escalates_on_second_retry() -> Non
 
 
 def test_state_machine_rejects_invalid_dispatch_transition() -> None:
-    seller = _build_user(UserRole.SELLER)
+    seller = _build_user(PartyRole.SELLER)
     listing = _build_listing(seller_id=seller.id, serialized=False)
     transaction = _build_transaction(
         buyer_id=uuid.uuid4(),
@@ -299,7 +301,7 @@ def test_state_machine_rejects_invalid_dispatch_transition() -> None:
 
 
 def test_state_machine_rejects_invalid_arrival_transition() -> None:
-    seller = _build_user(UserRole.SELLER)
+    seller = _build_user(PartyRole.SELLER)
     listing = _build_listing(seller_id=seller.id, serialized=False)
     transaction = _build_transaction(
         buyer_id=uuid.uuid4(),
@@ -321,8 +323,8 @@ def test_state_machine_rejects_invalid_arrival_transition() -> None:
 
 
 def test_state_machine_rejects_invalid_otp_confirmation_transition() -> None:
-    buyer = _build_user(UserRole.BUYER)
-    seller = _build_user(UserRole.SELLER)
+    buyer = _build_user(PartyRole.BUYER)
+    seller = _build_user(PartyRole.SELLER)
     listing = _build_listing(seller_id=seller.id, serialized=False)
     transaction = _build_transaction(
         buyer_id=buyer.id,
@@ -346,7 +348,7 @@ def test_state_machine_rejects_invalid_otp_confirmation_transition() -> None:
 
 def test_state_machine_timeout_rules_cover_critical_paths(monkeypatch) -> None:
     now = datetime.now(UTC)
-    seller = _build_user(UserRole.SELLER)
+    seller = _build_user(PartyRole.SELLER)
     listing = _build_listing(seller_id=seller.id, serialized=True)
 
     at_door_txn = _build_transaction(
@@ -441,7 +443,7 @@ def test_state_machine_timeout_rules_cover_critical_paths(monkeypatch) -> None:
 
 def test_state_machine_locked_timeout_rule_is_idempotent(monkeypatch) -> None:
     now = datetime.now(UTC)
-    seller = _build_user(UserRole.SELLER)
+    seller = _build_user(PartyRole.SELLER)
     listing = _build_listing(seller_id=seller.id, serialized=False)
     locked_txn = _build_transaction(
         buyer_id=uuid.uuid4(),

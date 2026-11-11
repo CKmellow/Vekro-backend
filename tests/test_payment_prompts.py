@@ -15,7 +15,7 @@ from app.models.listing import Listing
 from app.models.notification import Notification
 from app.models.payment_prompt import PaymentFailureReason, PaymentPrompt
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.services import payment_prompts
 from app.services.auth import ActiveSessionContext
@@ -32,6 +32,7 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from tests.accounts import account_fields
 from tests.sqlite_tables import create_disputes_table
 
 
@@ -48,7 +49,7 @@ def _user(role: UserRole, phone: str, mpesa_phone: str | None = None) -> User:
         id=uuid.uuid4(),
         name=f"{role.value} user",
         phone=phone,
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         mpesa_phone=mpesa_phone,
         mpesa_account_name=None,
@@ -95,9 +96,9 @@ def db() -> Iterator[Session]:
 
 @pytest.fixture
 def world(db: Session) -> dict[str, Any]:
-    buyer = _user(UserRole.BUYER, "+254712345678")
-    other_buyer = _user(UserRole.BUYER, "+254733000111")
-    seller = _user(UserRole.SELLER, "+254722118904", "+254722118904")
+    buyer = _user(PartyRole.BUYER, "+254712345678")
+    other_buyer = _user(PartyRole.BUYER, "+254733000111")
+    seller = _user(PartyRole.SELLER, "+254722118904", "+254722118904")
     listing = Listing(
         id=uuid.uuid4(),
         seller_id=seller.id,
@@ -321,8 +322,9 @@ def test_resend_is_for_the_buyer_only(monkeypatch, db, world) -> None:
     created = _create(monkeypatch, db, world)
     _age_prompts(db, RESEND_COOLDOWN)
 
+    # Sellers can buy too (M28), so the order's seller is just not its buyer: not found.
     seller = _client_as(monkeypatch, db, world["seller"])
-    assert seller.post(f"/transactions/{created['id']}/payment/resend").status_code == 403
+    assert seller.post(f"/transactions/{created['id']}/payment/resend").status_code == 404
 
     other = _client_as(monkeypatch, db, world["other_buyer"])
     assert other.post(f"/transactions/{created['id']}/payment/resend").status_code == 404

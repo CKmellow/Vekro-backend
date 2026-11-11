@@ -273,7 +273,7 @@ def verify_phone_code(
     current = now or datetime.now(UTC)
     user = db.execute(select(User).where(User.phone == phone)).scalar_one_or_none()
     consume_phone_code(db, phone, code, "sign_in", now=current)
-    if user is not None and user.role != UserRole.BUYER:
+    if user is not None and (user.role == UserRole.ADMIN or user.has_store):
         db.rollback()
         raise PhoneNotBuyerError
     if user is not None and not user.is_active:
@@ -285,7 +285,7 @@ def verify_phone_code(
         user = User(
             name=NEW_BUYER_NAME,
             phone=phone,
-            role=UserRole.BUYER,
+            role=UserRole.MEMBER,
             password_hash=hash_password(secrets.token_urlsafe(32)),
         )
         db.add(user)

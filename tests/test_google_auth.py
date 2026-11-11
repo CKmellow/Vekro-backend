@@ -22,7 +22,7 @@ from app.db.session import get_db
 from app.main import app
 from app.models.oauth import GoogleSignup, OAuthState
 from app.models.phone_code import PhoneCode
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.services import google_auth, phone_auth
 from app.services.google_auth import (
@@ -45,6 +45,8 @@ from pydantic import SecretStr
 from sqlalchemy import Table, create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+
+from tests.accounts import account_fields
 
 CLIENT_ID = "client-123.apps.googleusercontent.com"
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -151,7 +153,7 @@ def _user(db: Session, phone: str, role: UserRole, **extra) -> User:
     user = User(
         name=f"{role.value} user",
         phone=phone,
-        role=role,
+        **account_fields(role),
         password_hash=hash_password("Correct-Horse-9"),
         session_version=1,
         is_active=True,
@@ -203,7 +205,7 @@ def test_the_request_carries_state_nonce_and_an_s256_challenge_of_a_server_side_
 
 
 def test_the_code_exchange_sends_the_pkce_verifier_and_a_wrong_one_is_refused(db, _google) -> None:
-    owner = _user(db, "+254711000001", UserRole.SELLER, google_sub=_google.sub)
+    owner = _user(db, "+254711000001", PartyRole.SELLER, google_sub=_google.sub)
     result = _login(db, _google)
     assert result.kind == "signed_in" and result.user.id == owner.id
     sent = _google.exchanges[-1]
@@ -223,7 +225,7 @@ def test_the_code_exchange_sends_the_pkce_verifier_and_a_wrong_one_is_refused(db
 
 
 def test_a_replayed_callback_is_refused(db, _google) -> None:
-    _user(db, "+254711000001", UserRole.SELLER, google_sub=_google.sub)
+    _user(db, "+254711000001", PartyRole.SELLER, google_sub=_google.sub)
     url, state = start_authorization(db, get_settings(), mode="login")
     _google.authorize(url)
     first = complete_callback(
@@ -269,7 +271,7 @@ def test_an_expired_state_is_refused(db, _google) -> None:
 
 
 def test_a_token_with_another_nonce_is_refused(db, _google) -> None:
-    _user(db, "+254711000001", UserRole.SELLER, google_sub=_google.sub)
+    _user(db, "+254711000001", PartyRole.SELLER, google_sub=_google.sub)
     _google.overrides = {"nonce": "a-nonce-from-another-request"}
     with pytest.raises(GoogleAuthError) as refused:
         _login(db, _google)
@@ -340,9 +342,9 @@ def test_an_admin_who_linked_google_can_sign_in_with_it(db, _google) -> None:
 
 
 def test_a_matching_email_never_links_an_account(db, _google) -> None:
-    buyer = _user(db, "+254711000002", UserRole.BUYER, google_email=_google.email)
+    buyer = _user(db, "+254711000002", PartyRole.BUYER, google_email=_google.email)
     seller = _user(
-        db, "+254711000003", UserRole.SELLER, google_sub="another-sub", google_email=_google.email
+        db, "+254711000003", PartyRole.SELLER, google_sub="another-sub", google_email=_google.email
     )
     result = _login(db, _google)
     assert result.kind == "signup"
@@ -352,8 +354,8 @@ def test_a_matching_email_never_links_an_account(db, _google) -> None:
 
 
 def test_linking_a_google_account_already_linked_elsewhere_is_refused(db, _google) -> None:
-    _user(db, "+254711000004", UserRole.SELLER, google_sub=_google.sub)
-    buyer = _user(db, "+254711000005", UserRole.BUYER)
+    _user(db, "+254711000004", PartyRole.SELLER, google_sub=_google.sub)
+    buyer = _user(db, "+254711000005", PartyRole.BUYER)
     url, state = start_authorization(
         db, get_settings(), mode="link", user=buyer, return_to="/buyer/orders"
     )
@@ -366,7 +368,7 @@ def test_linking_a_google_account_already_linked_elsewhere_is_refused(db, _googl
 
 
 def test_a_buyer_links_google_and_only_sub_and_email_are_kept(db, _google) -> None:
-    buyer = _user(db, "+254711000006", UserRole.BUYER)
+    buyer = _user(db, "+254711000006", PartyRole.BUYER)
     url, state = start_authorization(db, get_settings(), mode="link", user=buyer)
     _google.authorize(url)
     complete_callback(db, get_settings(), state=state, cookie_state=state, code="c", error=None)
@@ -401,7 +403,7 @@ def test_a_google_seller_exists_only_after_the_sms_code(db, _google) -> None:
     assert db.execute(select(User)).first() is None
 
     seller = complete_signup(db, signup, phone="0711000007", code=issued.code, name="Kiondo & Co.")
-    assert seller.role == UserRole.SELLER and seller.phone == "+254711000007"
+    assert seller.store_active and seller.store_payout_ready and seller.phone == "+254711000007"
     assert seller.google_sub == _google.sub and seller.has_password is False
     assert seller.mpesa_phone == "+254711000007"
     assert db.execute(select(GoogleSignup)).first() is None
@@ -410,7 +412,7 @@ def test_a_google_seller_exists_only_after_the_sms_code(db, _google) -> None:
 
 
 def test_a_signup_cannot_take_a_registered_number(db, _google) -> None:
-    _user(db, "+254711000008", UserRole.BUYER)
+    _user(db, "+254711000008", PartyRole.BUYER)
     signup = pending_signup(db, _login(db, _google).signup_token)
     with pytest.raises(GoogleAuthError) as refused:
         request_signup_code(db, signup, "+254711000008", sender_provider=lambda: None)
@@ -418,12 +420,12 @@ def test_a_signup_cannot_take_a_registered_number(db, _google) -> None:
 
 
 def test_unlinking_needs_another_way_in(db, _google) -> None:
-    google_only = _user(db, "+254711000009", UserRole.SELLER, google_sub="s9", has_password=False)
+    google_only = _user(db, "+254711000009", PartyRole.SELLER, google_sub="s9", has_password=False)
     with pytest.raises(GoogleAuthError) as refused:
         unlink_google(db, google_only)
     assert refused.value.code == "password_needed" and google_only.google_sub == "s9"
     buyer = _user(
-        db, "+254711000010", UserRole.BUYER, google_sub="s10", google_email="b@example.com"
+        db, "+254711000010", PartyRole.BUYER, google_sub="s10", google_email="b@example.com"
     )
     unlink_google(db, buyer)
     assert buyer.google_sub is None and buyer.google_email is None
@@ -470,7 +472,7 @@ def _start(client: TestClient, fake: FakeGoogle) -> str:
 
 
 def test_routes_sign_in_by_google_and_a_replay_is_turned_away(client, factory, _google) -> None:
-    _user(factory(), "+254711000011", UserRole.SELLER, google_sub=_google.sub)
+    _user(factory(), "+254711000011", PartyRole.SELLER, google_sub=_google.sub)
     state = _start(client, _google)
     done = client.get("/auth/google/callback", params={"state": state, "code": "c"})
     assert done.status_code == 302 and done.headers["location"] == "/login?google=signed_in"

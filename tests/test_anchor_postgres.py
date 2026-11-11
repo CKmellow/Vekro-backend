@@ -17,6 +17,7 @@ import uuid
 
 import pytest
 from app.models.anchor_event import AnchorEvent
+from app.models.user import PartyRole
 from app.services.anchoring.recorder import record_anchor_event, record_transaction_created
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.exc import DBAPIError
@@ -39,13 +40,15 @@ def sessions():
 
 def _transaction(factory) -> uuid.UUID:
     from app.models.transaction import Transaction, TransactionStatus
-    from app.models.user import UserRole
+    from app.models.user import PartyRole
 
     suffix = f"{uuid.uuid4().int % 10**4:04d}"
-    buyer = _build_user(role=UserRole.BUYER, suffix=suffix)
+    buyer = _build_user(role=PartyRole.BUYER, suffix=suffix)
     buyer.phone = f"+2547{uuid.uuid4().int % 10**8:08d}"
-    seller = _build_user(role=UserRole.SELLER, suffix=suffix)
+    seller = _build_user(role=PartyRole.SELLER, suffix=suffix)
     seller.phone = f"+2547{uuid.uuid4().int % 10**8:08d}"
+    # M28: a buyer may not pay from the number the store is paid out to.
+    seller.mpesa_phone = seller.phone
     listing = _build_listing(seller_id=seller.id, serialized=False)
     listing.unique_id = None
     with factory() as db:
@@ -197,7 +200,6 @@ def test_a_real_order_flow_anchors_cleanly_on_postgres(sessions, monkeypatch) ->
     callback funding), dispatch, arrive, accept, and the executor's payout posting."""
     import json
 
-    from app.models.user import UserRole
     from app.schemas.transaction import CreateTransactionRequest
     from app.services import transaction as transaction_service
     from app.services.escrow_service import run_payout_executor_once
@@ -212,10 +214,12 @@ def test_a_real_order_flow_anchors_cleanly_on_postgres(sessions, monkeypatch) ->
     from tests.test_simulated_custody_full_flow import _build_callback_payload
 
     suffix = f"{uuid.uuid4().int % 10**4:04d}"
-    buyer = _build_user(role=UserRole.BUYER, suffix=suffix)
+    buyer = _build_user(role=PartyRole.BUYER, suffix=suffix)
     buyer.phone = f"+2547{uuid.uuid4().int % 10**8:08d}"
-    seller = _build_user(role=UserRole.SELLER, suffix=suffix)
+    seller = _build_user(role=PartyRole.SELLER, suffix=suffix)
     seller.phone = f"+2547{uuid.uuid4().int % 10**8:08d}"
+    # M28: a buyer may not pay from the number the store is paid out to.
+    seller.mpesa_phone = seller.phone
     listing = _build_listing(seller_id=seller.id, serialized=False)
     listing.unique_id = None
     monkeypatch.setattr(transaction_service, "_generate_delivery_otp", lambda: "111222")

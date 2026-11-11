@@ -7,11 +7,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.core.auth_context import CurrentUser, require_buyer_user, require_seller_user
+from app.core.auth_context import CurrentUser, require_member, require_store_owner
 from app.core.settings import get_settings
 from app.db.session import get_db
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User
 from app.schemas.payment_prompt import PaymentInstructionResponse, TransactionCreatedResponse
 from app.schemas.transaction import (
     BuyerReconfirmationRequest,
@@ -94,8 +94,10 @@ from app.services.transaction import (
     withhold_buyer_delivery_otp,
 )
 from app.services.transaction_list import (
+    SIDE_ROLE,
     OrderListForbiddenError,
     OrderSegment,
+    OrderSide,
     OrderSort,
     list_orders_for_viewer,
 )
@@ -177,7 +179,7 @@ def require_payment_callback_auth(
 )
 def create_buyer_transaction(
     payload: CreateTransactionRequest,
-    current_user: Annotated[User, Depends(require_buyer_user)],
+    current_user: Annotated[User, Depends(require_member)],
     db: Annotated[Session, Depends(get_db)],
     response: Response,
 ) -> TransactionCreatedResponse:
@@ -253,11 +255,22 @@ def list_my_transactions(
     sort: Annotated[OrderSort, Query()] = OrderSort.NEWEST,
     page: Annotated[int, Query(ge=1, le=10_000)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    side: Annotated[
+        OrderSide | None,
+        Query(
+            alias="as",
+            description=(
+                "buying: orders this account paid for; selling: its store's orders. Default: "
+                "selling for an account with a store, else buying."
+            ),
+        ),
+    ] = None,
 ) -> TransactionListResponse:
     try:
         result = list_orders_for_viewer(
             db,
             viewer=current_user,
+            side=SIDE_ROLE[side] if side is not None else None,
             segment=segment,
             statuses=status_filter,
             q=q,
@@ -344,7 +357,7 @@ def get_transaction(
         view,
         payment=_payment_instruction(db, view.transaction.id),
         payout=(
-            seller_payout(db, view.transaction) if view.viewer_role != UserRole.BUYER else None
+            seller_payout(db, view.transaction) if view.viewer_role != PartyRole.BUYER else None
         ),
         dispute=dispute_summary(db, view.transaction.id),
     )
@@ -407,7 +420,7 @@ def get_timeline(
 )
 def refresh_transaction_card_payment(
     transaction_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_buyer_user)],
+    current_user: Annotated[User, Depends(require_member)],
     db: Annotated[Session, Depends(get_db)],
 ) -> PaymentInstructionResponse:
     transaction = db.get(Transaction, transaction_id)
@@ -459,7 +472,7 @@ def refresh_transaction_card_payment(
 )
 def pay_transaction_by_card_instead(
     transaction_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_buyer_user)],
+    current_user: Annotated[User, Depends(require_member)],
     db: Annotated[Session, Depends(get_db)],
     response: Response,
 ) -> PaymentInstructionResponse:
@@ -515,7 +528,7 @@ def pay_transaction_by_card_instead(
 )
 def resend_transaction_payment_prompt(
     transaction_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_buyer_user)],
+    current_user: Annotated[User, Depends(require_member)],
     db: Annotated[Session, Depends(get_db)],
     response: Response,
 ) -> PaymentInstructionResponse:
@@ -617,7 +630,7 @@ def payment_confirmation_callback(
 )
 def dispatch_locked_transaction(
     transaction_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_store_owner)],
     db: Annotated[Session, Depends(get_db)],
 ) -> TransactionResponse:
     try:
@@ -672,7 +685,7 @@ def dispatch_locked_transaction(
 )
 def mark_delivery_arrival(
     transaction_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_store_owner)],
     db: Annotated[Session, Depends(get_db)],
 ) -> TransactionResponse:
     try:
@@ -728,7 +741,7 @@ def mark_delivery_arrival(
 def confirm_delivery_otp(
     transaction_id: uuid.UUID,
     payload: OtpGiveRequest,
-    current_user: Annotated[User, Depends(require_buyer_user)],
+    current_user: Annotated[User, Depends(require_member)],
     db: Annotated[Session, Depends(get_db)],
 ) -> TransactionResponse:
     try:
@@ -795,7 +808,7 @@ def confirm_delivery_otp(
 )
 def withhold_delivery_otp(
     transaction_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_buyer_user)],
+    current_user: Annotated[User, Depends(require_member)],
     db: Annotated[Session, Depends(get_db)],
     payload: OtpWithholdRequest | None = None,
 ) -> TransactionResponse:
@@ -856,7 +869,7 @@ def withhold_delivery_otp(
 def report_functional_issue_for_transaction(
     transaction_id: uuid.UUID,
     payload: ReportFunctionalIssueRequest,
-    current_user: Annotated[User, Depends(require_buyer_user)],
+    current_user: Annotated[User, Depends(require_member)],
     db: Annotated[Session, Depends(get_db)],
 ) -> TransactionResponse:
     try:
@@ -918,7 +931,7 @@ def report_functional_issue_for_transaction(
 )
 def mark_buyer_sent_back_for_transaction(
     transaction_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_buyer_user)],
+    current_user: Annotated[User, Depends(require_member)],
     db: Annotated[Session, Depends(get_db)],
 ) -> TransactionResponse:
     try:
@@ -972,7 +985,7 @@ def mark_buyer_sent_back_for_transaction(
 )
 def mark_seller_received_for_transaction(
     transaction_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_store_owner)],
     db: Annotated[Session, Depends(get_db)],
 ) -> TransactionResponse:
     try:
@@ -1028,7 +1041,7 @@ def mark_seller_received_for_transaction(
 def apply_seller_resolution_action_for_transaction(
     transaction_id: uuid.UUID,
     payload: SellerResolutionActionRequest,
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_store_owner)],
     db: Annotated[Session, Depends(get_db)],
 ) -> TransactionResponse:
     try:
@@ -1091,7 +1104,7 @@ def apply_seller_resolution_action_for_transaction(
 def submit_buyer_reconfirmation_for_transaction(
     transaction_id: uuid.UUID,
     payload: BuyerReconfirmationRequest,
-    current_user: Annotated[User, Depends(require_buyer_user)],
+    current_user: Annotated[User, Depends(require_member)],
     db: Annotated[Session, Depends(get_db)],
 ) -> TransactionResponse:
     try:
@@ -1148,7 +1161,7 @@ def submit_buyer_reconfirmation_for_transaction(
 )
 def confirm_resolved_buyer_for_transaction(
     transaction_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_buyer_user)],
+    current_user: Annotated[User, Depends(require_member)],
     db: Annotated[Session, Depends(get_db)],
 ) -> TransactionResponse:
     try:
@@ -1203,7 +1216,7 @@ def confirm_resolved_buyer_for_transaction(
 )
 def confirm_resolved_seller_for_transaction(
     transaction_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_store_owner)],
     db: Annotated[Session, Depends(get_db)],
 ) -> TransactionResponse:
     try:

@@ -23,9 +23,10 @@ from app.core.security import hash_password
 from app.models.listing import Listing
 from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import Transaction
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.schemas.transaction import CreateTransactionRequest, PaymentCallbackRequest
 from app.services.payment import MpesaStkStubGateway
+from app.services.store import open_store_on
 from app.services.ussd import set_ussd_pin
 
 
@@ -66,10 +67,10 @@ def seed_ussd_demo(
 
     password = secrets.token_urlsafe(9)
     created_any = False
-    users: dict[UserRole, User] = {}
+    users: dict[PartyRole, User] = {}
     for role, phone, name in (
-        (UserRole.BUYER, buyer_phone, "Demo Buyer"),
-        (UserRole.SELLER, seller_phone, "Demo Seller"),
+        (PartyRole.BUYER, buyer_phone, "Demo Buyer"),
+        (PartyRole.SELLER, seller_phone, "Demo Seller"),
     ):
         number = normalize_phone(phone) or ""
         user = db.execute(select(User).where(User.phone == number)).scalar()
@@ -79,7 +80,8 @@ def seed_ussd_demo(
                 id=uuid.uuid4(),
                 name=name,
                 phone=number,
-                role=role,
+                role=UserRole.MEMBER,
+                payout_verified_at=now if role == PartyRole.SELLER else None,
                 password_hash=hash_password(password),
                 mpesa_phone=number,
                 session_version=1,
@@ -88,14 +90,16 @@ def seed_ussd_demo(
                 created_at=now,
                 updated_at=now,
             )
+            if role == PartyRole.SELLER:
+                open_store_on(user, now=now)
             db.add(user)
             db.commit()
             created_any = True
-        elif user.role != role:
-            raise DemoSeedRefusedError(f"{number} is already a {user.role.value} account.")
+        elif user.party_role != role:
+            raise DemoSeedRefusedError(f"{number} is already a {user.party_role.value} account.")
         set_ussd_pin(db, user, pin)
         users[role] = user
-    buyer, seller = users[UserRole.BUYER], users[UserRole.SELLER]
+    buyer, seller = users[PartyRole.BUYER], users[PartyRole.SELLER]
 
     orders: list[DemoOrder] = []
     for state, title, price, serialized in ITEMS:

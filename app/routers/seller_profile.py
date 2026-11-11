@@ -4,10 +4,10 @@ from uuid import UUID
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
-from app.core.auth_context import get_client_identifier, require_seller_user
+from app.core.auth_context import get_client_identifier, require_store_owner
 from app.core.settings import get_settings
 from app.db.session import get_db
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.auth import PhoneCodeRequestResponse
 from app.schemas.seller_profile import (
     PayoutCodeRequest,
@@ -76,7 +76,7 @@ def _profile(db: Session, user: User) -> SellerProfileResponse:
     responses=SELLER_ONLY,
 )
 def get_profile(
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_store_owner)],
     db: Annotated[Session, Depends(get_db)],
 ) -> SellerProfileResponse:
     return _profile(db, _seller(db, current_user))
@@ -91,7 +91,7 @@ def get_profile(
 )
 def patch_profile(
     payload: SellerProfileUpdate,
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_store_owner)],
     db: Annotated[Session, Depends(get_db)],
 ) -> SellerProfileResponse:
     user = update_profile(db, _seller(db, current_user), payload.model_dump(exclude_unset=True))
@@ -112,7 +112,7 @@ def patch_profile(
 def put_logo(
     data: Annotated[bytes, Body(media_type="image/jpeg")],
     content_type: Annotated[str, Header()],
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_store_owner)],
     db: Annotated[Session, Depends(get_db)],
 ) -> SellerProfileResponse:
     try:
@@ -134,7 +134,7 @@ def put_logo(
     responses=SELLER_ONLY,
 )
 def delete_logo(
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_store_owner)],
     db: Annotated[Session, Depends(get_db)],
 ) -> SellerProfileResponse:
     return _profile(db, clear_logo(db, _seller(db, current_user)))
@@ -152,12 +152,7 @@ def delete_logo(
 )
 def get_logo(seller_id: UUID, db: Annotated[Session, Depends(get_db)]) -> Response:
     user = db.get(User, seller_id)
-    if (
-        user is None
-        or user.role != UserRole.SELLER
-        or user.logo_data is None
-        or not user.logo_content_type
-    ):
+    if user is None or not user.has_store or user.logo_data is None or not user.logo_content_type:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No logo.")
     return Response(
         content=user.logo_data,
@@ -180,7 +175,7 @@ def get_logo(seller_id: UUID, db: Annotated[Session, Depends(get_db)]) -> Respon
 def payout_request_code(
     payload: PayoutCodeRequest,
     request: Request,
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_store_owner)],
     db: Annotated[Session, Depends(get_db)],
 ) -> PhoneCodeRequestResponse:
     try:
@@ -222,7 +217,7 @@ def payout_request_code(
 )
 def put_payout(
     payload: PayoutUpdate,
-    current_user: Annotated[User, Depends(require_seller_user)],
+    current_user: Annotated[User, Depends(require_store_owner)],
     db: Annotated[Session, Depends(get_db)],
 ) -> SellerProfileResponse:
     try:

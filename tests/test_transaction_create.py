@@ -15,7 +15,7 @@ from app.models.listing import Listing
 from app.models.notification import Notification, NotificationEventType
 from app.models.payment_prompt import PaymentPrompt
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.routers import transactions as transactions_router
 from app.schemas.transaction import CreateTransactionRequest
@@ -35,6 +35,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
 
+from tests.accounts import account_fields
+
 
 @compiles(JSONB, "sqlite")
 def _compile_jsonb_for_sqlite(_type, _compiler, **_kwargs) -> str:
@@ -49,7 +51,17 @@ class _FakeDb:
         self.refreshed_obj = None
         self._transaction_obj: Transaction | None = None
 
-    def get(self, _model: Any, listing_id):
+    def get(self, model: Any, listing_id):
+        if model is User and self.listing is not None and listing_id == self.listing.seller_id:
+            # The listing's seller: an open store with a verified payout number.
+            return User(
+                id=listing_id,
+                name="Seller",
+                phone="+254799000001",
+                mpesa_phone="+254799000001",
+                **account_fields(PartyRole.SELLER),
+                password_hash="x",
+            )
         if self.listing is not None and listing_id == self.listing.id:
             return self.listing
         return None
@@ -118,7 +130,7 @@ def _build_user(role: UserRole) -> User:
         id=uuid.uuid4(),
         name=f"{role.value.title()} User",
         phone="+254700123456",
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         mpesa_phone=None,
         mpesa_account_name=None,
@@ -227,8 +239,8 @@ def test_create_transaction_requires_authentication() -> None:
     assert response.status_code == 401
 
 
-def test_create_transaction_rejects_seller_user(monkeypatch) -> None:
-    client = _authenticated_client(monkeypatch, UserRole.SELLER)
+def test_create_transaction_rejects_admin_user(monkeypatch) -> None:
+    client = _authenticated_client(monkeypatch, UserRole.ADMIN)
     response = client.post(
         "/transactions",
         headers=_csrf_headers(),
@@ -258,7 +270,7 @@ def test_create_transaction_allows_buyer_and_sets_status(monkeypatch) -> None:
 
     monkeypatch.setattr(transactions_router, "create_transaction", fake_create_transaction)
 
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         "/transactions",
         headers=_csrf_headers(),
@@ -281,7 +293,7 @@ def test_create_transaction_returns_404_when_listing_missing(monkeypatch) -> Non
 
     monkeypatch.setattr(transactions_router, "create_transaction", fake_create_transaction)
 
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         "/transactions",
         headers=_csrf_headers(),
@@ -316,7 +328,7 @@ def test_create_transaction_returns_202_when_payment_initiation_fails(monkeypatc
 
     monkeypatch.setattr(transactions_router, "create_transaction", fake_create_transaction)
 
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         "/transactions",
         headers=_csrf_headers(),
@@ -342,7 +354,7 @@ def test_create_transaction_returns_503_when_payment_initiation_fails_without_co
 
     monkeypatch.setattr(transactions_router, "create_transaction", fake_create_transaction)
 
-    client = _authenticated_client(monkeypatch, UserRole.BUYER)
+    client = _authenticated_client(monkeypatch, PartyRole.BUYER)
     response = client.post(
         "/transactions",
         headers=_csrf_headers(),
@@ -357,7 +369,7 @@ def test_create_transaction_returns_503_when_payment_initiation_fails_without_co
 
 
 def test_service_creates_transaction_with_participant_linkage() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing()
     db = _FakeDb(listing=listing)
 
@@ -389,7 +401,7 @@ def test_service_creates_transaction_with_participant_linkage() -> None:
 
 
 def test_service_rejects_missing_listing() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     db = _FakeDb(listing=None)
 
     payload = CreateTransactionRequest(
@@ -414,7 +426,7 @@ def test_service_invokes_payment_gateway_interface() -> None:
             self.called = True
             return _stub_payment_response()
 
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing()
     db = _FakeDb(listing=listing)
     payload = CreateTransactionRequest(
@@ -438,7 +450,7 @@ def test_service_raises_payment_initiation_error_when_gateway_fails() -> None:
         def initiate_stk_push(self, request):
             raise RuntimeError("transport down")
 
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing()
     db = _FakeDb(listing=listing)
     payload = CreateTransactionRequest(
@@ -471,7 +483,7 @@ def test_service_sends_normalized_phone_to_payment_gateway() -> None:
             self.phone_number = request.phone_number
             return _stub_payment_response()
 
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     buyer.mpesa_phone = "0712345678"
     listing = _build_listing()
     db = _FakeDb(listing=listing)
@@ -502,11 +514,11 @@ def test_service_create_transaction_persists_notification_fks_with_real_session(
 
     db = _build_real_db_session()
     try:
-        seller = _build_user(UserRole.SELLER)
+        seller = _build_user(PartyRole.SELLER)
         seller.phone = "+254700000001"
         seller.mpesa_phone = "+254700000001"
 
-        buyer = _build_user(UserRole.BUYER)
+        buyer = _build_user(PartyRole.BUYER)
         buyer.phone = "+254700000002"
         buyer.mpesa_phone = "+254700000002"
 
@@ -541,7 +553,7 @@ def test_service_create_transaction_persists_notification_fks_with_real_session(
 
 
 def test_service_rejects_amount_that_differs_from_listing_price() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing()
     db = _FakeDb(listing=listing)
 
@@ -557,7 +569,7 @@ def test_service_rejects_amount_that_differs_from_listing_price() -> None:
 
 
 def test_service_uses_listing_price_when_amount_omitted() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing()
     db = _FakeDb(listing=listing)
 
@@ -571,7 +583,7 @@ def test_service_uses_listing_price_when_amount_omitted() -> None:
 
 
 def test_service_assigns_random_human_readable_reference() -> None:
-    buyer = _build_user(UserRole.BUYER)
+    buyer = _build_user(PartyRole.BUYER)
     listing = _build_listing()
 
     references = {
@@ -587,12 +599,27 @@ def test_service_assigns_random_human_readable_reference() -> None:
     assert all(re.fullmatch(r"VK-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}", ref) for ref in references)
 
 
-def test_service_rejects_non_buyer_creating_transaction() -> None:
-    seller = _build_user(UserRole.SELLER)
+def test_service_rejects_admin_creating_transaction() -> None:
+    admin = _build_user(UserRole.ADMIN)
     listing = _build_listing()
     db = _FakeDb(listing=listing)
 
-    with pytest.raises(TransactionValidationError, match="Only buyers can create transactions."):
+    with pytest.raises(TransactionValidationError, match="Admin accounts can't buy."):
+        create_transaction_service(
+            cast(Session, db),
+            buyer=admin,
+            payload=CreateTransactionRequest(listing_id=listing.id),
+        )
+
+    assert db.added == []
+
+
+def test_service_rejects_a_seller_buying_from_their_own_store() -> None:
+    seller = _build_user(PartyRole.SELLER)
+    listing = _build_listing(seller_id=seller.id)
+    db = _FakeDb(listing=listing)
+
+    with pytest.raises(TransactionValidationError, match="You can't buy from your own store."):
         create_transaction_service(
             cast(Session, db),
             buyer=seller,

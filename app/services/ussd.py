@@ -189,7 +189,7 @@ class _Ussd:
     def orders(self) -> list[Transaction]:
         """The latest orders that need this caller first, then the latest others: on a feature
         phone, what to act on should not be hidden behind finished orders."""
-        buyer = self.user.role == UserRole.BUYER
+        buyer = not self.user.has_store
         column = Transaction.buyer_id if buyer else Transaction.seller_id
         needs_me = BUYER_ACTION_STATUSES if buyer else SELLER_ACTION_STATUSES
         latest = list(
@@ -212,7 +212,7 @@ class _Ussd:
 
     # ---- menus ---------------------------------------------------------------------------
     def route(self, steps: list[str]) -> UssdReply:
-        seller = self.user.role == UserRole.SELLER
+        seller = self.user.has_store
         if not steps:
             if seller:
                 return con("Vekro seller\n1 My orders\n0 Exit", "menu")

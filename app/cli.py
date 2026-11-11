@@ -55,16 +55,19 @@ PASSWORD_ENV = "VEKRO_ADMIN_PASSWORD"
 
 
 def create_admin(db: Session, *, phone: str, name: str, password: str) -> tuple[User, bool]:
-    """The admin, and whether it was created (False: an existing account was promoted)."""
+    """The admin, and whether it was created (False: an existing admin was reset)."""
     if len(password) < 12:
         raise ValueError("Admin passwords need at least 12 characters.")
     normalized = normalize_phone(phone)
     user = db.execute(select(User).where(User.phone == normalized)).scalar_one_or_none()
     created = user is None
+    if user is not None and user.role != UserRole.ADMIN:
+        # Promoting a member would combine admin with a store or with orders of their own
+        # (docs/accounts-and-modes.md, section 4). An admin needs a phone of its own.
+        raise ValueError("This phone already has an account. Use a new phone for the admin.")
     if user is None:
         user = User(name=name.strip(), phone=normalized, role=UserRole.ADMIN, password_hash="")
         db.add(user)
-    user.role = UserRole.ADMIN
     user.password_hash = hash_password(password)
     user.is_active = True
     user.failed_login_attempts = 0
@@ -404,7 +407,7 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 2
-    print(f"{'Created' if created else 'Promoted'} admin {user.id}")
+    print(f"{'Created' if created else 'Reset'} admin {user.id}")
     return 0
 
 

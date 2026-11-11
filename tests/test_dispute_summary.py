@@ -10,7 +10,7 @@ from app.models.dispute import Dispute, DisputeStatus, DisputeType, SellerResolu
 from app.models.notification import Notification
 from app.models.payment_prompt import PaymentPrompt
 from app.models.transaction import TransactionStatus
-from app.models.user import UserRole
+from app.models.user import PartyRole
 from app.services.transaction import submit_buyer_reconfirmation
 from sqlalchemy import Table, text
 from sqlalchemy.orm import Session
@@ -60,9 +60,9 @@ def _dispute(order, buyer, **fields) -> Dispute:
 
 @pytest.fixture
 def case(db: Session) -> dict[str, Any]:
-    seller = _user(UserRole.SELLER, "Amina Gadgets", "+254722118904")
-    buyer = _user(UserRole.BUYER, "Brian Otieno", "+254712345678")
-    stranger = _user(UserRole.BUYER, "Someone", "+254733000111")
+    seller = _user(PartyRole.SELLER, "Amina Gadgets", "+254722118904")
+    buyer = _user(PartyRole.BUYER, "Brian Otieno", "+254712345678")
+    stranger = _user(PartyRole.BUYER, "Someone", "+254733000111")
     db.add_all([seller, buyer, stranger])
     db.flush()
     listing = _listing(seller, "iPhone 13, 128GB, Midnight", "52000.00")

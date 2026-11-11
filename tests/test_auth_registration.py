@@ -7,13 +7,15 @@ from app.routers import auth as auth_router
 from app.services.auth import PhoneAlreadyRegisteredError
 from fastapi.testclient import TestClient
 
+from tests.accounts import account_fields
+
 
 def _build_user(phone: str, role: UserRole) -> User:
     return User(
         id=uuid.uuid4(),
         name="Test User",
         phone=phone,
-        role=role,
+        **account_fields(role),
         password_hash="pbkdf2_sha256$1$abc$xyz",
         mpesa_phone=None,
         mpesa_account_name=None,

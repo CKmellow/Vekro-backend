@@ -7,7 +7,7 @@ import pytest
 from app.models.dispute import AdminDecision, Dispute, DisputeStatus, DisputeType
 from app.models.notification import Notification, NotificationEventType
 from app.models.transaction import TransactionStatus
-from app.models.user import UserRole
+from app.models.user import PartyRole, UserRole
 from app.services.admin_cases import CaseTrigger, case_counters, case_trigger
 from sqlalchemy.orm import Session
 
@@ -40,8 +40,8 @@ def _dispute(order, buyer, **fields) -> Dispute:
 @pytest.fixture
 def console(db: Session) -> dict[str, Any]:
     admin = _user(UserRole.ADMIN, "Vekro Support", "+254700000001")
-    seller = _user(UserRole.SELLER, "Amina Gadgets", "+254722118904")
-    buyer = _user(UserRole.BUYER, "Brian Otieno", "+254712345678")
+    seller = _user(PartyRole.SELLER, "Amina Gadgets", "+254722118904")
+    buyer = _user(PartyRole.BUYER, "Brian Otieno", "+254712345678")
     db.add_all([admin, seller, buyer])
     db.flush()
     listings = [_listing(seller, f"Item {i}", "52000.00") for i in range(4)]

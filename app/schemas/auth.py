@@ -4,7 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.phone import normalize_phone
-from app.models.user import UserRole
+from app.models.user import PartyRole, StoreStatus, User, UserRole
 
 
 class RegisterUserRequest(BaseModel):
@@ -16,7 +16,9 @@ class RegisterUserRequest(BaseModel):
         max_length=32,
         description="Primary login phone number in digits with optional leading +.",
     )
-    role: UserRole
+    role: PartyRole = Field(
+        description="buyer: an account that buys; seller: the same, with a store opened at sign-up."
+    )
     password: str = Field(min_length=8, max_length=128, description="Account password.")
     mpesa_phone: str | None = Field(
         default=None,
@@ -31,8 +33,8 @@ class RegisterUserRequest(BaseModel):
 
     @field_validator("role")
     @classmethod
-    def validate_role(cls, value: UserRole) -> UserRole:
-        if value not in {UserRole.BUYER, UserRole.SELLER}:
+    def validate_role(cls, value: PartyRole) -> PartyRole:
+        if value not in {PartyRole.BUYER, PartyRole.SELLER}:
             raise ValueError("Only buyer and seller registration is supported.")
         return value
 
@@ -50,7 +52,7 @@ class RegisterUserResponse(BaseModel):
     id: uuid.UUID
     name: str
     phone: str
-    role: UserRole
+    role: PartyRole = Field(validation_alias="party_role")
     mpesa_phone: str | None
     mpesa_account_name: str | None
     is_active: bool
@@ -73,6 +75,31 @@ class LoginRequest(BaseModel):
         return normalize_phone(value)
 
 
+class StoreSummary(BaseModel):
+    """The account's store (M28): selling is a capability of the account."""
+
+    status: StoreStatus
+    name: str | None = Field(description="The shop name, once set.")
+    opened_at: datetime | None
+    closed_at: datetime | None
+    payout_ready: bool = Field(
+        description=(
+            "True when an SMS code has proved the payout number. Until then the store takes no new "
+            'orders and the seller sees "Finish setup: add payout number (SMS-verified)".'
+        )
+    )
+
+    @classmethod
+    def of(cls, user: User) -> "StoreSummary":
+        return cls(
+            status=user.store_status or StoreStatus.NONE,
+            name=user.shop_name,
+            opened_at=user.store_opened_at,
+            closed_at=user.store_closed_at,
+            payout_ready=user.store_payout_ready,
+        )
+
+
 class LoginResponse(BaseModel):
     """Authenticated user profile plus session expiry metadata."""
 
@@ -81,7 +108,19 @@ class LoginResponse(BaseModel):
     id: uuid.UUID
     name: str
     phone: str
-    role: UserRole
+    role: PartyRole = Field(
+        deprecated=True,
+        description=(
+            "Kept for clients from before M28: admin, seller (store active) or buyer. Use "
+            "account_type and store."
+        ),
+    )
+    account_type: UserRole = Field(
+        default=UserRole.MEMBER, description="member (buys, and sells with a store) or admin."
+    )
+    store: StoreSummary | None = Field(
+        default=None, description="The account's store; null for admins."
+    )
     mpesa_phone: str | None
     mpesa_account_name: str | None
     is_active: bool
@@ -94,6 +133,24 @@ class LoginResponse(BaseModel):
         default=True,
         description="False for a seller who signed up with Google and has not set a password yet.",
     )
+
+    @classmethod
+    def for_user(cls, user: User, session_expires_at: datetime) -> "LoginResponse":
+        return cls(
+            id=user.id,
+            name=user.name,
+            phone=user.phone,
+            role=user.party_role,
+            account_type=user.role,
+            store=None if user.role == UserRole.ADMIN else StoreSummary.of(user),
+            mpesa_phone=user.mpesa_phone,
+            mpesa_account_name=user.mpesa_account_name,
+            is_active=user.is_active,
+            created_at=user.created_at,
+            session_expires_at=session_expires_at,
+            google_email=user.google_email,
+            has_password=user.has_password is not False,
+        )
 
 
 class PhoneCodeRequest(BaseModel):

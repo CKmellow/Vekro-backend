@@ -6,12 +6,14 @@ from typing import Any, cast
 import pytest
 from app.main import app
 from app.models.listing import Listing
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User
 from app.routers import listings as listings_router
 from app.services.listing import ListingNotFoundError, get_listing_by_id
 from app.services.listing_content import ListingContent
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+
+from tests.accounts import account_fields
 
 
 @pytest.fixture(autouse=True)
@@ -23,7 +25,7 @@ def _describe_without_db(monkeypatch) -> None:
             id=listing.seller_id,
             name="Amina Gadgets",
             phone="+254722118904",
-            role=UserRole.SELLER,
+            **account_fields(PartyRole.SELLER),
             password_hash="x",
             created_at=datetime(2026, 1, 5, tzinfo=UTC),
         )

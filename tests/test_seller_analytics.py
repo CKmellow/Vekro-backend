@@ -10,13 +10,14 @@ from app.models.listing import Listing
 from app.models.listing_photo import ListingPhoto
 from app.models.transaction import Transaction
 from app.models.transaction import TransactionStatus as S
-from app.models.user import User, UserRole
+from app.models.user import PartyRole, User
 from app.services.seller_analytics import seller_analytics
 from sqlalchemy import Table, create_engine, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
 
+from tests.accounts import account_fields
 from tests.sqlite_tables import create_disputes_table
 
 
@@ -54,9 +55,15 @@ def db() -> Session:
 
 
 def _setup(db: Session):
-    seller = User(name="Amina", phone="+254700000001", role=UserRole.SELLER, password_hash="x")
-    other = User(name="Other", phone="+254700000002", role=UserRole.SELLER, password_hash="x")
-    buyer = User(name="Brian", phone="+254700000003", role=UserRole.BUYER, password_hash="x")
+    seller = User(
+        name="Amina", phone="+254700000001", **account_fields(PartyRole.SELLER), password_hash="x"
+    )
+    other = User(
+        name="Other", phone="+254700000002", **account_fields(PartyRole.SELLER), password_hash="x"
+    )
+    buyer = User(
+        name="Brian", phone="+254700000003", **account_fields(PartyRole.BUYER), password_hash="x"
+    )
     db.add_all([seller, other, buyer])
     db.flush()
     phone = Listing(

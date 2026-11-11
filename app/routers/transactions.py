@@ -95,6 +95,7 @@ from app.services.transaction import (
 )
 from app.services.transaction_list import (
     SIDE_ROLE,
+    BuyerFilter,
     OrderListForbiddenError,
     OrderSegment,
     OrderSide,
@@ -265,12 +266,23 @@ def list_my_transactions(
             ),
         ),
     ] = None,
+    buyer_filter: Annotated[
+        BuyerFilter | None,
+        Query(
+            alias="filter",
+            description=(
+                "Buying side (the buyer area's Orders): active, completed, refunded, disputed, "
+                "or cases (any order with a return or dispute, open or past)."
+            ),
+        ),
+    ] = None,
 ) -> TransactionListResponse:
     try:
         result = list_orders_for_viewer(
             db,
             viewer=current_user,
             side=SIDE_ROLE[side] if side is not None else None,
+            buyer_filter=buyer_filter,
             segment=segment,
             statuses=status_filter,
             q=q,

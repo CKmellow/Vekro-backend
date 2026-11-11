@@ -280,6 +280,13 @@ class TransactionListResponse(BaseModel):
     status_counts: dict[str, int] = Field(
         description="Per transaction status, before filters. Missing statuses are 0."
     )
+    filter_counts: dict[str, int] | None = Field(
+        default=None,
+        description=(
+            "Buying side only: orders per buyer filter (active, completed, refunded, disputed, "
+            "cases), before filters."
+        ),
+    )
     server_time: datetime = Field(description="Server clock; offset countdowns with it.")
 
     @classmethod
@@ -293,6 +300,11 @@ class TransactionListResponse(BaseModel):
                 **{segment.value: page.segment_counts[segment] for segment in OrderSegment}
             ),
             status_counts={status.value: n for status, n in page.status_counts.items()},
+            filter_counts=(
+                {key.value: n for key, n in page.filter_counts.items()}
+                if page.filter_counts is not None
+                else None
+            ),
             server_time=datetime.now(UTC),
         )
 

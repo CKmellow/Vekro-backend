@@ -87,6 +87,13 @@ class LoginResponse(BaseModel):
     is_active: bool
     created_at: datetime
     session_expires_at: datetime
+    google_email: str | None = Field(
+        default=None, description="The linked Google account's e-mail, for display (#324)."
+    )
+    has_password: bool = Field(
+        default=True,
+        description="False for a seller who signed up with Google and has not set a password yet.",
+    )
 
 
 class PhoneCodeRequest(BaseModel):
@@ -121,3 +128,44 @@ class PhoneCodeVerifyRequest(BaseModel):
     @classmethod
     def normalize_phone(cls, value: str) -> str | None:
         return normalize_phone(value)
+
+
+class GoogleStatusResponse(BaseModel):
+    """Whether Continue with Google is offered (#324)."""
+
+    enabled: bool
+
+
+class GoogleLinkRequest(BaseModel):
+    """Start linking Google to the signed-in account (#324)."""
+
+    return_to: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Path on this site to come back to, e.g. /seller/settings.",
+    )
+
+
+class GoogleLinkResponse(BaseModel):
+    authorization_url: str = Field(description="Send the browser here (Google's consent screen).")
+
+
+class GoogleSignupResponse(BaseModel):
+    """The Google identity waiting for a verified phone."""
+
+    email: str
+    name: str | None
+
+
+class GoogleSignupCodeRequest(BaseModel):
+    phone: str = Field(
+        min_length=7, max_length=32, description="The seller's Kenyan mobile number."
+    )
+
+
+class GoogleSignupCompleteRequest(BaseModel):
+    phone: str = Field(min_length=7, max_length=32)
+    code: str = Field(pattern=r"^\d{6}$", description="The 6-digit code from the SMS.")
+    name: str | None = Field(
+        default=None, max_length=120, description="Shown to buyers; defaults to the Google name."
+    )

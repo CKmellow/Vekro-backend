@@ -4751,6 +4751,125 @@
         }
       }
     },
+    "/account/store": {
+      "post": {
+        "tags": [
+          "Store"
+        ],
+        "summary": "Start selling: open a store on this account",
+        "description": "Names the store and records the accepted seller terms; anchors store_opened. The store takes orders once its payout number is verified by SMS (PUT /me/mpesa-number with the code), then the seller adds a first listing with its dispute policy.",
+        "operationId": "post_store_account_store_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartSellingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoreSummary"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin accounts can't open a store."
+          },
+          "409": {
+            "description": "Already open or closed (reopen it)."
+          },
+          "422": {
+            "description": "Terms not accepted."
+          }
+        }
+      }
+    },
+    "/account/store/close-check": {
+      "get": {
+        "tags": [
+          "Store"
+        ],
+        "summary": "What must finish before the store can close",
+        "operationId": "get_close_check_account_store_close_check_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloseBlockersResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/store/close": {
+      "post": {
+        "tags": [
+          "Store"
+        ],
+        "summary": "Close the store",
+        "description": "Archives every listing and stops new orders (Trust Links say the store is closed). Orders, payouts, disputes and the public record all stay: stores and orders are never deleted, because buyers and Vekro's anchored audit trail rely on them. Refused (409, with what must finish first) while orders, held money, payouts or disputes are open. Anchors store_closed. The store can be reopened.",
+        "operationId": "post_close_account_store_close_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoreSummary"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Something must finish first; the body lists it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloseBlockersResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/store/reopen": {
+      "post": {
+        "tags": [
+          "Store"
+        ],
+        "summary": "Reopen a closed store",
+        "description": "Anchors store_opened (reopened). Listings stay archived until restored.",
+        "operationId": "post_reopen_account_store_reopen_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoreSummary"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The store is not closed."
+          }
+        }
+      }
+    },
     "/seller/analytics": {
       "get": {
         "tags": [
@@ -6399,6 +6518,54 @@
         ],
         "title": "ChannelPrefs"
       },
+      "CloseBlockersResponse": {
+        "properties": {
+          "can_close": {
+            "type": "boolean",
+            "title": "Can Close"
+          },
+          "open_orders": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Open Orders",
+            "description": "References of funded orders not yet final."
+          },
+          "held_amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Held Amount",
+            "description": "KES still held in escrow for this store's orders."
+          },
+          "unsettled_payouts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unsettled Payouts",
+            "description": "References with a payout not yet settled."
+          },
+          "open_disputes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Open Disputes",
+            "description": "References with an open return or dispute."
+          }
+        },
+        "type": "object",
+        "required": [
+          "can_close",
+          "open_orders",
+          "held_amount",
+          "unsettled_payouts",
+          "open_disputes"
+        ],
+        "title": "CloseBlockersResponse",
+        "description": "What must finish before the store can close. Empty lists and 0 mean it can close now."
+      },
       "CollectionOutcome": {
         "type": "string",
         "enum": [
@@ -7529,6 +7696,17 @@
             "title": "Store Ready",
             "description": "False while the seller's store can't take orders (no SMS-verified payout number, or the store is closed): show the listing, refuse payment.",
             "default": true
+          },
+          "store_status": {
+            "type": "string",
+            "enum": [
+              "none",
+              "active",
+              "closed"
+            ],
+            "title": "Store Status",
+            "description": "closed: show \"This store is closed\" and take no payment.",
+            "default": "active"
           },
           "is_own_listing": {
             "type": "boolean",
@@ -9897,6 +10075,14 @@
             "title": "Sales",
             "description": "Newest first, at most 200: each sale's public payload (seller, outcome, amount band, unlinkable sale_ref) with its proof. Count as verified only the sales whose proof matches the registry root and whose payload names this seller."
           },
+          "store_history": {
+            "items": {
+              "$ref": "#/components/schemas/VerificationEventResponse"
+            },
+            "type": "array",
+            "title": "Store History",
+            "description": "M28: when the store opened (store_opened, reopened or not) and closed (store_closed), oldest first, each with its proof. Payloads hold the seller's UUID and times only."
+          },
           "server_time": {
             "type": "string",
             "format": "date-time",
@@ -9927,6 +10113,41 @@
           "enabled"
         ],
         "title": "SmsLoginSetting"
+      },
+      "StartSellingRequest": {
+        "properties": {
+          "shop_name": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 2,
+            "title": "Shop Name",
+            "description": "The store's name."
+          },
+          "shop_area": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shop Area",
+            "description": "Where it sells."
+          },
+          "terms_version": {
+            "type": "string",
+            "title": "Terms Version",
+            "description": "The seller terms version accepted; must be the current one (2026-11)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "shop_name",
+          "terms_version"
+        ],
+        "title": "StartSellingRequest"
       },
       "StoreStatus": {
         "type": "string",

@@ -26,7 +26,7 @@ from app.models.transaction import Transaction
 from app.models.user import PartyRole, User, UserRole
 from app.schemas.transaction import CreateTransactionRequest, PaymentCallbackRequest
 from app.services.payment import MpesaStkStubGateway
-from app.services.store import open_store_on
+from app.services.store import open_store_on, record_store_opened
 from app.services.ussd import set_ussd_pin
 
 
@@ -90,9 +90,10 @@ def seed_ussd_demo(
                 created_at=now,
                 updated_at=now,
             )
+            db.add(user)
             if role == PartyRole.SELLER:
                 open_store_on(user, now=now)
-            db.add(user)
+                record_store_opened(db, user)
             db.commit()
             created_any = True
         elif user.party_role != role:

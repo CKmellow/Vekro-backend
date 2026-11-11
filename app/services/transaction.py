@@ -20,7 +20,7 @@ from app.models.transaction import (
     TransactionStatus,
     generate_transaction_reference,
 )
-from app.models.user import User, UserRole
+from app.models.user import StoreStatus, User, UserRole
 from app.schemas.transaction import (
     CreateTransactionRequest,
     PaymentCallbackRequest,
@@ -311,6 +311,7 @@ def _fund_via_econfirm(
 
 OWN_STORE_MESSAGE = "You can't buy from your own store."
 STORE_NOT_READY_MESSAGE = "This store isn't ready yet."
+STORE_CLOSED_MESSAGE = "This store is closed."
 PAYOUT_NUMBER_MESSAGE = "You can't buy from a store paid out to this number."
 
 
@@ -324,6 +325,8 @@ def check_can_buy(db: Session, buyer: User, listing: Listing) -> None:
     if listing.seller_id == buyer.id:
         raise TransactionValidationError(OWN_STORE_MESSAGE)
     seller = db.get(User, listing.seller_id)
+    if seller is not None and seller.store_status == StoreStatus.CLOSED:
+        raise TransactionValidationError(STORE_CLOSED_MESSAGE)
     if seller is None or not seller.store_active or not seller.store_payout_ready:
         raise TransactionValidationError(STORE_NOT_READY_MESSAGE)
     # Phones are stored normalised (+254...), so plain comparison is exact.

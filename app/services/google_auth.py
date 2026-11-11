@@ -40,7 +40,7 @@ from app.core.security import hash_password
 from app.models.oauth import GoogleSignup, OAuthState
 from app.models.user import User, UserRole
 from app.services.phone_auth import consume_phone_code, request_phone_code
-from app.services.store import open_store_on
+from app.services.store import open_store_on, record_store_opened
 
 AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
@@ -459,8 +459,9 @@ def complete_signup(
         created_at=current,
         updated_at=current,
     )
-    open_store_on(user, now=current)
     db.add(user)
+    open_store_on(user, now=current)
+    record_store_opened(db, user)
     db.delete(signup)
     db.commit()
     logger.info("google_seller_signup user_id=%s", user.id)

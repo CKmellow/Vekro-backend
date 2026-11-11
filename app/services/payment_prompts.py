@@ -35,6 +35,7 @@ from app.services.payment import (
     PaymentResponse,
     get_payment_gateway,
 )
+from app.services.store import CLOSED_MESSAGE, store_closed_for
 
 audit_logger = logging.getLogger("app.transactions.audit")
 
@@ -287,6 +288,8 @@ def resend_payment_prompt(
         raise PaymentResendNotFoundError("Transaction not found.")
     if transaction.status != TransactionStatus.AWAITING_PAYMENT:
         raise PaymentResendInvalidStateError("Transaction is not awaiting payment.")
+    if store_closed_for(db, transaction):
+        raise PaymentResendInvalidStateError(CLOSED_MESSAGE)
 
     previous = latest_payment_prompt(db, transaction.id)
     if transaction.payment_method == PAYMENT_METHOD_CARD:

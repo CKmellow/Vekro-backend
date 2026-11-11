@@ -113,6 +113,10 @@ class ListingResponse(BaseModel):
             "or the store is closed): show the listing, refuse payment."
         ),
     )
+    store_status: Literal["none", "active", "closed"] = Field(
+        default="active",
+        description='closed: show "This store is closed" and take no payment.',
+    )
     is_own_listing: bool = Field(
         default=False,
         description="True when the signed-in caller is this listing's seller (they can't buy it).",

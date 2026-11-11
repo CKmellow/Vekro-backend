@@ -31,6 +31,7 @@ from app.models.anchor_event import AnchorEvent
 from app.models.escrow import Escrow
 from app.models.ledger_entry import LedgerEntry
 from app.models.money_audit_event import MoneyAuditEvent
+from app.models.store_event import StoreEvent
 from app.models.transaction import Transaction
 from app.services.anchoring import payloads
 from app.services.anchoring.canonical import ZERO_HASH, canonical_json, leaf_hash, new_salt
@@ -49,6 +50,7 @@ GLOBAL_CHAIN_LOCK_KEY = 0x76656B726F2D616E
 LEDGER_TABLE = LedgerEntry.__tablename__
 AUDIT_TABLE = MoneyAuditEvent.__tablename__
 TRANSACTIONS_TABLE = Transaction.__tablename__
+STORE_EVENTS_TABLE = StoreEvent.__tablename__
 # Source key of seller_sale_completed events: one per transaction, at most (A9).
 SELLER_SALES_SOURCE = "seller_sales"
 
@@ -182,6 +184,18 @@ def record_seller_sale(
     )
 
 
+def record_store_event(db: Session, event: Any) -> AnchorEvent | None:
+    """A store opened or closed (M28), in the global chain, sourced from its store_events row."""
+    return record_anchor_event(
+        db,
+        event_type=payloads.STORE_OPENED if event.kind == "opened" else payloads.STORE_CLOSED,
+        transaction_id=None,
+        payload=payloads.store_event_payload(event),
+        source_table=STORE_EVENTS_TABLE,
+        source_id=str(event.id),
+    )
+
+
 def note_status(db: Any, transaction_id: uuid.UUID, status_value: str) -> None:
     """Remember the status an event just recorded, for the flush guard."""
     info = getattr(db, "info", None)
@@ -291,6 +305,10 @@ def _guard_completeness(db: Session, _flush_context, _instances) -> None:
             _missing(db, f"money audit event {obj.id} has no anchor event")
             obj.occurred_at = obj.occurred_at or datetime.now(UTC)
             record_money_audit(db, obj)
+        elif isinstance(obj, StoreEvent) and (STORE_EVENTS_TABLE, str(obj.id)) not in sources:
+            _missing(db, f"store event {obj.id} has no anchor event")
+            obj.id = obj.id or uuid.uuid4()
+            record_store_event(db, obj)
         elif isinstance(obj, Transaction) and obj.id not in statuses:
             _missing(db, f"transaction {obj.id} was created without transaction_created")
             obj.created_at = obj.created_at or datetime.now(UTC)

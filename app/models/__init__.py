@@ -26,12 +26,14 @@ from app.models.payout_attempt import PayoutAttempt
 from app.models.phone_code import PhoneCode
 from app.models.provider_event import ProviderEvent
 from app.models.rail_health import RailBreakerState, RailHealth
+from app.models.store_event import StoreEvent
 from app.models.transaction import Transaction, TransactionPayoutStatus, TransactionStatus
 from app.models.user import User, UserRole
 from app.models.user_session import UserSession
 from app.models.ussd_session import UssdSession
 
 __all__ = [
+    "StoreEvent",
     "GoogleSignup",
     "OAuthState",
     "AnchorBatch",

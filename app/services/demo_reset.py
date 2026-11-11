@@ -39,7 +39,7 @@ from app.models.user import PartyRole, User, UserRole
 from app.schemas.transaction import CreateTransactionRequest
 from app.services.listing_content import add_listing_photo
 from app.services.payment import PaymentGateway
-from app.services.store import open_store_on
+from app.services.store import open_store_on, record_store_opened
 from app.services.ussd import set_ussd_pin
 from app.services.ussd_demo import _delivery_code
 
@@ -305,9 +305,10 @@ def _account(
         created_at=now,
         updated_at=now,
     )
+    db.add(user)
     if role == PartyRole.SELLER:
         open_store_on(user, now=now)
-    db.add(user)
+        record_store_opened(db, user)
     db.commit()
     return user, password
 

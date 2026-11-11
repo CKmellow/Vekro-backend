@@ -22,6 +22,7 @@ from app.db.session import get_db
 from app.main import app
 from app.models.oauth import GoogleSignup, OAuthState
 from app.models.phone_code import PhoneCode
+from app.models.store_event import StoreEvent
 from app.models.user import PartyRole, User, UserRole
 from app.models.user_session import UserSession
 from app.services import google_auth, phone_auth
@@ -140,7 +141,7 @@ def factory() -> sessionmaker:
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
-    tables = [User, UserSession, PhoneCode, OAuthState, GoogleSignup]
+    tables = [User, UserSession, PhoneCode, OAuthState, GoogleSignup, StoreEvent]
     Base.metadata.create_all(engine, tables=[cast(Table, t.__table__) for t in tables])
     return sessionmaker(bind=engine, expire_on_commit=False, class_=Session)
 

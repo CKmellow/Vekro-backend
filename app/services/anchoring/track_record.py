@@ -21,9 +21,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.anchor_event import AnchorEvent
+from app.models.store_event import StoreEvent
 from app.models.transaction import Transaction
 from app.services.anchoring.chain_config import SUPPORTED_CHAINS
-from app.services.anchoring.recorder import SELLER_SALES_SOURCE, record_seller_sale
+from app.services.anchoring.recorder import (
+    SELLER_SALES_SOURCE,
+    STORE_EVENTS_TABLE,
+    record_seller_sale,
+)
 from app.services.anchoring.verification import BatchTrees, event_view
 from app.services.transitions import SALE_STATUSES
 
@@ -56,6 +61,26 @@ def seller_track_record(db: Session, seller_id: uuid.UUID, settings: Any) -> dic
     )
     trees = BatchTrees(db)
     sales = [event_view(event, trees) for event in events]
+    store_event_ids = [
+        str(item)
+        for item in db.execute(
+            select(StoreEvent.id).where(StoreEvent.user_id == seller_id)
+        ).scalars()
+    ]
+    history = (
+        list(
+            db.execute(
+                select(AnchorEvent)
+                .where(
+                    AnchorEvent.source_table == STORE_EVENTS_TABLE,
+                    AnchorEvent.source_id.in_(store_event_ids),
+                )
+                .order_by(AnchorEvent.id.asc())
+            ).scalars()
+        )
+        if store_event_ids
+        else []
+    )
     return {
         "seller_id": str(seller_id),
         "chain": {
@@ -66,6 +91,7 @@ def seller_track_record(db: Session, seller_id: uuid.UUID, settings: Any) -> dic
         "completed_sales": len(sale_ids),
         "recorded_sales": len(events),
         "sales": sales,
+        "store_history": [event_view(event, trees) for event in history],
         "server_time": datetime.now(UTC),
     }
 

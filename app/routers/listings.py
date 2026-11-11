@@ -84,6 +84,7 @@ def _listing_response(db: Session, listing: Listing, viewer: User | None = None)
             completed_sales=content.completed_sales,
         ),
         store_ready=seller.store_active and seller.store_payout_ready,
+        store_status=getattr(seller.store_status, "value", seller.store_status) or "none",
         is_own_listing=viewer is not None and viewer.id == listing.seller_id,
         created_at=listing.created_at,
         updated_at=listing.updated_at,

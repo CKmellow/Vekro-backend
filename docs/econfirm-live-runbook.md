@@ -1,6 +1,7 @@
 # eConfirm live KES 100 round trip on vekro-vm (prepared, not run)
 
-**Status: prepared 2026-11-11, NOT run.** It moves real money (KES 100 plus eConfirm's and
+**Status: prepared 2026-11-11. One attempt on 2026-11-11 was aborted before payment** (below);
+the round trip has not been completed. It moves real money (KES 100 plus eConfirm's and
 M-Pesa's fees) through a third-party escrow. Run it only after Cyprian's explicit go-ahead in that
 session.
 
@@ -117,3 +118,15 @@ pytest -m live -k econfirm -s`, `tests/test_econfirm_live.py`) is the provider-o
 It opens, funds and **reverses** one escrow without a Vekro order. It needs
 `ECONFIRM_FALLBACK_EMAIL` and the two `ECONFIRM_LIVE_*_PHONE` values in the laptop `.env`. It must
 run from Cyprian's own shell: the agent's sandbox cannot reach eConfirm directly.
+
+## Attempt log
+
+| When (UTC) | What happened |
+|---|---|
+| 2026-11-11 11:59 | Backup `vekro-20261111T115906Z.dump`; KES 100 listing on seller 310 (payout number = Cyprian's); `ECONFIRM_ENABLED=true`, min = max = 100; `payment-rails` showed `econfirm KES 100-100`. |
+| 2026-11-11 12:06 | Buyer 311 opened order **VK-B627E5** (KES 100): Vekro opened an eConfirm escrow (an eConfirm transaction id and confirmation code were stored, encrypted) and sent the prompt. |
+| 2026-11-11 ~12:10 | Cyprian aborted before paying. eConfirm switched off (the `.env` from before the switch restored; `payment-rails` back to Daraja only). Escrow `funded_amount` 0.00: **no money moved**. VK-B627E5 times out as awaiting payment. The pending escrow can be cancelled in the eConfirm dashboard. |
+
+What it did show: Vekro opens a real third-party eConfirm escrow for an order and stores its one-time
+confirmation code encrypted, with the M-Pesa prompt coming from eConfirm. Funding, release and the
+fees were not observed.

@@ -32,7 +32,6 @@ from app.services.phone_auth import (
     PhoneCodeExpiredError,
     PhoneCodeInvalidError,
     PhoneCodeRateLimitedError,
-    PhoneNotBuyerError,
     request_phone_code,
     verify_phone_code,
 )
@@ -206,11 +205,12 @@ def _open_session(response: Response, authenticated: AuthenticatedSession) -> Lo
     "/phone/request-code",
     response_model=PhoneCodeRequestResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Send a buyer sign-in code by SMS",
+    summary="Send a sign-in code by SMS",
     description=(
         "Send a one-time 6-digit code to the phone. A new code replaces the previous one. "
         "Codes expire after a few minutes; resends wait out a short cooldown and are capped "
-        "per hour."
+        "per hour and per client. Admin numbers, and members who turned SMS sign-in off, get "
+        "the same answer but no SMS: admins never sign in by SMS code."
     ),
     responses={
         status.HTTP_429_TOO_MANY_REQUESTS: {
@@ -248,22 +248,19 @@ def phone_request_code(
     return PhoneCodeRequestResponse(
         resend_after_seconds=issued.resend_after_seconds,
         expires_at=issued.expires_at,
-        dev_code=issued.code if get_settings().phone_code_dev_echo else None,
+        dev_code=(issued.code or None) if get_settings().phone_code_dev_echo else None,
     )
 
 
 @router.post(
     "/phone/verify",
     response_model=LoginResponse,
-    summary="Verify a sign-in code and open a buyer session",
+    summary="Verify a sign-in code and open a session",
     description=(
-        "Check the SMS code. On success, find or create the buyer for this phone and set the "
-        "same session and CSRF cookies as /auth/login."
+        "Check the SMS code. On success, sign in the member with this phone (an account is "
+        "created for a new number) and set the same session and CSRF cookies as /auth/login."
     ),
     responses={
-        status.HTTP_409_CONFLICT: {
-            "description": "The number belongs to a seller or admin, who log in with a password."
-        },
         status.HTTP_410_GONE: {"description": "No active code: it expired or was already used."},
         status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "The code doesn't match."},
         status.HTTP_429_TOO_MANY_REQUESTS: {
@@ -298,11 +295,6 @@ def phone_verify(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="That code doesn't match.",
-        ) from exc
-    except PhoneNotBuyerError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This number has a seller account. Log in with your password.",
         ) from exc
 
     logger.info("phone_login_success user_id=%s client_ip=%s", authenticated.user.id, client)

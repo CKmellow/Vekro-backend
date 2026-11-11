@@ -122,7 +122,26 @@ documented in `docs/hosting.md` 7.1.
 | Web: security headers on every response (HSTS, CSP, nosniff, frame and referrer policy) | frontend `src/app/deploy.test.ts` ("sends the full security header set from every app location", #306); live check below |
 | Continue with Google: PKCE (S256), single-use state bound to the browser, nonce; ID token verified (RS256, iss, aud, exp, nonce, verified e-mail) | `test_google_auth.py::test_the_request_carries_state_nonce_and_an_s256_challenge_of_a_server_side_verifier`, `::test_the_code_exchange_sends_the_pkce_verifier_and_a_wrong_one_is_refused`, `::test_a_replayed_callback_is_refused`, `::test_a_forged_state_is_refused`, `::test_a_token_with_another_nonce_is_refused`, `::test_id_token_claims_are_checked`, `::test_a_token_signed_by_another_key_is_refused` |
 | Google accounts matched by subject only; no admin access unless linked; no seller before an SMS-verified phone; no Google tokens stored | `test_google_auth.py::test_a_matching_email_never_links_an_account`, `::test_an_unlinked_admin_is_never_signed_in_by_google`, `::test_a_google_seller_exists_only_after_the_sms_code`, `::test_routes_complete_a_seller_signup_and_block_selling_before_it`, `::test_a_buyer_links_google_and_only_sub_and_email_are_kept` |
+| One account buys and sells; admins are separate: authorization by store, never by a "seller role"; admins never buy or hold a store (database check) | `test_accounts_and_modes.py::test_authorization_matrix`, `::test_every_member_can_buy_but_an_admin_cannot`, `::test_admin_accounts_can_never_hold_a_store`; `test_accounts_migration_postgres.py::test_roles_map_to_member_and_admin_and_back` (PostgreSQL suite) |
+| No buying from your own store, nor through the store's payout number (no self-made "verified sales") | `test_accounts_and_modes.py::test_a_seller_cannot_buy_from_their_own_store`, `::test_no_buying_through_the_stores_payout_number`, `::test_the_database_refuses_an_order_between_one_account_and_itself` |
+| A store takes orders only with an SMS-verified payout number | `test_accounts_and_modes.py::test_a_store_without_a_verified_payout_number_takes_no_orders`, `::test_only_an_sms_code_verifies_the_payout_number` |
+| Admins never sign in or reset a password by SMS code; the refusal looks like any other number (same 202, timers and throttles; no SMS, no stored code) | `test_login_methods.py::test_admins_never_get_a_sign_in_code`, `::test_a_stray_code_row_still_never_opens_an_admin_session`, `::test_admin_passwords_are_never_reset_by_sms`, `::test_the_admin_refusal_is_generic_over_http` |
+| Every sign-in method per role; SMS codes single-use, short-lived, limited per phone and per client, locked after 5 wrong tries; members can turn SMS sign-in off | `test_login_methods.py::test_every_role_signs_in_with_a_password`, `::test_every_member_signs_in_with_an_sms_code`, `::test_a_member_who_turned_sms_off_gets_no_code`, `::test_members_turn_sms_sign_in_off_and_on`; `test_phone_auth.py::test_wrong_codes_count_down_then_lock`, `::test_caps_codes_per_phone_per_hour`, `::test_caps_codes_per_client_across_numbers` |
 | No secrets in the public images | CI step "No secrets in the image" (`scripts/scan-image-secrets.py --self-test` and a scan of each image) |
+
+### Why admins never use SMS codes
+
+An SMS code proves only that someone holds the SIM. In Kenya, as elsewhere, a SIM swap (a
+fraudster persuading or bribing an agent to move a number to a new SIM) is a known way into
+M-Pesa and bank accounts. For a member, an SMS code is a fair trade: it is how most buyers already
+prove who they are, the account can reach only that member's own orders, and money still needs the
+M-Pesa PIN. For an admin it is not: the admin console decides disputes and so moves other people's
+money. So admins sign in with a password (Argon2, rate-limited, locking) or with Google once they
+have linked it themselves, and they cannot reset their password by SMS either; an operator resets
+it on the server with `create-admin`. The code endpoints answer an admin's number exactly as any
+other (202, the same expiry and resend timers, the same throttles), send nothing and store nothing,
+so they cannot be used to find out which numbers belong to admins. A stray code row for an admin
+number is still refused.
 
 ## 5. Live sandbox evidence
 

@@ -127,6 +127,7 @@ def _google(monkeypatch):
     monkeypatch.setattr(settings, "frontend_url", "https://app.vekro.me")
     google_auth._JWKS.update({"keys": {}, "fetched": 0.0})
     phone_auth._CLIENT_BUCKETS.clear()
+    phone_auth._DECOY_BUCKETS.clear()
     monkeypatch.setattr(phone_auth, "default_sender_provider", lambda: None)
     fake = FakeGoogle()
     monkeypatch.setattr(google_auth, "_http_post", fake.post)

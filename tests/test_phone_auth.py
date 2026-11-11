@@ -14,7 +14,6 @@ from app.services.phone_auth import (
     PhoneCodeExpiredError,
     PhoneCodeInvalidError,
     PhoneCodeRateLimitedError,
-    PhoneNotBuyerError,
     request_phone_code,
     verify_phone_code,
 )
@@ -56,6 +55,7 @@ def db(factory: sessionmaker) -> Session:
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch: pytest.MonkeyPatch) -> None:
     phone_auth._CLIENT_BUCKETS.clear()
+    phone_auth._DECOY_BUCKETS.clear()
     # Never reach the real SMS gateway from tests.
     monkeypatch.setattr(phone_auth, "default_sender_provider", lambda: None)
 
@@ -136,13 +136,13 @@ def test_verifying_signs_in_an_existing_buyer(db: Session) -> None:
     assert len(db.execute(select(User)).scalars().all()) == 1
 
 
-def test_sellers_must_use_their_password(db: Session) -> None:
+def test_sellers_sign_in_with_a_code_too(db: Session) -> None:
+    # M28: every member can use every sign-in method (the old 409 for sellers is gone).
     db.add(User(name="Amina", phone=PHONE, **account_fields(PartyRole.SELLER), password_hash="x"))
     db.commit()
     issued = _request(db)
-    with pytest.raises(PhoneNotBuyerError):
-        verify_phone_code(db, PHONE, issued.code, now=T0 + timedelta(minutes=1))
-    assert db.execute(select(UserSession)).first() is None
+    session = verify_phone_code(db, PHONE, issued.code, now=T0 + timedelta(minutes=1))
+    assert session.user.has_store and session.user.phone == PHONE
 
 
 def test_expired_codes_are_refused(db: Session) -> None:
@@ -257,4 +257,4 @@ def test_endpoint_errors(client, monkeypatch, factory) -> None:
         "dev_code"
     ]
     seller = client.post("/auth/phone/verify", json={"phone": "+254712000333", "code": seller_code})
-    assert seller.status_code == 409
+    assert seller.status_code == 200 and seller.json()["role"] == "seller"

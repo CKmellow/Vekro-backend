@@ -58,6 +58,7 @@ def db() -> Session:
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch: pytest.MonkeyPatch) -> None:
     phone_auth._CLIENT_BUCKETS.clear()
+    phone_auth._DECOY_BUCKETS.clear()
     monkeypatch.setattr(phone_auth, "default_sender_provider", lambda: None)
 
 
@@ -128,7 +129,7 @@ def test_sessions_list_and_revoke(db: Session, seller: User) -> None:
 
 def test_reset_password_by_sms(db: Session, seller: User) -> None:
     current, _ = _sessions(db, seller, 2)
-    assert request_reset_code(db, "+254700000000", client_identifier="x") is None
+    assert request_reset_code(db, "+254700000000", client_identifier="x").code == ""
     issued = request_reset_code(db, PHONE, client_identifier="x")
     assert issued is not None
     wrong = "000000" if issued.code != "000000" else "111111"

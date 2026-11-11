@@ -5,7 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.auth_context import get_client_identifier, get_current_user, require_store_owner
+from app.core.auth_context import (
+    get_client_identifier,
+    get_current_user,
+    require_member,
+    require_store_owner,
+)
 from app.core.security import verify_password
 from app.core.settings import get_settings
 from app.db.session import get_db
@@ -100,8 +105,9 @@ def post_change_password(
     status_code=status.HTTP_202_ACCEPTED,
     summary="Text a password reset code",
     description=(
-        "Always answers 202, so it doesn't reveal which numbers have accounts; only an account's "
-        "number gets the SMS."
+        "Always answers 202 with the same timers, so it doesn't reveal which numbers have "
+        "accounts. Only a member's number gets the SMS: admin passwords are never reset by SMS "
+        "code (an operator resets them with create-admin)."
     ),
     responses={status.HTTP_429_TOO_MANY_REQUESTS: {"description": "Too many codes."}},
 )
@@ -122,7 +128,7 @@ def post_reset_code(
         raise _limited(exc) from exc
     return ResetCodeResponse(
         resend_after_seconds=settings.phone_code_resend_seconds,
-        dev_code=issued.code if issued and settings.phone_code_dev_echo else None,
+        dev_code=(issued.code or None) if issued and settings.phone_code_dev_echo else None,
     )
 
 
@@ -265,3 +271,41 @@ def post_ussd_pin(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Wrong password.")
     set_ussd_pin(db, current_user, payload.pin)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+class SmsLoginSetting(BaseModel):
+    enabled: bool = Field(description="Whether this account may sign in with an SMS code.")
+
+
+@router.put(
+    "/account/sms-login",
+    response_model=SmsLoginSetting,
+    summary="Turn signing in with an SMS code on or off",
+    description=(
+        "A member's own switch (Profile & security). While off, a sign-in code request for this "
+        "number answers as usual but sends nothing. It can't be turned off on an account with no "
+        "password and no Google link, which would leave no way to sign in. Admins never sign in "
+        "by SMS code."
+    ),
+    responses={
+        status.HTTP_403_FORBIDDEN: {"description": "Admin accounts never sign in by SMS code."},
+        status.HTTP_409_CONFLICT: {"description": "No other way to sign in yet."},
+    },
+)
+def put_sms_login(
+    payload: SmsLoginSetting,
+    current_user: Annotated[User, Depends(require_member)],
+    db: Annotated[Session, Depends(get_db)],
+) -> SmsLoginSetting:
+    if not payload.enabled and not current_user.has_password and not current_user.google_sub:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Set a password or link Google first, so you can still sign in.",
+        )
+    # The session user belongs to the middleware's DB session; change it in this one.
+    user = db.get(User, current_user.id)
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
+    user.sms_login_enabled = payload.enabled
+    db.commit()
+    return SmsLoginSetting(enabled=user.sms_login_enabled)

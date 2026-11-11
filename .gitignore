@@ -58,3 +58,6 @@ docs/report-assets/
 deploy/.env
 deploy/backups/
 deploy/.deploy.lock
+
+# Local notes such as TEST-LOGINS.local.md (never commit)
+*.local.md

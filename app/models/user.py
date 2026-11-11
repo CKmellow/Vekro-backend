@@ -145,6 +145,10 @@ class User(Base):
     google_linked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # The member's own switch for signing in with an SMS code (M28). Admins never can.
+    sms_login_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
     # False for a Google sign-up seller without a password yet (Forgot password sets one).
     has_password: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("true")
@@ -195,3 +199,11 @@ class User(Base):
         if self.role == UserRole.ADMIN:
             return PartyRole.ADMIN
         return PartyRole.SELLER if self.store_status == StoreStatus.ACTIVE else PartyRole.BUYER
+
+    @property
+    def may_sign_in_by_sms(self) -> bool:
+        """Admins never sign in or reset a password by SMS code (SIM-swap risk); members can,
+        unless they turned it off."""
+        return (
+            self.role != UserRole.ADMIN and self.is_active and self.sms_login_enabled is not False
+        )

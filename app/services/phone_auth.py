@@ -1,8 +1,13 @@
-"""Buyer sign-in with a one-time SMS code (frontend gap #11).
+"""Sign-in with a one-time SMS code (frontend gap #11; every member since M28).
 
-A buyer asks for a 6-digit code, then verifies it to open the same cookie session as the password
+A member asks for a 6-digit code, then verifies it to open the same cookie session as the password
 login. Codes are random, single-use, short-lived and attempt-limited; only their HMAC is stored,
 keyed by the phone so a code can't be replayed for another number. The code is never logged.
+
+Admins never sign in or reset a password by SMS code: a SIM swap would hand over the admin console
+(docs/accounts-and-modes.md, section 3). Their numbers, members who turned SMS sign-in off and,
+for resets, numbers with no account all get the same answer as anyone else (202, the same timers
+and limits) with no SMS sent and no code stored, so the reply never tells who is behind a number.
 """
 
 from __future__ import annotations
@@ -61,15 +66,54 @@ class PhoneCodeExpiredError(Exception):
     """No active code for the phone: it expired, was used, or was never sent."""
 
 
-class PhoneNotBuyerError(Exception):
-    """The number belongs to a seller or admin, who log in with a password."""
-
-
 @dataclass(frozen=True)
 class IssuedCode:
     expires_at: datetime
     resend_after_seconds: int
+    # Empty when no code was sent (a refused number): never echoed, even in development.
     code: str
+
+
+# Throttles for numbers that never get a code, kept like the real ones so both answer alike.
+_DECOY_BUCKETS: dict[str, deque[datetime]] = {}
+
+
+def _refusal(db: Session, phone: str, purpose: Purpose) -> str | None:
+    """Why this number gets no code, or None when it gets a real one."""
+    if purpose not in ("sign_in", "reset"):
+        return None
+    user = db.execute(select(User).where(User.phone == phone)).scalar_one_or_none()
+    if user is None:
+        # An unknown number can sign in (a new account), but has no password to reset.
+        return "no_account" if purpose == "reset" else None
+    if user.role == UserRole.ADMIN:
+        return "admin"
+    if purpose == "sign_in" and not user.may_sign_in_by_sms:
+        return "disabled"
+    return None
+
+
+def _decoy_code(phone: str, purpose: Purpose, client_identifier: str, current: datetime):
+    settings = get_settings()
+    resend = timedelta(seconds=settings.phone_code_resend_seconds)
+    with _CLIENT_LOCK:
+        bucket = _DECOY_BUCKETS.setdefault(f"{purpose}:{phone}", deque())
+        while bucket and bucket[0] <= current - timedelta(hours=1):
+            bucket.popleft()
+        if bucket and bucket[-1] + resend > current:
+            raise PhoneCodeRateLimitedError((bucket[-1] + resend - current).total_seconds())
+        if len(bucket) >= settings.phone_code_hourly_limit:
+            raise PhoneCodeRateLimitedError(
+                (bucket[0] + timedelta(hours=1) - current).total_seconds()
+            )
+    _check_client_quota(client_identifier, current)
+    with _CLIENT_LOCK:
+        bucket.append(current)
+    return IssuedCode(
+        expires_at=current + timedelta(seconds=settings.phone_code_ttl_seconds),
+        resend_after_seconds=settings.phone_code_resend_seconds,
+        code="",
+    )
 
 
 def _code_hash(phone: str, code: str, purpose: Purpose) -> str:
@@ -149,6 +193,12 @@ def request_phone_code(
 ) -> IssuedCode:
     settings = get_settings()
     current = now or datetime.now(UTC)
+
+    reason = _refusal(db, phone, purpose)
+    if reason is not None:
+        issued = _decoy_code(phone, purpose, client_identifier, current)
+        logger.info("phone_code_refused purpose=%s reason=%s", purpose, reason)
+        return issued
 
     latest = _latest_code(db, phone, purpose)
     if latest is not None:
@@ -273,10 +323,9 @@ def verify_phone_code(
     current = now or datetime.now(UTC)
     user = db.execute(select(User).where(User.phone == phone)).scalar_one_or_none()
     consume_phone_code(db, phone, code, "sign_in", now=current)
-    if user is not None and (user.role == UserRole.ADMIN or user.has_store):
-        db.rollback()
-        raise PhoneNotBuyerError
-    if user is not None and not user.is_active:
+    if user is not None and not user.may_sign_in_by_sms:
+        # No code is ever issued to these numbers; refuse as "expired" all the same, so a stray
+        # code row could never open an admin session and the reply reveals nothing.
         db.rollback()
         raise PhoneCodeExpiredError
 
@@ -287,6 +336,8 @@ def verify_phone_code(
             phone=phone,
             role=UserRole.MEMBER,
             password_hash=hash_password(secrets.token_urlsafe(32)),
+            # Nobody knows that password: "Forgot password" sets a real one.
+            has_password=False,
         )
         db.add(user)
         db.flush()

@@ -64,6 +64,7 @@ def seller(factory: sessionmaker) -> User:
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch: pytest.MonkeyPatch) -> None:
     phone_auth._CLIENT_BUCKETS.clear()
+    phone_auth._DECOY_BUCKETS.clear()
     monkeypatch.setattr(phone_auth, "default_sender_provider", lambda: None)
     monkeypatch.setattr(seller_profile, "default_sender_provider", lambda: None)
 

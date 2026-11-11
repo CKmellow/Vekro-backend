@@ -121,6 +121,20 @@ The fix:
   existed.
 - Nothing in the response tells an attacker that the number belongs to an admin.
 
+### Password reset by SMS
+
+The same SIM-swap reasoning covers "Forgot password": an admin's password is never reset by SMS
+code. `/auth/password/reset/request-code` answers an admin's number like any other (and like an
+unknown number) with no SMS and no stored code, and `/auth/password/reset` refuses admins even with
+a code row. An operator resets an admin password with `create-admin` on the server.
+
+### The member's switch
+
+`PUT /account/sms-login {enabled}` turns SMS sign-in off or on (Profile & security). It can't be
+turned off while it is the only way in (no password set and no Google link): an account made by an
+SMS code has `has_password = false` until "Forgot password" sets one. `/auth/me` reports
+`sms_login_enabled` (always false for admins).
+
 ### Code rules (unchanged, now tested per role)
 
 | Rule | Value |

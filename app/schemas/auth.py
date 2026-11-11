@@ -131,7 +131,14 @@ class LoginResponse(BaseModel):
     )
     has_password: bool = Field(
         default=True,
-        description="False for a seller who signed up with Google and has not set a password yet.",
+        description=(
+            "False for an account made by Google sign-up or by an SMS code that has not set a "
+            "password yet."
+        ),
+    )
+    sms_login_enabled: bool = Field(
+        default=True,
+        description="Whether this account may sign in with an SMS code (always false for admins).",
     )
 
     @classmethod
@@ -150,6 +157,7 @@ class LoginResponse(BaseModel):
             session_expires_at=session_expires_at,
             google_email=user.google_email,
             has_password=user.has_password is not False,
+            sms_login_enabled=user.may_sign_in_by_sms,
         )
 
 

@@ -11,7 +11,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password, verify_password
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.user_session import UserSession
 from app.services.notification_delivery import Dispatcher, run_inline
 from app.services.phone_auth import (
@@ -97,10 +97,8 @@ def change_password(
 def request_reset_code(
     db: Session, phone: str, *, client_identifier: str, dispatch: Dispatcher = run_inline
 ) -> IssuedCode | None:
-    """Text a reset code if the phone has an account. None (and no SMS) otherwise, so the API can
-    answer the same either way and not reveal who has an account."""
-    if db.execute(select(User.id).where(User.phone == phone)).first() is None:
-        return None
+    """Text a reset code to a member's phone. Unknown and admin numbers get the same answer and
+    throttles but no SMS (an empty code), so the API never reveals who has an account."""
     return request_phone_code(
         db, phone, purpose="reset", client_identifier=client_identifier, dispatch=dispatch
     )
@@ -110,7 +108,7 @@ def reset_password(db: Session, phone: str, code: str, new_password: str) -> Non
     """Set a new password with the SMS code and sign out every device."""
     user = db.execute(select(User).where(User.phone == phone)).scalar_one_or_none()
     consume_phone_code(db, phone, code, "reset")
-    if user is None:
+    if user is None or user.role == UserRole.ADMIN:
         db.rollback()
         raise PhoneCodeExpiredError
     user.password_hash = hash_password(new_password)

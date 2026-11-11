@@ -518,3 +518,12 @@ def test_routes_complete_a_seller_signup_and_block_selling_before_it(client, _go
 def test_linking_needs_a_signed_in_session(client) -> None:
     assert client.post("/account/google/link", json={}).status_code == 401
     assert client.delete("/account/google").status_code == 401
+
+
+def test_a_link_comes_back_to_the_settings_tab_it_started_from(client, factory, _google) -> None:
+    from app.routers.google_auth import _with_result
+
+    assert _with_result("/seller/settings?tab=security", "linked") == (
+        "/seller/settings?tab=security&google=linked"
+    )
+    assert _with_result("/buyer/orders", "taken") == "/buyer/orders?google=taken"

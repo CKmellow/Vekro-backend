@@ -81,6 +81,11 @@ def _login_redirect(code: str) -> str:
     return f"/login?{urlencode({'google': code})}"
 
 
+def _with_result(path: str, code: str) -> str:
+    """Append ?google= (or &google= when the path already has a query, e.g. ?tab=security)."""
+    return f"{path}{'&' if '?' in path else '?'}{urlencode({'google': code})}"
+
+
 @router.get(
     "/auth/google/status",
     response_model=GoogleStatusResponse,
@@ -141,7 +146,7 @@ def google_callback(
     except GoogleAuthError as exc:
         logger.warning("google_callback_refused code=%s", exc.code)
         target = (
-            f"{exc.link_return_to}?{urlencode({'google': exc.code})}"
+            _with_result(exc.link_return_to, exc.code)
             if exc.link_return_to
             else _login_redirect(exc.code)
         )
@@ -155,7 +160,7 @@ def google_callback(
             response, SIGNUP_COOKIE, result.signup_token or "", int(SIGNUP_TTL.total_seconds())
         )
     elif result.kind == "linked":
-        target = f"{result.return_to or '/'}?{urlencode({'google': 'linked'})}"
+        target = _with_result(result.return_to or "/", "linked")
         response = RedirectResponse(target, status_code=status.HTTP_302_FOUND)
     else:
         assert result.user is not None

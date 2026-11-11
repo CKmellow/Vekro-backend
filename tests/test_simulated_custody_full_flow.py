@@ -79,8 +79,7 @@ def _build_db_session() -> Session:
             column.server_default = default
 
     with engine.begin() as connection:
-        connection.execute(
-            text("""
+        connection.execute(text("""
                 CREATE TABLE collection_attempts (
                     id TEXT PRIMARY KEY,
                     escrow_id TEXT NOT NULL,
@@ -100,10 +99,8 @@ def _build_db_session() -> Session:
                     updated_at DATETIME NOT NULL,
                     CONSTRAINT ck_collection_attempts_amount_positive CHECK (amount > 0)
                 )
-                """)
-        )
-        connection.execute(
-            text("""
+                """))
+        connection.execute(text("""
                 CREATE TABLE payout_attempts (
                     id TEXT PRIMARY KEY,
                     escrow_id TEXT NOT NULL,
@@ -124,15 +121,12 @@ def _build_db_session() -> Session:
                     updated_at DATETIME NOT NULL,
                     CONSTRAINT ck_payout_attempts_amount_positive CHECK (amount > 0)
                 )
-                """)
-        )
-        connection.execute(
-            text("""
+                """))
+        connection.execute(text("""
                 CREATE UNIQUE INDEX ux_payout_attempts_one_non_failed_per_escrow_purpose
                 ON payout_attempts (escrow_id, purpose)
                 WHERE outcome <> 'failed_definite'
-                """)
-        )
+                """))
 
     session_factory = sessionmaker(
         bind=engine,

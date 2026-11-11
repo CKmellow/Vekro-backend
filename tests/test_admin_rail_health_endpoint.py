@@ -28,8 +28,7 @@ def _build_db_session() -> Session:
         poolclass=StaticPool,
     )
     with engine.begin() as connection:
-        connection.execute(
-            text("""
+        connection.execute(text("""
                 CREATE TABLE rail_health (
                     id TEXT PRIMARY KEY,
                     rail_name VARCHAR(40) NOT NULL,
@@ -45,14 +44,11 @@ def _build_db_session() -> Session:
                     created_at DATETIME NOT NULL,
                     updated_at DATETIME NOT NULL
                 )
-                """)
-        )
-        connection.execute(
-            text("""
+                """))
+        connection.execute(text("""
                 CREATE UNIQUE INDEX ix_rail_health_rail_name
                 ON rail_health (rail_name)
-                """)
-        )
+                """))
 
     session_factory = sessionmaker(
         bind=engine,

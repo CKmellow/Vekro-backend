@@ -389,9 +389,7 @@ def create_transaction(
         (
             RAIL_PESAPAL
             if pays_by_card
-            else RAIL_ECONFIRM
-            if selection.is_econfirm
-            else mpesa_rail(runtime_settings)
+            else RAIL_ECONFIRM if selection.is_econfirm else mpesa_rail(runtime_settings)
         ),
     )
     db.add(transaction)

@@ -131,6 +131,9 @@ def test_list_notifications_returns_current_user_only(monkeypatch) -> None:
         lambda _db, user_id, limit, offset, **_filters: [own_notification],
     )
     monkeypatch.setattr(notifications_router, "transaction_references", lambda _db, _ids: {})
+    monkeypatch.setattr(
+        notifications_router, "transaction_audiences", lambda _db, _ids, _user_id: {}
+    )
 
     response = client.get("/notifications")
 
@@ -161,6 +164,9 @@ def test_list_notifications_forwards_pagination_params(monkeypatch) -> None:
         fake_list_user_notifications,
     )
     monkeypatch.setattr(notifications_router, "transaction_references", lambda _db, _ids: {})
+    monkeypatch.setattr(
+        notifications_router, "transaction_audiences", lambda _db, _ids, _user_id: {}
+    )
 
     response = client.get("/notifications?limit=5&offset=10&unread=true&channel=in_app")
 

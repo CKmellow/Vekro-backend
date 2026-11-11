@@ -12,7 +12,8 @@ state machine, timeouts and anchoring. What Africa's Talking actually sends is r
 2. Callback URL: `https://<host>/ussd/africastalking/<USSD_CALLBACK_TOKEN>`. Locally `<host>` is the
    ngrok static domain (`make tunnel`); on the server it is the `api.` hostname.
 3. `.env`: `USSD_CALLBACK_TOKEN` (a long random value; blank turns USSD off). Optionally
-   `USSD_ALLOWED_IPS`; behind ngrok or Caddy also set `USSD_TRUST_FORWARDED_FOR=true`.
+   `USSD_ALLOWED_IPS`, enforced only behind the Cloudflare tunnel with
+   `USSD_CLIENT_IP_HEADER=cf-connecting-ip` (#289). Elsewhere (ngrok, Caddy) it stays off.
 4. Users set a 4-digit USSD PIN with `POST /account/ussd-pin` (it needs their password). For the
    demo the seed sets it (below).
 
@@ -70,7 +71,10 @@ for example "VK-7K3P9Q can't do that now. It is: On the way."
 - **Unsigned requests.** Africa's Talking does not sign USSD callbacks. The secret token in the
   URL is the gate (compared in constant time), and anything else gets 404. `USSD_ALLOWED_IPS` is
   an optional extra; AT does not publish its addresses (discovery saw `35.177.236.113`), so it is
-  off by default.
+  off by default. When on, the caller is read **only** from `CF-Connecting-IP` (Cloudflare's edge
+  overwrites any value a caller sends), and only for requests that reached the API from a private
+  or loopback hop (cloudflared on the VM, or the web proxy). `X-Forwarded-For` is never trusted:
+  a caller can put any address first (#289).
 - **Who is calling.** The caller is identified by the `phoneNumber` AT sends. On a live network
   the operator asserts it. **In the sandbox simulator anyone can type any number**, so a demo
   caller is only as real as the number typed. That is why sensitive actions also need a USSD PIN,

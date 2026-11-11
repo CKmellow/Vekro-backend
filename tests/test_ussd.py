@@ -353,15 +353,60 @@ def test_router_refuses_a_wrong_token_or_when_off(client) -> None:
     assert http.post(f"/ussd/africastalking/{TOKEN}", data=FORM).status_code == 404
 
 
-def test_router_allowlist_is_optional_and_reads_forwarded_for_only_when_trusted(client) -> None:
+def test_router_allowlist_is_off_unless_the_tunnel_header_is_configured(client) -> None:
+    """#289: a spoofed X-Forwarded-For never decides who may call, and without
+    USSD_CLIENT_IP_HEADER the allowlist is simply not enforced (the path token guards)."""
     http, configure = client
     url = f"/ussd/africastalking/{TOKEN}"
-    forwarded = {"X-Forwarded-For": "35.177.236.113"}
     configure(ussd_allowed_ips="35.177.236.113")
-    assert http.post(url, data=FORM, headers=forwarded).status_code == 404  # not trusted
-    configure(ussd_allowed_ips="35.177.236.113", ussd_trust_forwarded_for=True)
-    assert http.post(url, data=FORM, headers=forwarded).status_code == 200
-    assert http.post(url, data=FORM, headers={"X-Forwarded-For": "1.2.3.4"}).status_code == 404
+    for headers in ({"X-Forwarded-For": "35.177.236.113"}, {"X-Forwarded-For": "1.2.3.4"}, {}):
+        assert http.post(url, data=FORM, headers=headers).status_code == 200
+
+
+def test_router_allowlist_reads_cf_connecting_ip_only_from_a_private_hop(client) -> None:
+    from app.main import app as fastapi_app
+    from fastapi.testclient import TestClient
+
+    _http, configure = client
+    url = f"/ussd/africastalking/{TOKEN}"
+    configure(ussd_allowed_ips="35.177.236.113", ussd_client_ip_header="cf-connecting-ip")
+    via_tunnel = TestClient(fastapi_app, client=("172.18.0.1", 50000))  # cloudflared via docker
+    allowed = {"CF-Connecting-IP": "35.177.236.113"}
+    assert via_tunnel.post(url, data=FORM, headers=allowed).status_code == 200
+    # A spoofed X-Forwarded-For is ignored; CF-Connecting-IP decides.
+    spoofed = {"CF-Connecting-IP": "1.2.3.4", "X-Forwarded-For": "35.177.236.113"}
+    assert via_tunnel.post(url, data=FORM, headers=spoofed).status_code == 404
+    assert (
+        via_tunnel.post(url, data=FORM, headers={"X-Forwarded-For": "35.177.236.113"}).status_code
+        == 404
+    )
+    # Not through the tunnel (a public peer): the header cannot be trusted.
+    direct = TestClient(fastapi_app, client=("8.8.8.8", 50000))
+    assert direct.post(url, data=FORM, headers=allowed).status_code == 404
+
+
+def test_ussd_caller_ip_trusts_only_cf_connecting_ip_behind_a_private_hop() -> None:
+    from app.routers.ussd import allowlist_active, ussd_caller_ip
+
+    cf = {"cf-connecting-ip": "35.177.236.113", "x-forwarded-for": "9.9.9.9"}
+    assert ussd_caller_ip(cf, "127.0.0.1", "cf-connecting-ip") == "35.177.236.113"
+    assert ussd_caller_ip(cf, "10.0.0.5", "CF-Connecting-IP") == "35.177.236.113"
+    assert ussd_caller_ip(cf, "41.90.1.1", "cf-connecting-ip") is None  # public peer
+    assert ussd_caller_ip(cf, "testclient", "cf-connecting-ip") is None  # not an IP
+    assert ussd_caller_ip(cf, "127.0.0.1", "") is None  # feature off
+    assert ussd_caller_ip(cf, "127.0.0.1", "x-forwarded-for") is None  # never trusted
+    assert ussd_caller_ip({"cf-connecting-ip": "nonsense"}, "127.0.0.1", "cf-connecting-ip") is None
+    assert ussd_caller_ip({}, "127.0.0.1", "cf-connecting-ip") is None
+
+    from app.core.settings import get_settings
+
+    base = get_settings()
+    assert not allowlist_active(base.model_copy(update={"ussd_allowed_ips": "1.1.1.1"}))
+    assert allowlist_active(
+        base.model_copy(
+            update={"ussd_allowed_ips": "1.1.1.1", "ussd_client_ip_header": "cf-connecting-ip"}
+        )
+    )
 
 
 def test_setting_the_ussd_pin_needs_the_password(monkeypatch) -> None:

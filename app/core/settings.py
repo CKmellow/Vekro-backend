@@ -62,10 +62,12 @@ class Settings(BaseSettings):
     # M23 USSD: AT's requests are unsigned, so the callback URL carries this secret
     # (/ussd/africastalking/<token>). Blank turns the USSD endpoint off.
     ussd_callback_token: SecretStr = SecretStr("")
-    # Optional extra check, off when blank: comma-separated client IPs allowed to call.
+    # Optional extra check: comma-separated client IPs allowed to call. Enforced only behind the
+    # Cloudflare tunnel (#289): with USSD_CLIENT_IP_HEADER=cf-connecting-ip the caller is read from
+    # CF-Connecting-IP, which Cloudflare's edge always overwrites. Without it the allowlist is off
+    # (X-Forwarded-For can be set by the caller) and the path token alone protects the callback.
     ussd_allowed_ips: str = ""
-    # Read the client IP from X-Forwarded-For (only behind a proxy you control: ngrok, Caddy).
-    ussd_trust_forwarded_for: bool = False
+    ussd_client_ip_header: str = ""
     ussd_session_seconds: int = 180
 
     # M24 B4: the state timeouts in minutes instead of hours and days, for a class demo. Refused

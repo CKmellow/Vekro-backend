@@ -136,6 +136,7 @@ Sandbox rails unless stated. Times in UTC unless EAT is given.
 | 2026-11-10 | Go-live on vekro-vm: VK-BJNA8P, Daraja sandbox KES 1 to Cyprian's phone; callback reached api.vekro.me (200); dispatched, delivered, released | Receipt VERIFIED 10/10 against Base Sepolia; audit CLEAN 88 events in 26 batches; reboot recovery; backup and restore drill |
 | 2026-11-11 | VK-2N6HSK (card, KES 10) finished over the real USSD endpoint: seller dispatch and arrival with PIN, buyer acceptance with the delivery code | Released; VERIFIED 10/10 |
 | 2026-11-11 | **eConfirm live, real money**, VK-B627E5, KES 100: escrow funded by eConfirm's M-Pesa prompt (15:06 EAT), recorded by Vekro's reconciliation, delivered over USSD, released through eConfirm | eConfirm `Completed`; VERIFIED 55/55. Sanitised release request and response: `econfirm-release-VK-B627E5.sanitised.json`. Account of the run, including what went wrong: `docs/econfirm-live-runbook.md` |
+| 2026-11-11 | The KES 100 from VK-B627E5 came back to Cyprian's M-Pesa (refund confirmed by Cyprian) | The real-money round trip closed with no money lost |
 | 2026-11-11 | Tamper demo on a copy of VK-BJNA8P's receipt (one amount edited) | Original VERIFIED; copy TAMPERED, `amount_mismatch` |
 | 2026-11-11 12:49 | Full audit of the live database against Base Sepolia | **CLEAN: 324 events in 179 batches** |
 | 2026-11-11 | Web delivery: an open browser tab moved to a new deploy by itself (#302); security headers 6 of 6 on every app path (#306); Chrome installability check with no errors (#304) | Live on app.vekro.me |
@@ -174,4 +175,6 @@ private). Frontend screenshots per issue are in the frontend repo, `docs/screens
 - **Google sign-in is in Testing**: only listed test users can use it until Google verifies the app.
 - **Future work**: proof of reserves signed by the custodian; mainnet anchoring with KMS-held keys;
   live rails; signed or operator-asserted USSD; Google sign-in out of Testing mode (Google's
-  verification); off-VM backups and monitoring alerts.
+  verification); off-VM backups and monitoring alerts; a separate stores table (several stores per
+  account, store history), since a store is kept on the account row for now
+  (`docs/accounts-and-modes.md`).

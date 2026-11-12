@@ -43,6 +43,7 @@ NEW_BUYER_NAME = "Vekro buyer"
 logger = logging.getLogger("app.auth.phone")
 
 # Codes asked for by one client across all numbers, per hour (in memory, like the login limiter).
+# The default of PHONE_CODE_CLIENT_HOURLY_LIMIT; settings decide at run time.
 CLIENT_HOURLY_LIMIT = 20
 _CLIENT_BUCKETS: dict[str, deque[datetime]] = {}
 _CLIENT_LOCK = Lock()
@@ -142,7 +143,7 @@ def _check_client_quota(client_identifier: str, current: datetime) -> None:
         bucket = _CLIENT_BUCKETS.setdefault(client_identifier, deque())
         while bucket and bucket[0] <= cutoff:
             bucket.popleft()
-        if len(bucket) >= CLIENT_HOURLY_LIMIT:
+        if len(bucket) >= get_settings().phone_code_client_hourly_limit:
             raise PhoneCodeRateLimitedError(
                 (bucket[0] + timedelta(hours=1) - current).total_seconds()
             )

@@ -38,6 +38,10 @@ ENABLED_CREDENTIAL_FIELDS: dict[str, tuple[str, ...]] = {
 }
 
 
+# The most codes one client may ask for per hour in production (anti SMS pumping).
+PHONE_CODE_CLIENT_HOURLY_LIMIT_MAX = 50
+
+
 class Settings(BaseSettings):
     app_name: str = "Vekro Backend"
     environment: str = "development"
@@ -109,6 +113,10 @@ class Settings(BaseSettings):
     phone_code_max_attempts: int = 5
     phone_code_lockout_seconds: int = 5 * 60
     phone_code_hourly_limit: int = 5
+    # Codes one client (IP) may ask for across all numbers per hour, against SMS pumping. The e2e
+    # suite raises it (every test seller verifies a payout number from 127.0.0.1); production
+    # refuses more than PHONE_CODE_CLIENT_HOURLY_LIMIT_MAX.
+    phone_code_client_hourly_limit: int = 20
     # Local development and end-to-end tests only: return the code in the request-code
     # response, since no SMS is sent without a gateway key. Refused in production.
     phone_code_dev_echo: bool = False
@@ -217,6 +225,7 @@ class Settings(BaseSettings):
         "phone_code_max_attempts",
         "phone_code_lockout_seconds",
         "phone_code_hourly_limit",
+        "phone_code_client_hourly_limit",
     )
     @classmethod
     def _must_be_positive(cls, value: int) -> int:
@@ -294,6 +303,10 @@ class Settings(BaseSettings):
         if environment == "production":
             if self.phone_code_dev_echo:
                 violations.append("PHONE_CODE_DEV_ECHO=false")
+            if self.phone_code_client_hourly_limit > PHONE_CODE_CLIENT_HOURLY_LIMIT_MAX:
+                violations.append(
+                    f"PHONE_CODE_CLIENT_HOURLY_LIMIT<={PHONE_CODE_CLIENT_HOURLY_LIMIT_MAX}"
+                )
             if not self.session_cookie_secure:
                 violations.append("SESSION_COOKIE_SECURE=true")
             if not self.csrf_cookie_secure:

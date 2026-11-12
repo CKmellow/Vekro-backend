@@ -92,7 +92,31 @@ not for payments. Users never see the words "blockchain" or "crypto": the app sa
 - **The 23:00 auto-stop.** While the VM is off, callbacks are lost. On start, the scheduler
   re-checks the last 24 hours with the providers.
 - **Sandbox SMS** reaches only the AT simulator, not real phones.
-- **One administrator** account type, with password login, rate limits and lockout. No hardware 2FA yet.
+- **One administrator** account type, with password login (or Google they linked), rate limits and
+  lockout; never an SMS code, not even to reset the password. No hardware 2FA yet.
+
+## One account for buying and selling? (M28)
+
+Yes. One person is one account, keyed by a verified phone. Every account can buy; selling is a
+store on the same account, opened from the buyer area (store name, seller terms, a payout number
+proven by an SMS code). Admins are a separate kind of account: no store, no purchases, so they are
+never a party to a dispute they decide.
+
+- **Can a seller buy from their own store?** No. The backend refuses it, the database refuses an
+  order whose buyer and seller are the same account, and a buyer can't pay from the number a store
+  is paid out to. Otherwise a seller could inflate their public "verified sales". Two accounts on
+  two phones can still collude; the record shows that sales happened through escrow, not who is
+  behind each phone.
+- **Can a seller close their store?** Yes, once nothing still needs them: no funded order in
+  progress, no money held, no payout outstanding, no open dispute. Closing archives the listings and
+  stops new orders; it can be reopened. Stores and orders are **never deleted**: they are part of
+  the anchored record, and buyers keep the right to verify their orders.
+- **What about deleting personal data (Kenya DPA 2019)?** Documented future work: anonymise the
+  profile (name, phone, Google link) and keep the transaction records, which hold no personal data
+  in their anchored form.
+- **Why no SMS-code login for admins?** A SIM swap would hand over the console, which moves other
+  people's money. Admins use a password, or Google they linked themselves. Their numbers get the
+  same answer as any other on the code endpoints, so the endpoints can't reveal who is an admin.
 
 ## Tests and evidence
 

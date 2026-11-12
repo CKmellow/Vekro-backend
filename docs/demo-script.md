@@ -124,6 +124,38 @@ Fallback (no RPC from the laptop): run the same two commands on the VM (`ssh ssh
 Fallback: if the queue is empty (the dispute was not staged), show the case history of a past one,
 or skip to step 10.
 
+## 9a. Amina opens a store (1.5 min)
+
+One account buys and sells (`docs/accounts-and-modes.md`).
+
+1. Buyer Amina's window → **Home** (`/buyer`). Say: "Amina has only bought so far. Selling is not
+   a second account: it is a store on the same one."
+2. **Sell on Vekro too** → Store name `Amina's Kiondo`, tick **I accept the Vekro seller terms** →
+   **Open my store**.
+3. **Where we pay you**: the payout number is pre-filled (her M-Pesa number). **Text me a code**.
+   Read the 6-digit code in the AT simulator for that number (sandbox SMS reaches only the
+   simulator) and type it. Say: "A store takes no orders until an SMS code proves the payout
+   number."
+4. Expected: S7 **Create listing** opens. Publish `Small kiondo, KES 1`. The shell now shows
+   **Buying | Selling**; switch back and forth.
+
+Fallback: if the SMS does not arrive, show that her Trust Link says **"This store isn't ready
+yet"**, and the seller banner **"Finish setup: add payout number (SMS-verified)"**.
+
+## 9b. The seller buys from another shop (1 min)
+
+1. Seller Wanjiru's window → **More** (phone) or the sidebar → **Buying**. Say: "Same account,
+   now buying."
+2. Open Amina's Trust Link from 9a → **Pay KES 1 with M-Pesa**. Expected: the order is created and
+   shows under **Buying → Orders**, never among her store's sales. (The STK prompt goes to her
+   demo number, so leave it unpaid.)
+3. Open her **own** Trust Link (the Kiondo basket from step 1). Expected: **"This is your own
+   listing. You can't buy from your own store."** Say: "The backend refuses it too, and a buyer can't
+   pay from the number a store is paid out to, so nobody can buy their own 'verified sales'."
+
+Optional: **Settings → Your store → Close store** on Amina's new store shows that closing waits for
+open orders and money, and that stores are never deleted (they are part of the record).
+
 ## 10. Dark mode and the installed app (45 s)
 
 1. Any page → the theme switch → **Dark**, then **Same as device**. Expected: the whole app

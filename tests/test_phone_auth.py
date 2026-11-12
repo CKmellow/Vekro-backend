@@ -258,3 +258,21 @@ def test_endpoint_errors(client, monkeypatch, factory) -> None:
     ]
     seller = client.post("/auth/phone/verify", json={"phone": "+254712000333", "code": seller_code})
     assert seller.status_code == 200 and seller.json()["role"] == "seller"
+
+
+def test_the_per_client_cap_is_a_setting_with_a_production_ceiling(
+    db: Session, monkeypatch
+) -> None:
+    from app.core.settings import PHONE_CODE_CLIENT_HOURLY_LIMIT_MAX, Settings
+
+    monkeypatch.setattr(get_settings(), "phone_code_client_hourly_limit", 2)
+    for i in range(2):
+        request_phone_code(db, f"+2547130{i:05d}", client_identifier="9.9.9.9", now=T0)
+    with pytest.raises(PhoneCodeRateLimitedError):
+        request_phone_code(db, "+254713099999", client_identifier="9.9.9.9", now=T0)
+
+    with pytest.raises(ValueError, match="PHONE_CODE_CLIENT_HOURLY_LIMIT"):
+        Settings(
+            environment="production",
+            phone_code_client_hourly_limit=PHONE_CODE_CLIENT_HOURLY_LIMIT_MAX + 1,
+        )

@@ -9,7 +9,7 @@
   verified e-mail. Google's tokens are dropped: only ``sub`` and the e-mail (for display) are kept.
 - **accounts**: a sign-in matches ``google_sub`` only, **never the e-mail**. So an admin can sign in
   with Google only after linking it from their own signed-in session. An unknown Google account
-  becomes a *pending seller sign-up*: no account exists until a phone is verified by SMS code, so
+  becomes a *pending member sign-up*: no account exists until a phone is verified by SMS code, so
   nobody can transact unverified. Buyers link Google from settings while signed in.
 """
 
@@ -40,7 +40,6 @@ from app.core.security import hash_password
 from app.models.oauth import GoogleSignup, OAuthState
 from app.models.user import User, UserRole
 from app.services.phone_auth import consume_phone_code, request_phone_code
-from app.services.store import open_store_on, record_store_opened
 
 AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
@@ -368,7 +367,7 @@ def _finish_callback(
         logger.info("google_sign_in user_id=%s role=%s", owner.id, owner.role.value)
         return CallbackResult("signed_in", user=owner, return_to=row.return_to)
 
-    # Unknown Google account: never matched by e-mail. It may become a seller, after an SMS code.
+    # Unknown Google account: never matched by e-mail. It may become a member, after an SMS code.
     token = secrets.token_urlsafe(32)
     db.add(
         GoogleSignup(
@@ -385,7 +384,7 @@ def _finish_callback(
     return CallbackResult("signup", signup_token=token)
 
 
-# --- seller sign-up: a phone verified by SMS before any account exists ------------------------
+# --- member sign-up: a phone verified by SMS before any account exists ------------------------
 
 
 def pending_signup(db: Session, token: str | None, *, now: datetime | None = None) -> GoogleSignup:
@@ -412,13 +411,18 @@ def _normalized(phone: str) -> str:
     return number
 
 
+# One answer for any number that already has an account (a member's or an admin's): Google never
+# links to it or creates a second account for it.
+PHONE_TAKEN_MESSAGE = (
+    "This number already has a Vekro account. Sign in with password or SMS code, then link "
+    "Google in Profile & security."
+)
+
+
 def request_signup_code(db: Session, signup: GoogleSignup, phone: str, **kwargs):
     number = _normalized(phone)
     if db.execute(select(User.id).where(User.phone == number)).first() is not None:
-        raise GoogleAuthError(
-            "phone_taken",
-            "This number already has an account. Log in, then link Google in settings.",
-        )
+        raise GoogleAuthError("phone_taken", PHONE_TAKEN_MESSAGE)
     return request_phone_code(db, number, purpose="signup", **kwargs)
 
 
@@ -431,25 +435,24 @@ def complete_signup(
     name: str | None = None,
     now: datetime | None = None,
 ) -> User:
-    """Create the seller only now, with the SMS-verified phone. Raises the phone-code errors."""
+    """Create the member only now, with the SMS-verified phone, linked to this Google account.
+    No store: selling starts later from the buyer area. Raises the phone-code errors."""
     current = now or datetime.now(UTC)
     number = _normalized(phone)
     if db.execute(select(User.id).where(User.phone == number)).first() is not None:
-        raise GoogleAuthError("phone_taken", "This number already has an account.")
+        raise GoogleAuthError("phone_taken", PHONE_TAKEN_MESSAGE)
     if db.execute(select(User.id).where(User.google_sub == signup.google_sub)).first():
         raise GoogleAuthError("taken", "This Google account is already linked.")
     consume_phone_code(db, number, code, "signup", now=current)
-    display_name = (name or signup.google_name or "").strip()[:120] or "Vekro seller"
+    display_name = (name or signup.google_name or "").strip()[:120] or "Vekro member"
     user = User(
         id=uuid.uuid4(),
         name=display_name,
         phone=number,
         role=UserRole.MEMBER,
-        payout_verified_at=current,
         # Nobody knows this password; "Forgot password" sets a real one (has_password).
         password_hash=hash_password(secrets.token_urlsafe(32)),
         has_password=False,
-        mpesa_phone=number,
         google_sub=signup.google_sub,
         google_email=signup.google_email,
         google_linked_at=current,
@@ -460,11 +463,9 @@ def complete_signup(
         updated_at=current,
     )
     db.add(user)
-    open_store_on(user, now=current)
-    record_store_opened(db, user)
     db.delete(signup)
     db.commit()
-    logger.info("google_seller_signup user_id=%s", user.id)
+    logger.info("google_member_signup user_id=%s", user.id)
     return user
 
 

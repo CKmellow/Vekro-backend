@@ -24,7 +24,7 @@ OpenID Connect, authorization-code flow, with PKCE, state and nonce (`app/servic
 | Case | What happens |
 |---|---|
 | `google_sub` linked to an account | Signed in (any role). An admin gets here only after linking it themselves. |
-| Unknown Google account | A pending **seller sign-up** (cookie, 30 minutes). The seller verifies a phone by SMS code (`/register/google`); the account is created only then, so nobody transacts unverified. It has no password (`has_password=false`) until "Forgot password" sets one. |
+| Unknown Google account | A pending **member sign-up** (cookie, 30 minutes): name and phone, the phone verified by SMS code (`/register/google`); the account (a member with no store; selling starts later from the buyer area) is created only then, so nobody transacts unverified. It has no password (`has_password=false`) until "Forgot password" sets one. A phone that already has an account, a member's or an admin's, is refused with "This number already has a Vekro account. Sign in with password or SMS code, then link Google in Profile & security." Google never links or creates anything for it (M28, 2026-11-12). |
 | Same e-mail as an existing account | **Never linked or signed in.** Matching is by `google_sub` only. |
 | Buyer, seller or admin wants Google | Link from settings while signed in: `POST /account/google/link` (CSRF), then the same callback. A Google account linked elsewhere is refused (`taken`). |
 | Unlink | `DELETE /account/google`; refused while Google is the only way in (`password_needed`). |

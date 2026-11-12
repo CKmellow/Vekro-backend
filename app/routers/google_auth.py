@@ -122,7 +122,7 @@ def google_start(
     description=(
         "Checks the state against this browser's cookie (single use), exchanges the code with the "
         "PKCE verifier, verifies the ID token (signature, issuer, audience, expiry, nonce, verified"
-        " e-mail) and signs in by google_sub only, links it, or starts a seller sign-up."
+        " e-mail) and signs in by google_sub only, links it, or starts a member sign-up."
     ),
     status_code=status.HTTP_302_FOUND,
 )
@@ -253,7 +253,7 @@ def google_signup(
     "/auth/google/signup/request-code",
     response_model=PhoneCodeRequestResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Send the seller's phone a sign-up code by SMS",
+    summary="Send the new member's phone a sign-up code by SMS",
     responses={
         status.HTTP_409_CONFLICT: {"description": "The number already has an account."},
         status.HTTP_410_GONE: {"description": "No pending sign-up, or it expired."},
@@ -296,10 +296,11 @@ def google_signup_request_code(
 @router.post(
     "/auth/google/signup/complete",
     response_model=LoginResponse,
-    summary="Create the seller account once the phone is verified",
+    summary="Create the member account once the phone is verified",
     description=(
-        "Checks the SMS code, then creates the seller with this phone and the Google account, and "
-        "signs in (same cookies as /auth/login). No account exists before this succeeds."
+        "Checks the SMS code, then creates a member (no store) with this phone and the Google "
+        "account, and signs in (same cookies as /auth/login). No account exists before this "
+        "succeeds. A number that already has an account is refused (409 phone_taken)."
     ),
     responses={
         status.HTTP_409_CONFLICT: {"description": "The number or the Google account is taken."},

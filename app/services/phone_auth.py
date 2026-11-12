@@ -176,7 +176,7 @@ def reset_sms_text(code: str, ttl_seconds: int) -> str:
 def signup_sms_text(code: str, ttl_seconds: int) -> str:
     minutes = max(ttl_seconds // 60, 1)
     return (
-        f"Vekro: your code to finish creating your seller account is {code}. It expires in "
+        f"Vekro: your code to finish creating your Vekro account is {code}. It expires in "
         f"{minutes} minutes. If you didn't ask for it, ignore this message."
     )
 

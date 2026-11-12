@@ -285,7 +285,7 @@
           "Auth"
         ],
         "summary": "Google's redirect back (OIDC callback)",
-        "description": "Checks the state against this browser's cookie (single use), exchanges the code with the PKCE verifier, verifies the ID token (signature, issuer, audience, expiry, nonce, verified e-mail) and signs in by google_sub only, links it, or starts a seller sign-up.",
+        "description": "Checks the state against this browser's cookie (single use), exchanges the code with the PKCE verifier, verifies the ID token (signature, issuer, audience, expiry, nonce, verified e-mail) and signs in by google_sub only, links it, or starts a member sign-up.",
         "operationId": "google_callback_auth_google_callback_get",
         "parameters": [
           {
@@ -450,7 +450,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Send the seller's phone a sign-up code by SMS",
+        "summary": "Send the new member's phone a sign-up code by SMS",
         "operationId": "google_signup_request_code_auth_google_signup_request_code_post",
         "requestBody": {
           "content": {
@@ -500,8 +500,8 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Create the seller account once the phone is verified",
-        "description": "Checks the SMS code, then creates the seller with this phone and the Google account, and signs in (same cookies as /auth/login). No account exists before this succeeds.",
+        "summary": "Create the member account once the phone is verified",
+        "description": "Checks the SMS code, then creates a member (no store) with this phone and the Google account, and signs in (same cookies as /auth/login). No account exists before this succeeds. A number that already has an account is refused (409 phone_taken).",
         "operationId": "google_signup_complete_auth_google_signup_complete_post",
         "requestBody": {
           "content": {

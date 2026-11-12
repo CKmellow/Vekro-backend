@@ -388,10 +388,10 @@ def test_return_to_never_leaves_the_site(db, _google) -> None:
     assert {r.return_to for r in db.execute(select(OAuthState)).scalars()} == {None}
 
 
-# --- seller sign-up: no account until the phone is verified ---
+# --- member sign-up: no account until the phone is verified ---
 
 
-def test_a_google_seller_exists_only_after_the_sms_code(db, _google) -> None:
+def test_a_new_google_user_becomes_a_member_only_after_the_sms_code(db, _google) -> None:
     result = _login(db, _google)
     assert result.kind == "signup"
     assert db.execute(select(User)).first() is None  # nothing to transact with yet
@@ -404,21 +404,49 @@ def test_a_google_seller_exists_only_after_the_sms_code(db, _google) -> None:
         )
     assert db.execute(select(User)).first() is None
 
-    seller = complete_signup(db, signup, phone="0711000007", code=issued.code, name="Kiondo & Co.")
-    assert seller.store_active and seller.store_payout_ready and seller.phone == "+254711000007"
-    assert seller.google_sub == _google.sub and seller.has_password is False
-    assert seller.mpesa_phone == "+254711000007"
+    member = complete_signup(db, signup, phone="0711000007", code=issued.code, name="Amina Otieno")
+    # A member with no store (M28): selling starts later from the buyer area.
+    assert member.role == UserRole.MEMBER and not member.has_store
+    assert member.name == "Amina Otieno" and member.phone == "+254711000007"
+    assert member.google_sub == _google.sub and member.has_password is False
+    # Only the subject and the display e-mail are kept from Google.
+    assert member.google_email == _google.email
     assert db.execute(select(GoogleSignup)).first() is None
     # The same Google account now signs straight in.
     assert _login(db, _google).kind == "signed_in"
 
 
-def test_a_signup_cannot_take_a_registered_number(db, _google) -> None:
-    _user(db, "+254711000008", PartyRole.BUYER)
+@pytest.mark.parametrize("role", [PartyRole.BUYER, PartyRole.SELLER, UserRole.ADMIN])
+def test_a_number_with_an_account_is_never_signed_up_or_linked(db, _google, role) -> None:
+    owner = _user(db, "+254711000008", role)
     signup = pending_signup(db, _login(db, _google).signup_token)
     with pytest.raises(GoogleAuthError) as refused:
         request_signup_code(db, signup, "+254711000008", sender_provider=lambda: None)
     assert refused.value.code == "phone_taken"
+    assert str(refused.value) == (
+        "This number already has a Vekro account. Sign in with password or SMS code, then "
+        "link Google in Profile & security."
+    )
+    # Even with a code for that number, completing is refused and nothing is linked.
+    with pytest.raises(GoogleAuthError):
+        complete_signup(db, signup, phone="+254711000008", code="123456")
+    db.refresh(owner)
+    assert owner.google_sub is None
+    assert db.execute(select(User)).scalars().all() == [owner]
+
+
+def test_an_abandoned_signup_creates_nothing(db, _google) -> None:
+    signup = pending_signup(db, _login(db, _google).signup_token)
+    request_signup_code(db, signup, "0711000013", sender_provider=lambda: None)
+    # The person never enters the right code: no account, no link.
+    assert db.execute(select(User)).first() is None
+    with pytest.raises(PhoneCodeInvalidError):
+        complete_signup(db, signup, phone="0711000013", code="000001")
+    assert db.execute(select(User)).first() is None
+    # And once the sign-up has expired it can't be resumed.
+    with pytest.raises(GoogleAuthError) as expired:
+        pending_signup(db, "not-a-live-token")
+    assert expired.value.code == "signup_expired"
 
 
 def test_unlinking_needs_another_way_in(db, _google) -> None:
@@ -492,7 +520,7 @@ def test_routes_report_access_denied_for_a_non_test_user(client, _google) -> Non
     assert denied.headers["location"] == "/login?google=denied"
 
 
-def test_routes_complete_a_seller_signup_and_block_selling_before_it(client, _google) -> None:
+def test_routes_complete_a_member_signup_and_block_everything_before_it(client, _google) -> None:
     state = _start(client, _google)
     done = client.get("/auth/google/callback", params={"state": state, "code": "c"})
     assert done.headers["location"] == "/register/google" and SIGNUP_COOKIE in done.cookies
@@ -515,7 +543,8 @@ def test_routes_complete_a_seller_signup_and_block_selling_before_it(client, _go
     )
     assert created.status_code == 200
     me = client.get("/auth/me").json()
-    assert me["role"] == "seller" and me["google_email"] == _google.email
+    assert me["role"] == "buyer" and me["store"]["status"] == "none"
+    assert me["google_email"] == _google.email
     assert me["has_password"] is False
 
 

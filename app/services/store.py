@@ -108,6 +108,10 @@ def _record(
 ) -> StoreEvent:
     if user.id is None:
         user.id = uuid.uuid4()
+    # A new account (register, Google sign-up, demo seed) must be written before its store event:
+    # store_events.user_id is a foreign key, and the flush doesn't order unrelated mappers by it.
+    db.add(user)
+    db.flush()
     event = StoreEvent(
         id=uuid.uuid4(),
         user_id=user.id,

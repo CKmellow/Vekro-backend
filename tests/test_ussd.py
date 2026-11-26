@@ -143,6 +143,37 @@ def test_a_wrong_delivery_code_changes_nothing(monkeypatch) -> None:
     assert transaction.status == TransactionStatus.AT_DOOR_PENDING_INSPECTION
 
 
+def test_buyer_sees_the_delivery_code_with_the_pin_and_can_then_accept(monkeypatch) -> None:
+    db = _with_tables()
+    buyer, _seller, transaction = _order(db, monkeypatch, "31", serialized=False, until="door")
+
+    *_, order, prompt, shown = _walk(db, buyer.phone, "1", "1", "3", PIN)
+
+    assert "3 Show my code" in order.text
+    assert prompt.text == "CON Enter your USSD PIN to see your delivery code"
+    assert shown.text.startswith("END ") and CODE in shown.text
+    assert transaction.reference in shown.text
+    db.refresh(transaction)
+    assert transaction.status == TransactionStatus.AT_DOOR_PENDING_INSPECTION
+
+    *_, done = _walk(db, buyer.phone, "1", "1", "1", CODE)
+    assert done.text == "END Accepted. Payment goes to the seller."
+
+
+def test_a_wrong_pin_never_shows_the_delivery_code(monkeypatch) -> None:
+    db = _with_tables()
+    buyer, _seller, transaction = _order(db, monkeypatch, "32", serialized=False, until="door")
+
+    for _ in range(3):
+        *_, refused = _walk(db, buyer.phone, "1", "1", "3", "0000")
+        assert refused.text == "END Wrong PIN. Nothing changed."
+        assert CODE not in refused.text
+    *_, locked = _walk(db, buyer.phone, "1", "1", "3", PIN)
+    assert locked.text.startswith("END Too many wrong PINs") and CODE not in locked.text
+    db.refresh(transaction)
+    assert transaction.status == TransactionStatus.AT_DOOR_PENDING_INSPECTION
+
+
 def test_buyer_rejects_at_the_door_with_a_reason_and_pin(monkeypatch) -> None:
     db = _with_tables()
     buyer, _seller, transaction = _order(db, monkeypatch, "03", serialized=False, until="door")

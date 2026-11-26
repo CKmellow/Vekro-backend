@@ -266,7 +266,27 @@ class _Ussd:
         buyer, tid = self.user, transaction.id
         if status == TransactionStatus.AT_DOOR_PENDING_INSPECTION:
             if not steps:
-                return con(self.heading(transaction) + "\n1 Accept (enter code)\n2 Reject", "order")
+                return con(
+                    self.heading(transaction) + "\n1 Accept (enter code)\n2 Reject\n3 Show my code",
+                    "order",
+                )
+            if steps[0] == "3":
+                # A missed SMS must not strand a feature-phone buyer at the door. The PIN keeps
+                # anyone who merely types the buyer's number from reading the code and accepting.
+                if len(steps) == 1:
+                    return con("Enter your USSD PIN to see your delivery code", "pin")
+                refused = self.check_pin(steps[1])
+                if refused is not None:
+                    return refused
+                self.db.commit()
+                code = _delivery_code(self.db, transaction)
+                if code is None:
+                    return end("No code found for this order. Get help in the Vekro app.", "code")
+                return end(
+                    f"Your delivery code for {transaction.reference} is {code}. "
+                    "Enter it only after you have checked the item.",
+                    "code",
+                )
             if steps[0] == "1":
                 if len(steps) == 1:
                     return con("Enter the 6-digit delivery code from your SMS", "code")
@@ -440,6 +460,24 @@ class _Ussd:
             "pay",
             after=lambda: _send_prompt(order_id, buyer_id),
         )
+
+
+def _delivery_code(db: Session, transaction: Transaction) -> str | None:
+    """The code sent to the buyer when the seller marked the order arrived (the latest one)."""
+    from app.models.notification import Notification, NotificationEventType
+
+    note = db.execute(
+        select(Notification)
+        .where(
+            Notification.transaction_id == transaction.id,
+            Notification.user_id == transaction.buyer_id,
+            Notification.event_type == NotificationEventType.DELIVERY_ARRIVED,
+        )
+        .order_by(Notification.created_at.desc())
+        .limit(1)
+    ).scalar()
+    code = (note.payload or {}).get("delivery_code") if note is not None else None
+    return str(code) if code else None
 
 
 def _reference(text: str) -> str:
